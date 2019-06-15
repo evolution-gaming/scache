@@ -5,6 +5,19 @@
 [![version](https://api.bintray.com/packages/evolutiongaming/maven/scache/images/download.svg) ](https://bintray.com/evolutiongaming/maven/scache/_latestVersion)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellowgreen.svg)](https://opensource.org/licenses/MIT)
 
+## Api 
+
+```scala
+trait Cache[F[_], K, V] {
+
+  def get(key: K): F[Option[V]]
+
+  def getOrUpdate(key: K)(value: => F[V]): F[V]
+
+  def values: F[Map[K, F[V]]]
+}
+```
+
 ## Setup
 
 ```scala
