@@ -11,6 +11,8 @@ trait Cache[F[_], K, V] {
 
   def get(key: K): F[Option[V]]
 
+  def put(key: K, value: V): F[Option[F[V]]]
+
   def getOrUpdate(key: K)(value: => F[V]): F[V]
 
   def values: F[Map[K, F[V]]]
@@ -22,6 +24,8 @@ object Cache {
   def empty[F[_] : Applicative, K, V]: Cache[F, K, V] = new Cache[F, K, V] {
 
     def get(key: K) = none[V].pure[F]
+
+    def put(key: K, value: V) = none[F[V]].pure[F]
 
     def getOrUpdate(key: K)(value: => F[V]) = value
 
@@ -67,6 +71,14 @@ object Cache {
         } yield value
       }
 
+      def put(key: K, value: V) = {
+        map.modify { map =>
+          val value0 = map.get(key)
+          val map1 = map.updated(key, value.pure[F])
+          (map1, value0)
+        }
+      }
+
       def getOrUpdate(key: K)(value: => F[V]) = {
 
         def update = {
@@ -75,19 +87,20 @@ object Cache {
             Sync[F].uncancelable {
               for {
                 value <- value.redeem[F[V], Throwable](_.raiseError[F, V], _.pure[F])
-                _ <- deferred.complete(value)
+                _     <- deferred.complete(value)
                 value <- value.attempt
-                value <- value match {
-                  case Right(value) => value.pure[F]
-                  case Left(value)  => map.modify { map => (map - key, value.raiseError[F, V]) }.flatten
+                _     <- value match {
+                  case Right(_) => ().pure[F]
+                  case Left(_)  => map.update { _ - key }
                 }
+                value <- value.raiseOrPure[F]
               } yield value
             }
           }
 
           for {
             deferred <- Deferred[F, F[V]]
-            value1 <- map.modify { map =>
+            value1   <- map.modify { map =>
               map.get(key).fold {
                 val value1 = update(deferred)
                 val map1 = map.updated(key, deferred.get.flatten)
@@ -101,7 +114,7 @@ object Cache {
         }
 
         for {
-          map <- map.get
+          map   <- map.get
           value <- map.getOrElse(key, update)
         } yield value
       }
@@ -118,6 +131,11 @@ object Cache {
       def get(key: K) = {
         val cache = partitions.get(key)
         cache.get(key)
+      }
+
+      def put(key: K, value: V) = {
+        val cache = partitions.get(key)
+        cache.put(key, value)
       }
 
       def getOrUpdate(key: K)(value: => F[V]) = {
