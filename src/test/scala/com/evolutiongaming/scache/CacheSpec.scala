@@ -18,7 +18,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
       ("without partitions", Cache.of[IO, Int, Int](map = Map.empty[Int, IO[Int]])))
   } yield {
 
-    test(s"get $name") {
+    test(s"get: $name") {
       val result = for {
         cache <- cache
         value <- cache.get(0)
@@ -28,7 +28,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
       result.run()
     }
 
-    test(s"put $name") {
+    test(s"put: $name") {
       val result = for {
         cache <- cache
         prev  <- cache.put(0, 0)
@@ -41,7 +41,37 @@ class CacheSpec extends AsyncFunSuite with Matchers {
     }
 
 
-    test(s"put & get many $name") {
+    test(s"remove: $name") {
+      val result = for {
+        cache <- cache
+        _     <- cache.put(0, 0)
+        prev  <- cache.remove(0)
+        value <- cache.get(0)
+      } yield {
+        prev shouldEqual 0.pure[IO].some
+        value shouldEqual none[Int]
+      }
+      result.run()
+    }
+
+
+    test(s"clear: $name") {
+      val result = for {
+        cache  <- cache
+        _      <- cache.put(0, 0)
+        _      <- cache.put(1, 1)
+        _      <- cache.clear
+        value0 <- cache.get(0)
+        value1 <- cache.get(1)
+      } yield {
+        value0 shouldEqual none[Int]
+        value1 shouldEqual none[Int]
+      }
+      result.run()
+    }
+
+
+    test(s"put & get many: $name") {
 
       val values = (0 to 100).toList
 
@@ -95,6 +125,27 @@ class CacheSpec extends AsyncFunSuite with Matchers {
     }
 
 
+    test(s"values: $name") {
+      val result = for {
+        cache   <- cache
+        _       <- cache.put(0, 0)
+        values0 <- cache.values
+        _       <- cache.put(1, 1)
+        values1 <- cache.values
+        _       <- cache.put(2, 2)
+        values2 <- cache.values
+        _       <- cache.clear
+        values3 <- cache.values
+      } yield {
+        values0 shouldEqual Map((0, 0.pure[IO]))
+        values1 shouldEqual Map((0, 0.pure[IO]), (1, 1.pure[IO]))
+        values2 shouldEqual Map((0, 0.pure[IO]), (1, 1.pure[IO]), (2, 2.pure[IO]))
+        values3 shouldEqual Map.empty
+      }
+      result.run()
+    }
+
+
     test(s"cancellation: $name") {
       val result = for {
         cache     <- cache
@@ -119,7 +170,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
     }
     
 
-    test(s"no leak in case of failure $name") {
+    test(s"no leak in case of failure: $name") {
       val result = for {
         cache   <- cache
         result0 <- cache.getOrUpdate(0)(TestError.raiseError[IO, Int]).attempt

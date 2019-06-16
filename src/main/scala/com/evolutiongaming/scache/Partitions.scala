@@ -22,7 +22,11 @@ object Partitions {
     val values = List(value)
   }
 
-  def of[F[_] : Monad, K, V](nrOfPartitions: Int, valueOf: Partition => F[V], hashCodeOf: K => Int): F[Partitions[K, V]] = {
+  def of[F[_] : Monad, K, V](
+    nrOfPartitions: Int,
+    valueOf: Partition => F[V],
+    hashCodeOf: K => Int
+  ): F[Partitions[K, V]] = {
 
     def apply(nrOfPartitions: Int) = {
 
