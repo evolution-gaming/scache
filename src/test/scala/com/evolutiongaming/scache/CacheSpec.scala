@@ -35,12 +35,12 @@ class CacheSpec extends AsyncFunSuite with Matchers {
       val result = for {
         cache  <- cache
         value0 <- cache.put(0, 0)
-        value0 <- value0.flatM
+        value0 <- value0.swap
         value1 <- cache.get(0)
         value2 <- cache.put(0, 1)
-        value2 <- value2.flatM
+        value2 <- value2.swap
         value3 <- cache.put(0, 2)
-        value3 <- value3.flatM
+        value3 <- value3.swap
       } yield {
         value0 shouldEqual none
         value1 shouldEqual 0.some
@@ -56,7 +56,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         cache  <- cache
         _      <- cache.put(0, 0)
         value0 <- cache.remove(0)
-        value0 <- value0.flatM
+        value0 <- value0.swap
         value1 <- cache.get(0)
       } yield {
         value0 shouldEqual 0.some
@@ -133,7 +133,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         fiber    <- cache.getOrUpdateEnsure(0) { deferred.get }
         value1   <- cache.put(0, 1)
         _        <- deferred.complete(0)
-        value1   <- value1.flatM
+        value1   <- value1.swap
         value0   <- fiber.join
         value2   <- cache.get(0)
       } yield {
@@ -184,7 +184,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         value1   <- cache.remove(0)
         _        <- deferred.complete(0)
         value0   <- value0.join
-        value1   <- value1.flatM
+        value1   <- value1.swap
       } yield {
         value0 shouldEqual 0
         value1 shouldEqual 0.some
@@ -329,7 +329,7 @@ object CacheSpec {
 
   implicit class CacheSpecOptionFOps[F[_], A](val self: Option[F[A]]) extends AnyVal {
 
-    def flatM(implicit F: Monad[F]): F[Option[A]] = {
+    def swap(implicit F: Monad[F]): F[Option[A]] = {
       self.flatTraverse { _.map(_.some) }
     }
   }
