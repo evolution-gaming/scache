@@ -1,7 +1,8 @@
 package com.evolutiongaming.scache
 
+import cats.Monad
 import cats.effect.concurrent.Deferred
-import cats.effect.{Concurrent, IO}
+import cats.effect.{Concurrent, Fiber, IO}
 import cats.implicits._
 import com.evolutiongaming.scache.IOSuite._
 import org.scalatest.{AsyncFunSuite, Matchers}
@@ -9,13 +10,15 @@ import org.scalatest.{AsyncFunSuite, Matchers}
 import scala.util.control.NoStackTrace
 
 class CacheSpec extends AsyncFunSuite with Matchers {
+  import CacheSpec._
+
 
   for {
     (name, cache) <- List(
       ("default"           , Cache.of[IO, Int, Int]),
       ("nrOfPartitions: 1" , Cache.of[IO, Int, Int](nrOfPartitions = 1)),
       ("nrOfPartitions: 2" , Cache.of[IO, Int, Int](nrOfPartitions = 2)),
-      ("without partitions", Cache.of[IO, Int, Int](map = Map.empty[Int, IO[Int]])))
+      ("without partitions", Cache.of[IO, Int, Int](Cache.EntryRefs.empty[IO, Int, Int])))
   } yield {
 
     test(s"get: $name") {
@@ -30,12 +33,19 @@ class CacheSpec extends AsyncFunSuite with Matchers {
 
     test(s"put: $name") {
       val result = for {
-        cache <- cache
-        prev  <- cache.put(0, 0)
-        value <- cache.get(0)
+        cache  <- cache
+        value0 <- cache.put(0, 0)
+        value0 <- value0.flatM
+        value1 <- cache.get(0)
+        value2 <- cache.put(0, 1)
+        value2 <- value2.flatM
+        value3 <- cache.put(0, 2)
+        value3 <- value3.flatM
       } yield {
-        prev shouldEqual none[Int]
-        value  shouldEqual 0.some
+        value0 shouldEqual none
+        value1 shouldEqual 0.some
+        value2 shouldEqual 0.some
+        value3 shouldEqual 1.some
       }
       result.run()
     }
@@ -43,13 +53,14 @@ class CacheSpec extends AsyncFunSuite with Matchers {
 
     test(s"remove: $name") {
       val result = for {
-        cache <- cache
-        _     <- cache.put(0, 0)
-        prev  <- cache.remove(0)
-        value <- cache.get(0)
+        cache  <- cache
+        _      <- cache.put(0, 0)
+        value0 <- cache.remove(0)
+        value0 <- value0.flatM
+        value1 <- cache.get(0)
       } yield {
-        prev shouldEqual 0.pure[IO].some
-        value shouldEqual none[Int]
+        value0 shouldEqual 0.some
+        value1 shouldEqual none
       }
       result.run()
     }
@@ -99,28 +110,107 @@ class CacheSpec extends AsyncFunSuite with Matchers {
 
 
     test(s"getOrUpdate: $name") {
-
       val result = for {
-        cache     <- cache
-        deferred0 <- Deferred[IO, Unit]
-        deferred1 <- Deferred[IO, Unit]
-        update0   <- Concurrent[IO].start {
-          cache.getOrUpdate(0) {
-            for {
-              _ <- deferred0.complete(())
-              _ <- deferred1.get
-            } yield 0
-          }
-        }
-        _         <- deferred0.get
-        update1   <- Concurrent[IO].start { cache.getOrUpdate(0)(1.pure[IO]) }
-        _         <- deferred1.complete(())
-        update0   <- update0.join
-        update1   <- update1.join
+        cache    <- cache
+        deferred <- Deferred[IO, Int]
+        value0   <- cache.getOrUpdateEnsure(0) { deferred.get }
+        value2   <- Concurrent[IO].startEnsure { cache.getOrUpdate(0)(1.pure[IO]) }
+        _        <- deferred.complete(0)
+        value0   <- value0.join
+        value1   <- value2.join
       } yield {
-        update0 shouldEqual 0
-        update1 shouldEqual 0
+        value0 shouldEqual 0
+        value1 shouldEqual 0
       }
+      result.run()
+    }
+
+
+    test(s"put while getOrUpdate: $name") {
+      val result = for {
+        cache    <- cache
+        deferred <- Deferred[IO, Int]
+        fiber    <- cache.getOrUpdateEnsure(0) { deferred.get }
+        value1   <- cache.put(0, 1)
+        _        <- deferred.complete(0)
+        value1   <- value1.flatM
+        value0   <- fiber.join
+        value2   <- cache.get(0)
+      } yield {
+        value0 shouldEqual 0
+        value1 shouldEqual 0.some
+        value2 shouldEqual 1.some
+      }
+      result.run()
+    }
+
+    test(s"get while getOrUpdate: $name") {
+      val result = for {
+        cache    <- cache
+        deferred <- Deferred[IO, Int]
+        value0   <- cache.getOrUpdateEnsure(0) { deferred.get }
+        value1   <- Concurrent[IO].startEnsure { cache.get(0) }
+        _        <- deferred.complete(0)
+        value0   <- value0.join
+        value1   <- value1.join
+      } yield {
+        value0 shouldEqual 0
+        value1 shouldEqual 0.some
+      }
+      result.run()
+    }
+
+    test(s"get while getOrUpdate failed: $name") {
+      val result = for {
+        cache    <- cache
+        deferred <- Deferred[IO, IO[Int]]
+        value0   <- cache.getOrUpdateEnsure(0) { deferred.get.flatten }
+        value1   <- Concurrent[IO].startEnsure { cache.get(0) }
+        _        <- deferred.complete(TestError.raiseError[IO, Int])
+        value0   <- value0.join.attempt
+        value1   <- value1.join.attempt
+      } yield {
+        value0 shouldEqual TestError.asLeft
+        value1 shouldEqual TestError.asLeft
+      }
+      result.run()
+    }
+
+    test(s"remove while getOrUpdate: $name") {
+      val result = for {
+        cache    <- cache
+        deferred <- Deferred[IO, Int]
+        value0   <- cache.getOrUpdateEnsure(0) { deferred.get }
+        value1   <- cache.remove(0)
+        _        <- deferred.complete(0)
+        value0   <- value0.join
+        value1   <- value1.flatM
+      } yield {
+        value0 shouldEqual 0
+        value1 shouldEqual 0.some
+      }
+      result.run()
+    }
+
+    test(s"keys: $name") {
+      val result = for {
+        cache <- cache
+        _     <- cache.put(0, 0)
+        keys   = cache.keys
+        keys0 <- keys
+        _     <- cache.put(1, 1)
+        keys1 <- keys
+        _     <- cache.put(2, 2)
+        keys2 <- keys
+        _     <- cache.clear
+        keys3 <- keys
+      } yield {
+        keys0 shouldEqual Set(0)
+        keys1 shouldEqual Set(0, 1)
+        keys2 shouldEqual Set(0, 1, 2)
+        keys3 shouldEqual Set.empty
+      }
+
       result.run()
     }
 
@@ -129,17 +219,18 @@ class CacheSpec extends AsyncFunSuite with Matchers {
       val result = for {
         cache   <- cache
         _       <- cache.put(0, 0)
-        values0 <- cache.values
+        values   = cache.valuesFlatten
+        values0 <- values
         _       <- cache.put(1, 1)
-        values1 <- cache.values
+        values1 <- values
         _       <- cache.put(2, 2)
-        values2 <- cache.values
+        values2 <- values
         _       <- cache.clear
-        values3 <- cache.values
+        values3 <- values
       } yield {
-        values0 shouldEqual Map((0, 0.pure[IO]))
-        values1 shouldEqual Map((0, 0.pure[IO]), (1, 1.pure[IO]))
-        values2 shouldEqual Map((0, 0.pure[IO]), (1, 1.pure[IO]), (2, 2.pure[IO]))
+        values0 shouldEqual Map((0, 0))
+        values1 shouldEqual Map((0, 0), (1, 1))
+        values2 shouldEqual Map((0, 0), (1, 1), (2, 2))
         values3 shouldEqual Map.empty
       }
       result.run()
@@ -148,27 +239,18 @@ class CacheSpec extends AsyncFunSuite with Matchers {
 
     test(s"cancellation: $name") {
       val result = for {
-        cache     <- cache
-        deferred0 <- Deferred[IO, Unit]
-        deferred1 <- Deferred[IO, Int]
-        fiber     <- Concurrent[IO].start {
-          cache.getOrUpdate(0) {
-            for {
-              _ <- deferred0.complete(())
-              a <- deferred1.get
-            } yield a
-          }
-        }
-        _         <- deferred0.get
-        _         <- fiber.cancel
-        _         <- deferred1.complete(0)
-        value     <- cache.get(0)
+        cache    <- cache
+        deferred <- Deferred[IO, Int]
+        fiber    <- cache.getOrUpdateEnsure(0) { deferred.get }
+        _        <- fiber.cancel
+        _        <- deferred.complete(0)
+        value    <- cache.get(0)
       } yield {
         value shouldEqual 0.some
       }
       result.run()
     }
-    
+
 
     test(s"no leak in case of failure: $name") {
       val result = for {
@@ -186,4 +268,69 @@ class CacheSpec extends AsyncFunSuite with Matchers {
   }
 
   case object TestError extends RuntimeException with NoStackTrace
+}
+
+object CacheSpec {
+
+  implicit class CacheSpecCacheOps[F[_], K, V](val self: Cache[F, K, V]) extends AnyVal {
+
+    def valuesFlatten(implicit F: Monad[F]): F[Map[K, V]] = {
+      for {
+        values <- self.values
+        zero    = Map.empty[K, V].pure[F]
+        values <- values.foldLeft(zero) { case (map, (key, value)) =>
+          for {
+            map <- map
+            value <- value
+          } yield {
+            map.updated(key, value)
+          }
+        }
+      } yield values
+    }
+
+
+    def getOrUpdateEnsure(key: K)(value: => F[V])(implicit F: Concurrent[F]): F[Fiber[F, V]] = {
+      for {
+        deferred <- Deferred[F, Unit]
+        fiber    <- Concurrent[F].start {
+          self.getOrUpdate(key) {
+            for {
+              _     <- deferred.complete(())
+              value <- value
+            } yield value
+          }
+        }
+        _       <- deferred.get
+      } yield fiber
+    }
+  }
+
+
+  implicit class ConcurrentOps[F[_]](val self: Concurrent[F]) extends AnyVal {
+
+    def startEnsure[A](fa: F[A]): F[Fiber[F, A]] = {
+      implicit val F = self
+      for {
+        started <- Deferred[F, Unit]
+        fiber   <- Concurrent[F].start {
+          for {
+            _ <- started.complete(())
+            a <- fa
+          } yield a
+        }
+        _ <- started.get
+      } yield fiber
+    }
+  }
+
+
+
+
+  implicit class CacheSpecOptionFOps[F[_], A](val self: Option[F[A]]) extends AnyVal {
+
+    def flatM(implicit F: Monad[F]): F[Option[A]] = {
+      self.flatTraverse { _.map(_.some) }
+    }
+  }
 }
