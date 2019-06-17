@@ -80,7 +80,9 @@ object Cache {
   }
 
 
-  private[scache] def apply[F[_] : Concurrent, K, V](ref: Ref[F, EntryRefs[F, K, V]]): Cache[F, K, V] = {
+  private[scache] def apply[F[_] : Concurrent, K, V](
+    ref: Ref[F, EntryRefs[F, K, V]]
+  ): Cache[F, K, V] = {
     new Cache[F, K, V] {
 
       def get(key: K) = {
@@ -138,7 +140,6 @@ object Cache {
           value <- map.get(key).fold { update } { _.value }
         } yield value
       }
-
 
       def put(key: K, value: V) = {
 
