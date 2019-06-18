@@ -297,7 +297,7 @@ object Cache {
     def loading[F[_], A](deferred: Deferred[F, F[A]]): Entry[F, A] = Loading(deferred)
 
 
-    final case class Loaded[F[_], A](/*TODO rename*/a: A) extends Entry[F, A]
+    final case class Loaded[F[_], A](value: A) extends Entry[F, A]
 
     final case class Loading[F[_], A](deferred: Deferred[F, F[A]]) extends Entry[F, A]
 

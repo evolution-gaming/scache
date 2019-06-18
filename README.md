@@ -5,6 +5,13 @@
 [![version](https://api.bintray.com/packages/evolutiongaming/maven/scache/images/download.svg) ](https://bintray.com/evolutiongaming/maven/scache/_latestVersion)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellowgreen.svg)](https://opensource.org/licenses/MIT)
 
+## Key features
+
+* Load value if missing
+* Expiry of not used records
+* Does not exceed max size
+* Tagless Final 
+
 ## Api 
 
 ```scala

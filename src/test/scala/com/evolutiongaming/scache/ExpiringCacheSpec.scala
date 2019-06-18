@@ -11,7 +11,7 @@ import scala.concurrent.duration._
 class ExpiringCacheSpec extends AsyncFunSuite with Matchers {
 
   test(s"expire entries") {
-    testExpireRecords[IO].run()
+    expireRecords[IO].run()
   }
 
   test("not expire used entries") {
@@ -19,14 +19,14 @@ class ExpiringCacheSpec extends AsyncFunSuite with Matchers {
   }
 
   test(s"not exceed max size") {
-    testNotExceedMaxSize[IO].run()
+    notExceedMaxSize[IO].run()
   }
 
   test(s"refresh after write") {
-    testTestRefreshAfterWrite[IO].run()
+    refreshAfterWrite[IO].run()
   }
 
-  private def testExpireRecords[F[_] : Concurrent : Timer] = {
+  private def expireRecords[F[_] : Concurrent : Timer] = {
 
     ExpiringCache.of[F, Int, Int](10.millis).use { cache =>
 
@@ -80,11 +80,33 @@ class ExpiringCacheSpec extends AsyncFunSuite with Matchers {
   }
 
 
-  private def testNotExceedMaxSize[F[_] : Concurrent] = {
-    ().pure[F]
+  private def notExceedMaxSize[F[_] : Concurrent : Timer] = {
+    ExpiringCache.of[F, Int, Int](expireAfter = 100.millis, maxSize = 10.some).use { cache =>
+
+      def retryUntilCleaned(key: Int) = {
+        Retry(10.millis, 100) {
+          for {
+            values <- cache.values
+          } yield {
+            val value = values.get(key)
+            value.fold { ().some } { _ => none[Unit] }
+          }
+        }
+      }
+
+      for {
+        _      <- (0 until 10).toList.foldMapM { n => cache.put(n, n).void }
+        value0 <- cache.get(0)
+        _      <- cache.put(10, 10)
+        value1 <- retryUntilCleaned(0)
+      } yield {
+        value0 shouldEqual 0.some
+        value1 shouldEqual ().some
+      }
+    }
   }
 
-  private def testTestRefreshAfterWrite[F[_] : Concurrent] = {
+  private def refreshAfterWrite[F[_] : Concurrent] = {
     ().pure[F]
   }
 

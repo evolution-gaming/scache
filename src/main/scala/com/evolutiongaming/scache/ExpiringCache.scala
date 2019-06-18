@@ -11,13 +11,16 @@ import scala.concurrent.duration._
 
 object ExpiringCache {
 
-  def of[F[_] : Concurrent : Timer, K, V](expireAfter: FiniteDuration): Resource[F, Cache[F, K, V]] = {
+  def of[F[_] : Concurrent : Timer, K, V](
+    expireAfter: FiniteDuration,
+    maxSize: Option[Int] = None
+  ): Resource[F, Cache[F, K, V]] = {
 
     val cooldown      = expireAfter.toMillis / 5
     val expireAfterMs = expireAfter.toMillis + (cooldown / 2)
     val sleep         = Timer[F].sleep((expireAfterMs / 10).millis)
 
-     def removeExpired(ref: Ref[F, EntryRefs[F, K, Entry[V]]]) = {
+     def background(ref: Ref[F, EntryRefs[F, K, Entry[V]]]) = {
 
        def removeExpired(key: K, entryRefs: EntryRefs[F, K, Entry[V]]) = {
 
@@ -33,17 +36,48 @@ object ExpiringCache {
            for {
              entry  <- entryRef.get
              result <- entry match {
-               case entry: Cache.Entry.Loaded[F, Entry[V]]  => removeExpired(entry.a)
+               case entry: Cache.Entry.Loaded[F, Entry[V]]  => removeExpired(entry.value)
                case _    : Cache.Entry.Loading[F, Entry[V]] => ().pure[F]
              }
            } yield result
          }
+       }
+
+       def notExceedMaxSize(maxSize: Int) = {
+
+         def drop(entryRefs: EntryRefs[F, K, Entry[V]]) = {
+
+           case class Elem(key: K, timestamp: Long)
+
+           val zero = List.empty[Elem]
+           val entries = entryRefs.foldLeft(zero.pure[F]) { case (result, (key, entryRef)) => 
+             for {
+               result <- result
+               entry  <- entryRef.get
+             } yield entry match {
+               case entry: Cache.Entry.Loaded[F, Entry[V]]  => Elem(key, entry.value.timestamp) :: result
+               case _    : Cache.Entry.Loading[F, Entry[V]] => result
+             }
+           }
+
+           for {
+             entries <- entries
+             drop     = entries.sortBy(_.timestamp).take(maxSize / 10)
+             result  <- drop.foldMapM { elem => ref.update { _ - elem.key } }
+           } yield result
+         }
+
+         for {
+           entryRefs <- ref.get
+           result    <- if (entryRefs.size > maxSize) drop(entryRefs) else ().pure[F]
+         } yield result
        }
        
        val fa = for {
          _         <- sleep
          entryRefs <- ref.get
          result    <- entryRefs.keys.toList.foldMapM { key => removeExpired(key, entryRefs) }
+          _        <- maxSize.foldMapM(notExceedMaxSize)
        } yield result
 
        fa.foreverM[Unit]
@@ -52,7 +86,7 @@ object ExpiringCache {
      val result = for {
        ref   <- Ref[F].of(Cache.EntryRefs.empty[F, K, Entry[V]])
        cache  = Cache(ref)
-       fiber <- Concurrent[F].start { removeExpired(ref) }
+       fiber <- Concurrent[F].start { background(ref) }
      } yield {
        val release = fiber.cancel
        val result = apply(ref, cache, cooldown)
@@ -76,7 +110,7 @@ object ExpiringCache {
 
          def touch(entryRef: Cache.EntryRef[F, Entry[V]]) = {
            entryRef.update {
-             case entry: Cache.Entry.Loaded[F, Entry[V]]  => Cache.Entry.loaded(entry.a.touch(timestamp))
+             case entry: Cache.Entry.Loaded[F, Entry[V]]  => Cache.Entry.loaded(entry.value.touch(timestamp))
              case entry: Cache.Entry.Loading[F, Entry[V]] => entry
            }
          }
@@ -110,16 +144,19 @@ object ExpiringCache {
        }
 
        def getOrUpdate(key: K)(value: => F[V]) = {
-         for {
-           entry <- cache.getOrUpdate(key) {
-             for {
-               value     <- value
-               timestamp <- Clock[F].millis
-             } yield {
-               Entry(value, timestamp)
-             }
+
+         def entry = {
+           for {
+             value     <- value
+             timestamp <- Clock[F].millis
+           } yield {
+             Entry(value, timestamp)
            }
-           _    <- touch(key, entry)
+         }
+
+         for {
+           entry <- cache.getOrUpdate(key)(entry)
+           _     <- touch(key, entry)
          } yield {
            entry.value
          }
