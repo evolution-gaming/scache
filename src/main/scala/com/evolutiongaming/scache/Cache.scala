@@ -101,8 +101,8 @@ object Cache {
               value <- value.attempt
               _     <- value match {
                 case Right(value) => entryRef.update {
-                  case a: Entry.Loaded[F, V]  => a
-                  case _: Entry.Loading[F, V] => Entry.loaded(value)
+                  case entry: Entry.Loaded[F, V]  => entry
+                  case _    : Entry.Loading[F, V] => Entry.loaded(value)
                 }
                 case Left(_)  => ref.update { _ - key }
               }
@@ -297,7 +297,7 @@ object Cache {
     def loading[F[_], A](deferred: Deferred[F, F[A]]): Entry[F, A] = Loading(deferred)
 
 
-    final case class Loaded[F[_], A](a: A) extends Entry[F, A]
+    final case class Loaded[F[_], A](/*TODO rename*/a: A) extends Entry[F, A]
 
     final case class Loading[F[_], A](deferred: Deferred[F, F[A]]) extends Entry[F, A]
 

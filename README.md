@@ -14,7 +14,24 @@ trait Cache[F[_], K, V] {
 
   def getOrUpdate(key: K)(value: => F[V]): F[V]
 
+  /**
+    * @return previous value if any, possibly not yet loaded
+    */
+  def put(key: K, value: V): F[Option[F[V]]]
+
+  def keys: F[Set[K]]
+  
+  /**
+    * Might be an expensive call
+    */
   def values: F[Map[K, F[V]]]
+
+  /**
+    * @return previous value if any, possibly not yet loaded
+    */
+  def remove(key: K): F[Option[F[V]]]
+
+  def clear: F[Unit]
 }
 ```
 
