@@ -7,9 +7,9 @@
 
 ## Key features
 
-* Load value if missing
+* Auto loading of missing values
 * Expiry of not used records
-* Does not exceed max size
+* Deleting oldest values in case of exceeding max size
 * Tagless Final 
 
 ## Api 

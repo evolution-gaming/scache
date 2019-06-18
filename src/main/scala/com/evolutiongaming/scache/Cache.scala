@@ -10,12 +10,14 @@ trait Cache[F[_], K, V] {
 
   def get(key: K): F[Option[V]]
 
+
   def getOrUpdate(key: K)(value: => F[V]): F[V]
 
   /**
     * @return previous value if any, possibly not yet loaded
     */
   def put(key: K, value: V): F[Option[F[V]]]
+
 
   def keys: F[Set[K]]
   
@@ -28,6 +30,7 @@ trait Cache[F[_], K, V] {
     * @return previous value if any, possibly not yet loaded
     */
   def remove(key: K): F[Option[F[V]]]
+
 
   def clear: F[Unit]
 }
