@@ -64,7 +64,7 @@ object Cache {
   }
 
 
-  def of[F[_] : Concurrent, K, V](nrOfPartitions: Int): F[Cache[F, K, V]] = {
+  private[scache] def of[F[_] : Concurrent, K, V](nrOfPartitions: Int): F[Cache[F, K, V]] = {
     val cache = of(EntryRefs.empty[F, K, V])
     for {
       partitions <- Partitions.of[F, K, Cache[F, K, V]](nrOfPartitions, _ => cache, _.hashCode())
@@ -74,7 +74,7 @@ object Cache {
   }
 
 
-  def of[F[_] : Concurrent, K, V](map: EntryRefs[F, K, V]): F[Cache[F, K, V]] = {
+  private[scache] def of[F[_] : Concurrent, K, V](map: EntryRefs[F, K, V]): F[Cache[F, K, V]] = {
     for {
       ref <- Ref[F].of(map)
     } yield {

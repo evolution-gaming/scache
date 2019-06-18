@@ -5,13 +5,31 @@ import cats.effect.{Clock, Concurrent, Resource, Timer}
 import cats.implicits._
 import cats.{Applicative, Monad}
 import com.evolutiongaming.catshelper.ClockHelper._
+import com.evolutiongaming.catshelper.Runtime
 import com.evolutiongaming.scache.Cache.EntryRefs
 
 import scala.concurrent.duration._
 
 object ExpiringCache {
 
-  def of[F[_] : Concurrent : Timer, K, V](
+  def of[F[_] : Concurrent : Timer : Runtime, K, V](
+    expireAfter: FiniteDuration,
+    maxSize: Option[Int] = None
+  ): Resource[F, Cache[F, K, V]] = {
+
+    type R[A] = Resource[F, A]
+
+    for {
+      cpus           <- Resource.liftF(Runtime[F].availableCores)
+      nrOfPartitions  = 2 + cpus
+      cache           = of1[F, K, V](expireAfter, maxSize.map { maxSize => (maxSize * 1.1 / nrOfPartitions).toInt })
+      partitions     <- Partitions.of[R, K, Cache[F, K, V]](nrOfPartitions, _ => cache, _.hashCode())
+    } yield {
+      Cache(partitions)
+    }
+  }
+
+  private[scache] def of1[F[_] : Concurrent : Timer, K, V](
     expireAfter: FiniteDuration,
     maxSize: Option[Int] = None
   ): Resource[F, Cache[F, K, V]] = {

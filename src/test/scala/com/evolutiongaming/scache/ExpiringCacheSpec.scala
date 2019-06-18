@@ -28,7 +28,7 @@ class ExpiringCacheSpec extends AsyncFunSuite with Matchers {
 
   private def expireRecords[F[_] : Concurrent : Timer] = {
 
-    ExpiringCache.of[F, Int, Int](10.millis).use { cache =>
+    ExpiringCache.of1[F, Int, Int](10.millis).use { cache =>
 
       def retryUntilExpired(key: Int) = {
         Retry(10.millis, 100) {
@@ -56,7 +56,7 @@ class ExpiringCacheSpec extends AsyncFunSuite with Matchers {
   }
 
   private def notExpireUsedRecords[F[_] : Concurrent : Timer] = {
-    ExpiringCache.of[F, Int, Int](10.millis).use { cache =>
+    ExpiringCache.of1[F, Int, Int](10.millis).use { cache =>
       val sleep = Timer[F].sleep(3.millis)
       for {
         value0 <- cache.put(0, 0)
@@ -81,7 +81,7 @@ class ExpiringCacheSpec extends AsyncFunSuite with Matchers {
 
 
   private def notExceedMaxSize[F[_] : Concurrent : Timer] = {
-    ExpiringCache.of[F, Int, Int](expireAfter = 100.millis, maxSize = 10.some).use { cache =>
+    ExpiringCache.of1[F, Int, Int](expireAfter = 100.millis, maxSize = 10.some).use { cache =>
 
       def retryUntilCleaned(key: Int) = {
         Retry(10.millis, 100) {
