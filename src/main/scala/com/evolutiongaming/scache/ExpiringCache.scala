@@ -5,31 +5,12 @@ import cats.effect.{Clock, Concurrent, Resource, Timer}
 import cats.implicits._
 import cats.{Applicative, Monad}
 import com.evolutiongaming.catshelper.ClockHelper._
-import com.evolutiongaming.catshelper.Runtime
-import com.evolutiongaming.scache.Cache.EntryRefs
 
 import scala.concurrent.duration._
 
 object ExpiringCache {
 
-  def of[F[_] : Concurrent : Timer : Runtime, K, V](
-    expireAfter: FiniteDuration,
-    maxSize: Option[Int] = None
-  ): Resource[F, Cache[F, K, V]] = {
-
-    type R[A] = Resource[F, A]
-
-    for {
-      cpus           <- Resource.liftF(Runtime[F].availableCores)
-      nrOfPartitions  = 2 + cpus
-      cache           = of1[F, K, V](expireAfter, maxSize.map { maxSize => (maxSize * 1.1 / nrOfPartitions).toInt })
-      partitions     <- Partitions.of[R, K, Cache[F, K, V]](nrOfPartitions, _ => cache, _.hashCode())
-    } yield {
-      Cache(partitions)
-    }
-  }
-
-  private[scache] def of1[F[_] : Concurrent : Timer, K, V](
+  private[scache] def of[F[_] : Concurrent : Timer, K, V](
     expireAfter: FiniteDuration,
     maxSize: Option[Int] = None
   ): Resource[F, Cache[F, K, V]] = {
@@ -38,9 +19,9 @@ object ExpiringCache {
     val expireAfterMs = expireAfter.toMillis + (cooldown / 2)
     val sleep         = Timer[F].sleep((expireAfterMs / 10).millis)
 
-     def background(ref: Ref[F, EntryRefs[F, K, Entry[V]]]) = {
+     def background(ref: Ref[F, LoadingCache.EntryRefs[F, K, Entry[V]]]) = {
 
-       def removeExpired(key: K, entryRefs: EntryRefs[F, K, Entry[V]]) = {
+       def removeExpired(key: K, entryRefs: LoadingCache.EntryRefs[F, K, Entry[V]]) = {
 
          def removeExpired(entry: Entry[V]) = {
            for {
@@ -54,8 +35,8 @@ object ExpiringCache {
            for {
              entry  <- entryRef.get
              result <- entry match {
-               case entry: Cache.Entry.Loaded[F, Entry[V]]  => removeExpired(entry.value)
-               case _    : Cache.Entry.Loading[F, Entry[V]] => ().pure[F]
+               case entry: LoadingCache.Entry.Loaded[F, Entry[V]]  => removeExpired(entry.value)
+               case _    : LoadingCache.Entry.Loading[F, Entry[V]] => ().pure[F]
              }
            } yield result
          }
@@ -63,7 +44,7 @@ object ExpiringCache {
 
        def notExceedMaxSize(maxSize: Int) = {
 
-         def drop(entryRefs: EntryRefs[F, K, Entry[V]]) = {
+         def drop(entryRefs: LoadingCache.EntryRefs[F, K, Entry[V]]) = {
 
            case class Elem(key: K, timestamp: Long)
 
@@ -73,8 +54,8 @@ object ExpiringCache {
                result <- result
                entry  <- entryRef.get
              } yield entry match {
-               case entry: Cache.Entry.Loaded[F, Entry[V]]  => Elem(key, entry.value.timestamp) :: result
-               case _    : Cache.Entry.Loading[F, Entry[V]] => result
+               case entry: LoadingCache.Entry.Loaded[F, Entry[V]]  => Elem(key, entry.value.timestamp) :: result
+               case _    : LoadingCache.Entry.Loading[F, Entry[V]] => result
              }
            }
 
@@ -102,8 +83,8 @@ object ExpiringCache {
      }
 
      val result = for {
-       ref   <- Ref[F].of(Cache.EntryRefs.empty[F, K, Entry[V]])
-       cache  = Cache(ref)
+       ref   <- Ref[F].of(LoadingCache.EntryRefs.empty[F, K, Entry[V]])
+       cache  = LoadingCache(ref)
        fiber <- Concurrent[F].start { background(ref) }
      } yield {
        val release = fiber.cancel
@@ -115,7 +96,7 @@ object ExpiringCache {
 
 
    def apply[F[_] : Monad : Clock, K, V](
-     ref: Ref[F, Cache.EntryRefs[F, K, Entry[V]]],
+     ref: Ref[F, LoadingCache.EntryRefs[F, K, Entry[V]]],
      cache: Cache[F, K, Entry[V]],
      cooldown: Long,
    ): Cache[F, K, V] = {
@@ -126,10 +107,10 @@ object ExpiringCache {
 
        def touch(timestamp: Long): F[Unit] = {
 
-         def touch(entryRef: Cache.EntryRef[F, Entry[V]]) = {
+         def touch(entryRef: LoadingCache.EntryRef[F, Entry[V]]) = {
            entryRef.update {
-             case entry: Cache.Entry.Loaded[F, Entry[V]]  => Cache.Entry.loaded(entry.value.touch(timestamp))
-             case entry: Cache.Entry.Loading[F, Entry[V]] => entry
+             case entry: LoadingCache.Entry.Loaded[F, Entry[V]]  => LoadingCache.Entry.loaded(entry.value.touch(timestamp))
+             case entry: LoadingCache.Entry.Loading[F, Entry[V]] => entry
            }
          }
 
