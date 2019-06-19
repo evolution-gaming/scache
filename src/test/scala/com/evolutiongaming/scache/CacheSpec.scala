@@ -151,6 +151,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
       result.run()
     }
 
+
     test(s"get while getOrUpdate: $name") {
       val result = cache.use { cache =>
         for {
@@ -167,6 +168,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
       }
       result.run()
     }
+
 
     test(s"get while getOrUpdate failed: $name") {
       val result = cache.use { cache =>
@@ -185,6 +187,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
       result.run()
     }
 
+
     test(s"remove while getOrUpdate: $name") {
       val result = cache.use { cache =>
         for {
@@ -201,6 +204,29 @@ class CacheSpec extends AsyncFunSuite with Matchers {
       }
       result.run()
     }
+
+
+    test(s"clear while getOrUpdate: $name") {
+      val result = cache.use { cache =>
+        for {
+          deferred <- Deferred[IO, Int]
+          value0   <- cache.getOrUpdateEnsure(0) { deferred.get }
+          keys0    <- cache.keys
+          _        <- cache.clear
+          keys1    <- cache.keys
+          _        <- deferred.complete(0)
+          value0   <- value0.join
+          keys2    <- cache.keys
+        } yield {
+          keys0 shouldEqual Set(0)
+          value0 shouldEqual 0
+          keys1 shouldEqual Set.empty
+          keys2 shouldEqual Set.empty
+        }
+      }
+      result.run()
+    }
+
 
     test(s"keys: $name") {
       val result = cache.use { cache =>
@@ -280,11 +306,11 @@ class CacheSpec extends AsyncFunSuite with Matchers {
       result.run()
     }
   }
-
-  case object TestError extends RuntimeException with NoStackTrace
 }
 
 object CacheSpec {
+
+  case object TestError extends RuntimeException with NoStackTrace
 
   implicit class CacheSpecCacheOps[F[_], K, V](val self: Cache[F, K, V]) extends AnyVal {
 
