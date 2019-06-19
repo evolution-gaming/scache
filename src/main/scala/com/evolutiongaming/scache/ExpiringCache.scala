@@ -15,9 +15,9 @@ object ExpiringCache {
     maxSize: Option[Int] = None
   ): Resource[F, Cache[F, K, V]] = {
 
-    val cooldown      = expireAfter.toMillis / 5
-    val expireAfterMs = expireAfter.toMillis + (cooldown / 2)
-    val sleep         = Timer[F].sleep((expireAfterMs / 10).millis)
+    val cooldown      = (expireAfter.toMillis * 0.2).toLong
+    val expireAfterMs = expireAfter.toMillis + (cooldown * 0.5).toLong
+    val sleep         = Timer[F].sleep((expireAfterMs * 0.1).millis)
 
      def background(ref: Ref[F, LoadingCache.EntryRefs[F, K, Entry[V]]]) = {
 

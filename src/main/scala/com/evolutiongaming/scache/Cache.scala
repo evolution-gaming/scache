@@ -1,8 +1,8 @@
 package com.evolutiongaming.scache
 
+import cats.Applicative
 import cats.effect.{Concurrent, Resource, Timer}
 import cats.implicits._
-import cats.Applicative
 import com.evolutiongaming.catshelper.Runtime
 
 import scala.concurrent.duration.FiniteDuration
@@ -11,7 +11,9 @@ trait Cache[F[_], K, V] {
 
   def get(key: K): F[Option[V]]
 
-
+  /**
+    * Does not run `value` concurrently for the same key
+    */
   def getOrUpdate(key: K)(value: => F[V]): F[V]
 
   /**
@@ -21,7 +23,7 @@ trait Cache[F[_], K, V] {
 
 
   def keys: F[Set[K]]
-  
+
   /**
     * Might be an expensive call
     */
@@ -33,6 +35,9 @@ trait Cache[F[_], K, V] {
   def remove(key: K): F[Option[F[V]]]
 
 
+  /**
+    * Removed loading values from the cache, however does not cancel them
+    */
   def clear: F[Unit]
 }
 

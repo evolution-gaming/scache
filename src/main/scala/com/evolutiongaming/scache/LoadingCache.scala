@@ -48,7 +48,7 @@ object LoadingCache {
             } yield value
           }
 
-          def update(entryRef: EntryRef[F, V], complete: F[V]): F[V] = {
+          def update(entryRef: EntryRef[F, V], complete: F[V]) = {
             Sync[F].uncancelable {
               for {
                 value <- ref.modify { map =>
