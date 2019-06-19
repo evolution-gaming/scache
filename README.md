@@ -10,7 +10,8 @@
 * Auto loading of missing values
 * Expiry of not used records
 * Deleting oldest values in case of exceeding max size
-* Tagless Final 
+* Tagless Final
+* Partition entries by `hashCode` into multiple caches in order to avoid thread contention for some corner cases  
 
 ## Api 
 

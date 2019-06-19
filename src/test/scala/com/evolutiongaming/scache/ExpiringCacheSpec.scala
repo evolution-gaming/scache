@@ -22,8 +22,16 @@ class ExpiringCacheSpec extends AsyncFunSuite with Matchers {
     notExceedMaxSize[IO].run()
   }
 
-  test(s"refresh after write") {
-    refreshAfterWrite[IO].run()
+  test(s"refresh periodically") {
+    refreshPeriodically[IO].run()
+  }
+
+  test("refresh does not touch entries") {
+    refreshDoesNotTouch[IO].run()
+  }
+
+  test("refresh fails") {
+    refreshFails[IO].run()
   }
 
   private def expireRecords[F[_] : Concurrent : Timer] = {
@@ -103,26 +111,61 @@ class ExpiringCacheSpec extends AsyncFunSuite with Matchers {
     }
   }
 
-  private def refreshAfterWrite[F[_] : Concurrent] = {
+  private def refreshPeriodically[F[_] : Concurrent : Timer] = {
+    ExpiringCache.of[F, Int, Int](1.minute/*TODO*/).use { cache =>
+
+      def retryUntilRefreshed(key: Int, original: Int) = {
+        Retry(10.millis, 100) {
+          for {
+            values <- cache.get(key)
+            value   = values.get(key)
+          } yield {
+            value.filter(_ != original)
+          }
+        }
+      }
+
+      for {
+        value0 <- cache.put(0, 0)
+        value1 <- cache.get(0)
+        value2 <- retryUntilRefreshed(0, 0)
+      } yield {
+        value0 shouldEqual none
+        value1 shouldEqual 0.some
+        value2 shouldEqual 1.some
+      }
+    }
+  }
+
+  private def refreshDoesNotTouch[F[_] : Concurrent : Timer] = {
+    ().pure[F]
+  }
+
+  private def refreshFails[F[_] : Concurrent : Timer] = {
     ().pure[F]
   }
 
   object Retry {
 
-    def apply[F[_] : Monad : Timer, A](delay: FiniteDuration, times: Int)(fa: F[Option[A]]): F[Option[A]] = {
+    def apply[F[_] : Monad : Timer, A](
+      delay: FiniteDuration,
+      times: Int)(
+      fa: F[Option[A]]
+    ): F[Option[A]] = {
+
+      def retry(round: Int) = {
+        if (round >= times) none[A].asRight[Int].pure[F]
+        else for {
+          _ <- Timer[F].sleep(delay)
+        } yield {
+          (round + 1).asLeft[Option[A]]
+        }
+      }
+
       0.tailRecM[F, Option[A]] { round =>
         for {
           a <- fa
-          r <- a.fold {
-            if (round >= times) none[A].asRight[Int].pure[F]
-            else for {
-              _ <- Timer[F].sleep(delay)
-            } yield {
-              (round + 1).asLeft[Option[A]]
-            }
-          } { value =>
-            value.some.asRight[Int].pure[F]
-          }
+          r <- a.fold { retry(round) } { _.some.asRight[Int].pure[F] }
         } yield r
       }
     }

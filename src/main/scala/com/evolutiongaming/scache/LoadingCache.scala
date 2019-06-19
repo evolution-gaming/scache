@@ -51,12 +51,12 @@ object LoadingCache {
           def update(entryRef: EntryRef[F, V], complete: F[V]) = {
             Sync[F].uncancelable {
               for {
-                value <- ref.modify { map =>
-                  map.get(key).fold {
-                    val map1 = map.updated(key, entryRef)
-                    (map1, complete)
+                value <- ref.modify { entryRefs =>
+                  entryRefs.get(key).fold {
+                    val entryRefs1 = entryRefs.updated(key, entryRef)
+                    (entryRefs1, complete)
                   } { entryRef =>
-                    (map, entryRef.value)
+                    (entryRefs, entryRef.value)
                   }
                 }
                 value <- value
@@ -73,8 +73,8 @@ object LoadingCache {
         }
 
         for {
-          map   <- ref.get
-          value <- map.get(key).fold { update } { _.value }
+          entryRefs <- ref.get
+          value     <- entryRefs.get(key).fold { update } { _.value }
         } yield value
       }
 
@@ -85,10 +85,10 @@ object LoadingCache {
         def add = {
           for {
             entryRef  <- Ref[F].of(entry)
-            entryRef0 <- ref.modify { map =>
-              val entryRef0 = map.get(key)
-              val map1 = map.updated(key, entryRef)
-              (map1, entryRef0)
+            entryRef0 <- ref.modify { entryRefs =>
+              val entryRef0 = entryRefs.get(key)
+              val entryRefs1 = entryRefs.updated(key, entryRef)
+              (entryRefs1, entryRef0)
             }
           } yield for {
             entryRef0 <- entryRef0
@@ -106,33 +106,33 @@ object LoadingCache {
         }
 
         for {
-          map    <- ref.get
-          value0 <- map.get(key).fold(add)(update)
+          entryRefs <- ref.get
+          value0    <- entryRefs.get(key).fold(add)(update)
         } yield value0
       }
 
       val keys = {
         for {
-          map <- ref.get
+          entryRefs <- ref.get
         } yield {
-          map.keySet
+          entryRefs.keySet
         }
       }
 
       val values = {
         for {
-          map <- ref.get
+          entryRefs <- ref.get
         } yield {
-          map.mapValues(_.value)
+          entryRefs.mapValues(_.value)
         }
       }
 
       def remove(key: K) = {
         for {
-          entryRef <- ref.modify { map =>
-            val entryRef = map.get(key)
-            val map1 = map - key
-            (map1, entryRef)
+          entryRef <- ref.modify { entryRefs =>
+            val entryRef = entryRefs.get(key)
+            val entryRefs1 = entryRefs - key
+            (entryRefs1, entryRef)
           }
         } yield for {
           entryRef <- entryRef
