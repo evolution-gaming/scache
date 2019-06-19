@@ -56,18 +56,15 @@ class ExpiringCacheSpec extends AsyncFunSuite with Matchers {
   }
 
   private def notExpireUsedRecords[F[_] : Concurrent : Timer] = {
-    ExpiringCache.of[F, Int, Int](10.millis).use { cache =>
-      val sleep = Timer[F].sleep(3.millis)
+    ExpiringCache.of[F, Int, Int](50.millis).use { cache =>
+      val touch = for {
+        _ <- Timer[F].sleep(10.millis)
+        _ <- cache.get(0)
+      } yield {}
       for {
         value0 <- cache.put(0, 0)
         value1 <- cache.put(1, 1)
-        _      <- sleep
-        _      <- cache.get(0)
-        _      <- sleep
-        _      <- cache.get(0)
-        _      <- sleep
-        _      <- cache.get(0)
-        _      <- sleep
+        _      <- List.fill(6)(touch).foldMapM(identity)
         value2 <- cache.get(0)
         value3 <- cache.get(1)
       } yield {
