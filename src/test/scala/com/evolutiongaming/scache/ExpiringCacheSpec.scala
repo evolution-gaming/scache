@@ -39,7 +39,7 @@ class ExpiringCacheSpec extends AsyncFunSuite with Matchers {
 
   private def expireRecords[F[_] : Concurrent : Timer : Par] = {
 
-    ExpiringCache.of[F, Int, Int](10.millis).use { cache =>
+    ExpiringCache.of[F, Int, Int](100.millis).use { cache =>
 
       def retryUntilExpired(key: Int) = {
         Retry(10.millis, 100) {
