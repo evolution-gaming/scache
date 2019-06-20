@@ -15,9 +15,9 @@ class CacheSpec extends AsyncFunSuite with Matchers {
 
   for {
     (name, cache) <- List(
-      ("default"               , Resource.liftF(Cache.of[IO, Int, Int])),
+      ("default"               , Resource.liftF(Cache.loading[IO, Int, Int]())),
       ("no partitions"         , Resource.liftF(LoadingCache.of(LoadingCache.EntryRefs.empty[IO, Int, Int]))),
-      ("expiring"              , Cache.of[IO, Int, Int](1.minute)),
+      ("expiring"              , Cache.expiring[IO, Int, Int](1.minute)),
       ("expiring no partitions", ExpiringCache.of[IO, Int, Int](1.minute)))
   } yield {
 

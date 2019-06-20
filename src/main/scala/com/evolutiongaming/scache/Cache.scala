@@ -3,9 +3,10 @@ package com.evolutiongaming.scache
 import cats.Applicative
 import cats.effect.{Concurrent, Resource, Timer}
 import cats.implicits._
+import cats.temp.par.Par
 import com.evolutiongaming.catshelper.Runtime
 
-import scala.concurrent.duration.FiniteDuration
+import scala.concurrent.duration._
 
 trait Cache[F[_], K, V] {
 
@@ -36,7 +37,7 @@ trait Cache[F[_], K, V] {
 
 
   /**
-    * Removed loading values from the cache, however does not cancel them
+    * Removes loading values from the cache, however does not cancel them
     */
   def clear: F[Unit]
 }
@@ -61,7 +62,7 @@ object Cache {
   }
 
 
-  def of[F[_] : Concurrent : Runtime, K, V]: F[Cache[F, K, V]] = {
+  def loading[F[_] : Concurrent : Runtime : Timer, K, V](): F[Cache[F, K, V]] = {
     for {
       nrOfPartitions <- NrOfPartitions[F]()
       cache           = LoadingCache.of(LoadingCache.EntryRefs.empty[F, K, V])
@@ -72,16 +73,18 @@ object Cache {
   }
 
 
-  def of[F[_] : Concurrent : Timer : Runtime, K, V](
+  def expiring[F[_] : Concurrent : Timer : Runtime : Par, K, V](
     expireAfter: FiniteDuration,
-    maxSize: Option[Int] = None
+    maxSize: Option[Int] = None,
+    refresh: Option[ExpiringCache.Refresh[F, K, V]] = None
   ): Resource[F, Cache[F, K, V]] = {
 
     type G[A] = Resource[F, A]
 
     for {
       nrOfPartitions <- Resource.liftF(NrOfPartitions[F]())
-      cache           = ExpiringCache.of[F, K, V](expireAfter, maxSize.map { maxSize => (maxSize * 1.1 / nrOfPartitions).toInt })
+      maxSize1        = maxSize.map { maxSize => (maxSize * 1.1 / nrOfPartitions).toInt }
+      cache           = ExpiringCache.of[F, K, V](expireAfter, maxSize1, refresh)
       partitions     <- Partitions.of[G, K, Cache[F, K, V]](nrOfPartitions, _ => cache, _.hashCode())
     } yield {
       PartitionedCache(partitions)

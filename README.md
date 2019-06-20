@@ -20,6 +20,9 @@ trait Cache[F[_], K, V] {
 
   def get(key: K): F[Option[V]]
 
+  /**
+    * Does not run `value` concurrently for the same key
+    */
   def getOrUpdate(key: K)(value: => F[V]): F[V]
 
   /**
@@ -27,8 +30,9 @@ trait Cache[F[_], K, V] {
     */
   def put(key: K, value: V): F[Option[F[V]]]
 
+
   def keys: F[Set[K]]
-  
+
   /**
     * Might be an expensive call
     */
@@ -39,6 +43,10 @@ trait Cache[F[_], K, V] {
     */
   def remove(key: K): F[Option[F[V]]]
 
+
+  /**
+    * Removes loading values from the cache, however does not cancel them
+    */
   def clear: F[Unit]
 }
 ```
