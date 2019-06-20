@@ -76,7 +76,7 @@ object Cache {
   def expiring[F[_] : Concurrent : Timer : Runtime : Par, K, V](
     expireAfter: FiniteDuration,
     maxSize: Option[Int] = None,
-    refresh: Option[ExpiringCache.Refresh[F, K, V]] = None
+    refresh: Option[ExpiringCache.Refresh[K, F[V]]] = None
   ): Resource[F, Cache[F, K, V]] = {
 
     type G[A] = Resource[F, A]

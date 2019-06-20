@@ -22,7 +22,7 @@ object ExpiringCache {
   private[scache] def of[F[_] : Concurrent : Timer : Par, K, V](
     expireAfter: FiniteDuration,
     maxSize: Option[Int] = None,
-    refresh: Option[Refresh[F, K, V]] = None,
+    refresh: Option[Refresh[K, F[V]]] = None,
   ): Resource[F, Cache[F, K, V]] = {
 
     val cooldown       = expireAfter.toMillis / 5
@@ -90,7 +90,7 @@ object ExpiringCache {
     }
 
     def refreshEntries(
-      refresh: Refresh[F, K, V],
+      refresh: Refresh[K, F[V]],
       ref: Ref[F, LoadingCache.EntryRefs[F, K, Entry[V]]]
     ) = {
 
@@ -260,5 +260,5 @@ object ExpiringCache {
   }
 
   
-  final case class Refresh[F[_], K, V](interval: FiniteDuration, value: K => F[V])
+  final case class Refresh[K, V](interval: FiniteDuration, value: K => V)
 }
