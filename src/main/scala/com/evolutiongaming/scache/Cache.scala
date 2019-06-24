@@ -23,6 +23,9 @@ trait Cache[F[_], K, V] {
   def put(key: K, value: V): F[Option[F[V]]]
 
 
+  def size: F[Int]
+
+
   def keys: F[Set[K]]
 
   /**
@@ -51,6 +54,8 @@ object Cache {
     def getOrUpdate(key: K)(value: => F[V]) = value
 
     def put(key: K, value: V) = none[F[V]].pure[F]
+
+    val size = 0.pure[F]
 
     val keys = Set.empty[K].pure[F]
 

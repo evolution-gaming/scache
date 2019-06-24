@@ -26,6 +26,10 @@ object PartitionedCache {
         cache.put(key, value)
       }
 
+      val size = {
+        partitions.values.foldMapM(_.size)
+      }
+
       val keys = {
         val zero = Set.empty[K]
         partitions.values.foldLeftM(zero) { (result, cache) =>

@@ -219,6 +219,8 @@ object ExpiringCache {
         }
       }
 
+      def size = cache.size
+
       def keys = cache.keys
 
       def values = {

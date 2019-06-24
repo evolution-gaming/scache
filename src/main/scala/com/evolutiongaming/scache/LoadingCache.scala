@@ -113,6 +113,14 @@ object LoadingCache {
         } yield value0
       }
 
+      val size = {
+        for {
+          entryRefs <- ref.get
+        } yield {
+          entryRefs.size
+        }
+      }
+
       val keys = {
         for {
           entryRefs <- ref.get
