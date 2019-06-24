@@ -17,8 +17,8 @@ object CacheMetered {
 
     def measureSize = {
       for {
-        keys <- cache.keys
-        _    <- metrics.size(keys.size)
+        size <- cache.size
+        _    <- metrics.size(size)
       } yield {}
     }
 

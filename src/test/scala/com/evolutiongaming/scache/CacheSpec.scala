@@ -15,12 +15,17 @@ class CacheSpec extends AsyncFunSuite with Matchers {
   import CacheSpec._
 
   for {
-    (name, cache) <- List(
+    (name, cache0) <- List(
       ("default"               , Resource.liftF(Cache.loading[IO, Int, Int]())),
       ("no partitions"         , Resource.liftF(LoadingCache.of(LoadingCache.EntryRefs.empty[IO, Int, Int]))),
       ("expiring"              , Cache.expiring[IO, Int, Int](1.minute)),
       ("expiring no partitions", ExpiringCache.of[IO, Int, Int](1.minute)))
   } yield {
+
+    val cache = for {
+      cache <- cache0
+      cache <- cache.withMetrics(Cache.Metrics.empty)
+    } yield cache
 
     test(s"get: $name") {
       val result = cache.use { cache =>
