@@ -3,6 +3,7 @@ package com.evolutiongaming.scache
 import cats.Monad
 import cats.effect.concurrent.Deferred
 import cats.effect.{Concurrent, Fiber, IO, Resource}
+import cats.effect.implicits._
 import cats.implicits._
 import com.evolutiongaming.scache.IOSuite._
 import org.scalatest.{AsyncFunSuite, Matchers}
@@ -146,7 +147,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         for {
           deferred <- Deferred[IO, Int]
           value0   <- cache.getOrUpdateEnsure(0) { deferred.get }
-          value2   <- Concurrent[IO].startEnsure { cache.getOrUpdate(0)(1.pure[IO]) }
+          value2   <- cache.getOrUpdate(0)(1.pure[IO]).startEnsure
           _        <- deferred.complete(0)
           value0   <- value0.join
           value1   <- value2.join
@@ -184,7 +185,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         for {
           deferred <- Deferred[IO, Int]
           value0   <- cache.getOrUpdateEnsure(0) { deferred.get }
-          value1   <- Concurrent[IO].startEnsure { cache.get(0) }
+          value1   <- cache.get(0).startEnsure
           _        <- deferred.complete(0)
           value0   <- value0.join
           value1   <- value1.join
@@ -202,7 +203,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         for {
           deferred <- Deferred[IO, IO[Int]]
           value0   <- cache.getOrUpdateEnsure(0) { deferred.get.flatten }
-          value1   <- Concurrent[IO].startEnsure { cache.get(0) }
+          value1   <- cache.get(0).startEnsure
           _        <- deferred.complete(TestError.raiseError[IO, Int])
           value0   <- value0.join.attempt
           value1   <- value1.join.attempt
@@ -358,40 +359,43 @@ object CacheSpec {
 
 
     def getOrUpdateEnsure(key: K)(value: => F[V])(implicit F: Concurrent[F]): F[Fiber[F, V]] = {
+
+      def getOrUpdate(deferred: Deferred[F, Unit]) = {
+        self.getOrUpdate(key) {
+          for {
+            _     <- deferred.complete(())
+            value <- value
+          } yield value
+        }
+      }
+
       for {
         deferred <- Deferred[F, Unit]
-        fiber    <- Concurrent[F].start {
-          self.getOrUpdate(key) {
-            for {
-              _     <- deferred.complete(())
-              value <- value
-            } yield value
-          }
-        }
-        _       <- deferred.get
+        fiber    <- getOrUpdate(deferred).start
+        _        <- deferred.get
       } yield fiber
     }
   }
 
 
-  implicit class ConcurrentOps[F[_]](val self: Concurrent[F]) extends AnyVal {
+  implicit class CacheSpecFOps[F[_], A](val self: F[A]) extends AnyVal {
 
-    def startEnsure[A](fa: F[A]): F[Fiber[F, A]] = {
-      implicit val F = self
+    def startEnsure(implicit F: Concurrent[F]): F[Fiber[F, A]] = {
+
+      def fa(started: Deferred[F, Unit]) = {
+        for {
+          _ <- started.complete(())
+          a <- self
+        } yield a
+      }
+
       for {
         started <- Deferred[F, Unit]
-        fiber   <- Concurrent[F].start {
-          for {
-            _ <- started.complete(())
-            a <- fa
-          } yield a
-        }
-        _ <- started.get
+        fiber   <- fa(started).start
+        _       <- started.get
       } yield fiber
     }
   }
-
-
 
 
   implicit class CacheSpecOptionFOps[F[_], A](val self: Option[F[A]]) extends AnyVal {

@@ -2,7 +2,7 @@ package com.evolutiongaming.scache
 
 
 import cats.effect.concurrent.Deferred
-import cats.effect.{Concurrent, IO}
+import cats.effect.IO
 import cats.implicits._
 import com.evolutiongaming.scache.IOSuite._
 import org.scalatest.{AsyncFunSuite, Matchers}
@@ -73,7 +73,7 @@ class CacheEmptySpec extends AsyncFunSuite with Matchers {
     val result = for {
       deferred <- Deferred[IO, Int]
       value0   <- cache.getOrUpdateEnsure(0) { deferred.get }
-      value2   <- Concurrent[IO].startEnsure { cache.getOrUpdate(0)(1.pure[IO]) }
+      value2   <- cache.getOrUpdate(0)(1.pure[IO]).startEnsure
       _        <- deferred.complete(0)
       value0   <- value0.join
       value1   <- value2.join

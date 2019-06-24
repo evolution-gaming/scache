@@ -1,9 +1,10 @@
 package com.evolutiongaming.scache
 
-import cats.effect.concurrent.{Deferred, Ref}
-import cats.effect.{Concurrent, Sync, Timer}
-import cats.implicits._
 import cats.Monad
+import cats.effect.concurrent.{Deferred, Ref}
+import cats.effect.implicits._
+import cats.effect.{Concurrent, Timer}
+import cats.implicits._
 
 
 object LoadingCache {
@@ -51,19 +52,18 @@ object LoadingCache {
           }
 
           def update(entryRef: EntryRef[F, V], complete: F[V]) = {
-            Sync[F].uncancelable {
-              for {
-                value <- ref.modify { entryRefs =>
-                  entryRefs.get(key).fold {
-                    val entryRefs1 = entryRefs.updated(key, entryRef)
-                    (entryRefs1, complete)
-                  } { entryRef =>
-                    (entryRefs, entryRef.value)
-                  }
+            val result = for {
+              value <- ref.modify { entryRefs =>
+                entryRefs.get(key).fold {
+                  val entryRefs1 = entryRefs.updated(key, entryRef)
+                  (entryRefs1, complete)
+                } { entryRef =>
+                  (entryRefs, entryRef.value)
                 }
-                value <- value
-              } yield value
-            }
+              }
+              value <- value
+            } yield value
+            result.uncancelable
           }
 
           for {
