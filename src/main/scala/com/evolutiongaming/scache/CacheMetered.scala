@@ -39,7 +39,7 @@ object CacheMetered {
 
           def valueOf(ref: Ref[F, Boolean]) = {
             for {
-              _     <- ref.set(true)
+              _     <- ref.set(false)
               start <- Clock[F].millis
               value <- value.attempt
               end   <- Clock[F].millis
@@ -50,8 +50,10 @@ object CacheMetered {
           }
 
           for {
-            ref   <- Ref[F].of(false)
+            ref   <- Ref[F].of(true)
             value <- cache.getOrUpdate(key)(valueOf(ref))
+            hit   <- ref.get
+            _     <- metrics.get(hit)
           } yield value
         }
 

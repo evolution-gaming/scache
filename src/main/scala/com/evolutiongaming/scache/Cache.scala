@@ -101,7 +101,7 @@ object Cache {
 
     def get(hit: Boolean): F[Unit]
 
-    def load(time: Long, success: Boolean): F[Unit]
+    def load(timeMs: Long, success: Boolean): F[Unit]
 
     def size(size: Int): F[Unit]
   }
@@ -115,7 +115,7 @@ object Cache {
 
       def get(hit: Boolean) = unit
 
-      def load(time: Long, success: Boolean) = unit
+      def load(timeMs: Long, success: Boolean) = unit
 
       def size(size: Int) = unit
     }
