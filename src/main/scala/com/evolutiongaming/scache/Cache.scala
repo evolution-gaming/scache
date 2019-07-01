@@ -5,6 +5,7 @@ import cats.effect.{Concurrent, Resource, Timer}
 import cats.implicits._
 import cats.temp.par.Par
 import com.evolutiongaming.catshelper.Runtime
+import com.evolutiongaming.smetrics.MeasureDuration
 
 import scala.concurrent.duration._
 
@@ -101,7 +102,7 @@ object Cache {
 
     def get(hit: Boolean): F[Unit]
 
-    def load(timeMs: Long, success: Boolean): F[Unit]
+    def load(time: FiniteDuration, success: Boolean): F[Unit]
 
     def size(size: Int): F[Unit]
   }
@@ -115,7 +116,7 @@ object Cache {
 
       def get(hit: Boolean) = unit
 
-      def load(timeMs: Long, success: Boolean) = unit
+      def load(time: FiniteDuration, success: Boolean) = unit
 
       def size(size: Int) = unit
     }
@@ -127,7 +128,8 @@ object Cache {
     def withMetrics(
       metrics: Metrics[F])(implicit
       F: Concurrent[F],
-      timer: Timer[F]
+      timer: Timer[F],
+      measureDuration: MeasureDuration[F]
     ): Resource[F, Cache[F, K, V]] = {
       CacheMetered(self, metrics)
     }

@@ -25,6 +25,7 @@ libraryDependencies ++= Seq(
   Cats.effect,
   `cats-par`,
   `cats-helper`,
+  smetrics,
   scalatest % Test)
 
 licenses := Seq(("MIT", url("https://opensource.org/licenses/MIT")))

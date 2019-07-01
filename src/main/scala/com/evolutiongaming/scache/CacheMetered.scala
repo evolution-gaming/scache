@@ -1,18 +1,19 @@
 package com.evolutiongaming.scache
 
 import cats.effect.concurrent.Ref
-import cats.effect.{Clock, Concurrent, Resource, Timer}
+import cats.effect.{Concurrent, Resource, Timer}
 import cats.implicits._
-import com.evolutiongaming.catshelper.ClockHelper._
 import com.evolutiongaming.catshelper.Schedule
+import com.evolutiongaming.smetrics.MeasureDuration
 
 import scala.concurrent.duration._
 
 object CacheMetered {
 
-  def apply[F[_] : Concurrent : Timer, K, V](
+  def apply[F[_] : Concurrent : Timer : MeasureDuration, K, V](
     cache: Cache[F, K, V],
-    metrics: Cache.Metrics[F]
+    metrics: Cache.Metrics[F],
+    interval: FiniteDuration = 1.minute
   ): Resource[F, Cache[F, K, V]] = {
 
     def measureSize = {
@@ -23,7 +24,7 @@ object CacheMetered {
     }
 
     for {
-      _ <- Schedule(1.minute, 1.minute)(measureSize)
+      _ <- Schedule(interval, interval)(measureSize)
     } yield {
 
       new Cache[F, K, V] {
@@ -39,13 +40,12 @@ object CacheMetered {
 
           def valueOf(ref: Ref[F, Boolean]) = {
             for {
-              _     <- ref.set(false)
-              start <- Clock[F].millis
-              value <- value.attempt
-              end   <- Clock[F].millis
-              time   = end - start
-              _     <- metrics.load(time, value.isRight)
-              value <- value.raiseOrPure[F]
+              _        <- ref.set(false)
+              duration <- MeasureDuration[F].start
+              value    <- value.attempt
+              duration <- duration
+              _        <- metrics.load(duration, value.isRight)
+              value    <- value.raiseOrPure[F]
             } yield value
           }
 
