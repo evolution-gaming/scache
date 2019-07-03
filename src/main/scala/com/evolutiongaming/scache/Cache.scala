@@ -68,7 +68,7 @@ object Cache {
   }
 
 
-  def loading[F[_] : Concurrent : Runtime : Timer, K, V](): F[Cache[F, K, V]] = {
+  def loading[F[_] : Concurrent : Runtime, K, V](): F[Cache[F, K, V]] = {
     for {
       nrOfPartitions <- NrOfPartitions[F]()
       cache           = LoadingCache.of(LoadingCache.EntryRefs.empty[F, K, V])
