@@ -1,15 +1,15 @@
 package com.evolutiongaming.scache
 
 import cats.Monad
+import cats.effect.Concurrent
 import cats.effect.concurrent.{Deferred, Ref}
 import cats.effect.implicits._
-import cats.effect.{Concurrent, Timer}
 import cats.implicits._
 
 
 object LoadingCache {
 
-  private[scache] def of[F[_] : Concurrent : Timer, K, V](
+  private[scache] def of[F[_] : Concurrent, K, V](
     map: EntryRefs[F, K, V],
   ): F[Cache[F, K, V]] = {
     for {
@@ -20,7 +20,7 @@ object LoadingCache {
   }
 
 
-  private[scache] def apply[F[_] : Concurrent : Timer, K, V](
+  private[scache] def apply[F[_] : Concurrent, K, V](
     ref: Ref[F, EntryRefs[F, K, V]],
   ): Cache[F, K, V] = {
     new Cache[F, K, V] {
