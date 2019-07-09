@@ -54,7 +54,7 @@ object CacheMetrics {
     } yield {
       name: Name =>
 
-        val hitsCounter = getsCounter.labels(name, "hit")
+        val hitCounter = getsCounter.labels(name, "hit")
 
         val missCounter = getsCounter.labels(name, "miss")
 
@@ -69,7 +69,7 @@ object CacheMetrics {
         new Cache.Metrics[F] {
 
           def get(hit: Boolean) = {
-            val counter = if (hit) hitsCounter else missCounter
+            val counter = if (hit) hitCounter else missCounter
             counter.inc()
           }
 
