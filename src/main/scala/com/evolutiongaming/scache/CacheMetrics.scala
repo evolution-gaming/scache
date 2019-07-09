@@ -54,11 +54,23 @@ object CacheMetrics {
     } yield {
       name: Name =>
 
+        val hitsCounter = getsCounter.labels(name, "hit")
+
+        val missCounter = getsCounter.labels(name, "miss")
+
+        val successCounter = loadResultCounter.labels(name, "success")
+
+        val failureCounter = loadResultCounter.labels(name, "failure")
+
+        val successSummary = loadTimeSummary.labels(name, "success")
+
+        val failureSummary = loadTimeSummary.labels(name, "failure")
+
         new Cache.Metrics[F] {
 
           def get(hit: Boolean) = {
-            val hitOrMiss = if (hit) "hit" else "miss"
-            getsCounter.labels(name, hitOrMiss).inc()
+            val counter = if (hit) hitsCounter else missCounter
+            counter.inc()
           }
 
           def size(size: Int) = {
@@ -66,10 +78,11 @@ object CacheMetrics {
           }
 
           def load(time: FiniteDuration, success: Boolean) = {
-            val successOrFailure = if (success) "success" else "failure"
+            val resultCounter = if (success) successCounter else failureCounter
+            val timeSummary = if (success) successSummary else failureSummary
             for {
-              _ <- loadResultCounter.labels(name, successOrFailure).inc()
-              _ <- loadTimeSummary.labels(name, successOrFailure).observe(time.toNanos.nanosToSeconds)
+              _ <- resultCounter.inc()
+              _ <- timeSummary.observe(time.toNanos.nanosToSeconds)
             } yield {}
           }
         }
