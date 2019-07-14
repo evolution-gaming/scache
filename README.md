@@ -13,7 +13,7 @@
 * Tagless Final
 * Partition entries by `hashCode` into multiple caches in order to avoid thread contention for some corner cases  
 
-## Api 
+## Cache.scala 
 
 ```scala
 trait Cache[F[_], K, V] {
@@ -47,6 +47,43 @@ trait Cache[F[_], K, V] {
   /**
     * Removes loading values from the cache, however does not cancel them
     */
+  def clear: F[Unit]
+}
+```
+
+## SerialMap.scala
+
+```scala
+/**
+  * Map-like concurrent data structure, which runs updates serially for the same key
+  */
+trait SerialMap[F[_], K, V] {
+
+  def get(key: K): F[Option[V]]
+
+  def put(key: K, value: V): F[Option[V]]
+
+  /**
+    * `f` will be run serially for the same key
+    */
+  def modify[A](key: K)(f: Option[V] => F[(Directive[V], A)]): F[A]
+
+  /**
+    * `f` will be run serially for the same key
+    */
+  def update[A](key: K)(f: Option[V] => F[Directive[V]]): F[Unit]
+
+  def size: F[Int]
+
+  def keys: F[Set[K]]
+
+  /**
+    * Might be an expensive call
+    */
+  def values: F[Map[K, V]]
+
+  def remove(key: K): F[Option[V]]
+
   def clear: F[Unit]
 }
 ```

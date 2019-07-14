@@ -18,8 +18,14 @@ trait SerialMap[F[_], K, V] {
 
   def put(key: K, value: V): F[Option[V]]
 
+  /**
+    * `f` will be run serially for the same key
+    */
   def modify[A](key: K)(f: Option[V] => F[(Directive[V], A)]): F[A]
 
+  /**
+    * `f` will be run serially for the same key
+    */
   def update[A](key: K)(f: Option[V] => F[Directive[V]]): F[Unit]
 
   def size: F[Int]
