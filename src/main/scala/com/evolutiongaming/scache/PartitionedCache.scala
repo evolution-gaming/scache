@@ -57,7 +57,9 @@ object PartitionedCache {
         cache.remove(key)
       }
 
-      val clear = partitions.values.foldMapM(_.clear)
+      val clear = {
+        partitions.values.foldMapM(_.clear)
+      }
     }
   }
 }

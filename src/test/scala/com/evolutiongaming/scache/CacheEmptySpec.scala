@@ -5,6 +5,7 @@ import cats.effect.concurrent.Deferred
 import cats.effect.IO
 import cats.implicits._
 import com.evolutiongaming.scache.IOSuite._
+import com.evolutiongaming.catshelper.EffectHelper._
 import org.scalatest.{AsyncFunSuite, Matchers}
 
 class CacheEmptySpec extends AsyncFunSuite with Matchers {

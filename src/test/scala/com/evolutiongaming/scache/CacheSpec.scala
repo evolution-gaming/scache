@@ -6,6 +6,7 @@ import cats.effect.{Concurrent, Fiber, IO, Resource}
 import cats.effect.implicits._
 import cats.implicits._
 import com.evolutiongaming.scache.IOSuite._
+import com.evolutiongaming.catshelper.EffectHelper._
 import org.scalatest.{AsyncFunSuite, Matchers}
 
 import scala.concurrent.duration._
@@ -378,26 +379,6 @@ object CacheSpec {
         deferred <- Deferred[F, Unit]
         fiber    <- getOrUpdate(deferred).start
         _        <- deferred.get
-      } yield fiber
-    }
-  }
-
-
-  implicit class CacheSpecFOps[F[_], A](val self: F[A]) extends AnyVal {
-
-    def startEnsure(implicit F: Concurrent[F]): F[Fiber[F, A]] = {
-
-      def fa(started: Deferred[F, Unit]) = {
-        for {
-          _ <- started.complete(())
-          a <- self
-        } yield a
-      }
-
-      for {
-        started <- Deferred[F, Unit]
-        fiber   <- fa(started).start
-        _       <- started.get
       } yield fiber
     }
   }

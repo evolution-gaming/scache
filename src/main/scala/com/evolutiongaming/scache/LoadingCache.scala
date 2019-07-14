@@ -32,6 +32,7 @@ object LoadingCache {
         } yield value
       }
 
+
       def getOrUpdate(key: K)(value: => F[V]) = {
 
         def update = {
@@ -44,7 +45,7 @@ object LoadingCache {
                   case entry: Entry.Loaded[F, V]  => entry
                   case _    : Entry.Loading[F, V] => Entry.loaded(value)
                 }
-                case Left(_)  => ref.update { _ - key }
+                case Left(_)      => ref.update { _ - key }
               }
               _     <- deferred.complete(value.raiseOrPure[F])
               value <- value.raiseOrPure[F]
@@ -68,7 +69,7 @@ object LoadingCache {
 
           for {
             deferred  <- Deferred[F, F[V]]
-            entryRef  <- Ref[F].of(Entry.loading(deferred))
+            entryRef  <- Ref[F].of(Entry.loading(deferred))                                  
             complete   = completeOf(entryRef, deferred)
             value     <- update(entryRef, complete)
           } yield value
@@ -99,6 +100,7 @@ object LoadingCache {
           }
         }
 
+
         def update(entryRef: EntryRef[F, V]) = {
           for {
             entry0 <- entryRef.getAndSet(entry)
@@ -113,6 +115,7 @@ object LoadingCache {
         } yield value0
       }
 
+
       val size = {
         for {
           entryRefs <- ref.get
@@ -120,6 +123,7 @@ object LoadingCache {
           entryRefs.size
         }
       }
+
 
       val keys = {
         for {
@@ -129,6 +133,7 @@ object LoadingCache {
         }
       }
 
+
       val values = {
         for {
           entryRefs <- ref.get
@@ -136,6 +141,7 @@ object LoadingCache {
           entryRefs.mapValues(_.value)
         }
       }
+
 
       def remove(key: K) = {
         for {
@@ -150,6 +156,7 @@ object LoadingCache {
           entryRef.value
         }
       }
+
 
       val clear = ref.set(EntryRefs.empty)
     }
