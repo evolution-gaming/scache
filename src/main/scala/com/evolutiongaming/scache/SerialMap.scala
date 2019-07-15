@@ -12,21 +12,20 @@ import com.evolutiongaming.catshelper.{Runtime, SerialRef}
   * Map-like data structure, which runs updates serially for the same key
   */
 trait SerialMap[F[_], K, V] {
-  import SerialMap._
 
   def get(key: K): F[Option[V]]
 
   def put(key: K, value: V): F[Option[V]]
 
   /**
-    * `f` will be run serially for the same key
+    * `f` will be run serially for the same key, entry will be removed in case of `f` returns `none`
     */
-  def modify[A](key: K)(f: Option[V] => F[(Directive[V], A)]): F[A]
+  def modify[A](key: K)(f: Option[V] => F[(Option[V], A)]): F[A]
 
   /**
-    * `f` will be run serially for the same key
+    * `f` will be run serially for the same key, entry will be removed in case of `f` returns `none`
     */
-  def update[A](key: K)(f: Option[V] => F[Directive[V]]): F[Unit]
+  def update[A](key: K)(f: Option[V] => F[Option[V]]): F[Unit]
 
   def size: F[Int]
 
@@ -50,9 +49,9 @@ object SerialMap { self =>
 
     def put(key: K, value: V) = none[V].pure[F]
 
-    def modify[A](key: K)(f: Option[V] => F[(Directive[V], A)]) = f(none[V]).map(_._2)
+    def modify[A](key: K)(f: Option[V] => F[(Option[V], A)]) = f(none[V]).map(_._2)
 
-    def update[A](key: K)(f: Option[V] => F[Directive[V]]) = f(none[V]).void
+    def update[A](key: K)(f: Option[V] => F[Option[V]]) = f(none[V]).void
 
     def size = 0.pure[F]
 
@@ -85,65 +84,69 @@ object SerialMap { self =>
       def get(key: K) = {
         for {
           serialRef <- cache.get(key)
-          value     <- serialRef.fold(State.present(none[V]).pure[F]) { serialRef => serialRef.get }
-        } yield value match {
-          case State.Present(value) => value
-          case State.Absent         => none[V]
+          state     <- serialRef.fold(State.empty[V].pure[F])(_.get)
+        } yield state match {
+          case State.Full(value) => value.some
+          case State.Empty       => none[V]
+          case State.Removed     => none[V]
         }
       }
 
 
       def put(key: K, value: V) = {
         modify(key) { prev =>
-          val directive = Directive.update(value)
-          (directive, prev).pure[F]
+          (value.some, prev).pure[F]
         }
       }
 
 
-      def modify[A](key: K)(f: Option[V] => F[(Directive[V], A)]) = {
+      def modify[A](key: K)(f: Option[V] => F[(Option[V], A)]) = {
 
         def remove = cache.remove(key)
 
-        def create(created: Ref[F, Boolean]) = {
+        def adding(added: Ref[F, Boolean]) = {
           for {
-            _         <- created.set(true)
-            serialRef <- SerialRef[F].of(State.present(none[V]))
+            _         <- added.set(true)
+            serialRef <- SerialRef[F].of(State.empty[V])
           } yield serialRef
         }
 
-        def modify(serialRef: SerialRef[F, State[V]], created: Ref[F, Boolean]) = {
+        def modify(serialRef: SerialRef[F, State[V]], added: Ref[F, Boolean]) = {
 
           def modify(state: State[V]) = {
+
+            def onValue(value: Option[V]) = {
+              f(value).attempt.map {
+                case Right((Some(value), a)) =>
+                  val state = State.full(value)
+                  val fa = a.pure[F]
+                  (state, fa)
+
+                case Right((None, a)) =>
+                  val state = State.removed
+                  val fa = remove.as(a)
+                  (state, fa)
+
+                case Left(error) =>
+                  val fa = for {
+                    added <- added.get
+                    _     <- if (added) remove.void else ().pure[F]
+                    a     <- error.raiseError[F, A]
+                  } yield a
+                  (state, fa)
+              }
+            }
+
+            def onRemoving = {
+              val state = State.removed[V]
+              val fa = self.modify(key)(f)
+              (state, fa).pure[F]
+            }
+
             state match {
-              case State.Absent     =>
-                val state = State.absent[V]
-                val fa = self.modify(key)(f)
-                (state, fa).pure[F]
-
-              case State.Present(v) =>
-                f(v).attempt.map {
-                  case Right((directive, a)) =>
-                    directive match {
-                      case Directive.Update(value) =>
-                        val state = State.present(value.some)
-                        val fa = a.pure[F]
-                        (state, fa)
-
-                      case Directive.Remove        =>
-                        val state = State.absent
-                        val fa = remove.as(a)
-                        (state, fa)
-                    }
-
-                  case Left(error) =>
-                    val fa = for {
-                      created <- created.get
-                      _       <- if (created) remove.void else ().pure[F]
-                      a <- error.raiseError[F, A]
-                    } yield a
-                    (state, fa)
-                }
+              case State.Full(value) => onValue(value.some)
+              case State.Empty       => onValue(none)
+              case State.Removed     => onRemoving
             }
           }
 
@@ -154,14 +157,14 @@ object SerialMap { self =>
         }
 
         for {
-          created   <- Ref[F].of(false)
-          serialRef <- cache.getOrUpdate(key) { create(created) }
-          a         <- modify(serialRef, created).uncancelable
+          added     <- Ref[F].of(false)
+          serialRef <- cache.getOrUpdate(key) { adding(added) }
+          a         <- modify(serialRef, added).uncancelable
         } yield a
       }
 
 
-      def update[A](key: K)(f: Option[V] => F[Directive[V]]) = {
+      def update[A](key: K)(f: Option[V] => F[Option[V]]) = {
         modify(key) { value =>
           for {d <- f(value)} yield { (d, ()) }
         }
@@ -177,16 +180,16 @@ object SerialMap { self =>
       val values = {
         for {
           map  <- cache.values
-          list <- map.foldLeft(List.empty[(K, V)].pure[F]) { case (result, (key, serialRef)) =>
+          list <- map.foldLeft(List.empty[(K, V)].pure[F]) { case (values, (key, serialRef)) =>
             for {
               serialRef <- serialRef
               value     <- serialRef.get
-              result    <- result
+              values    <- values
             } yield {
               value match {
-                case State.Present(Some(value)) => (key, value) :: result
-                case State.Present(None)        => result
-                case State.Absent               => result
+                case State.Full(value) => (key, value) :: values
+                case State.Empty       => values
+                case State.Removed     => values
               }
             }
           }
@@ -198,8 +201,7 @@ object SerialMap { self =>
 
       def remove(key: K) = {
         modify(key) { value =>
-          val directive = Directive.remove[V]
-          (directive, value).pure[F]
+          (none[V], value).pure[F]
         }
       }
 
@@ -215,32 +217,21 @@ object SerialMap { self =>
   }
 
 
-  sealed trait Directive[+A]
-
-  object Directive {
-
-    def update[A](a: A): Directive[A] = Update(a)
-
-    def remove[A]: Directive[A] = Remove
-
-
-    final case class Update[A](a: A) extends Directive[A]
-
-    case object Remove extends Directive[Nothing]
-  }
-
-
   sealed trait State[+A]
 
   object State {
 
-    def absent[A]: State[A] = Absent
+    def full[A](a: A): State[A] = Full(a)
 
-    def present[A](a: Option[A]): State[A] = Present(a)
+    def removed[A]: State[A] = Removed
+
+    def empty[A]: State[A] = Empty
 
 
-    case object Absent extends State[Nothing]
+    final case class Full[A](value: A) extends State[A]
 
-    final case class Present[A](value: Option[A]) extends State[A]
+    case object Empty extends State[Nothing]
+
+    case object Removed extends State[Nothing]
   }
 }

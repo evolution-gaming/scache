@@ -94,16 +94,13 @@ class SerialMapSpec extends AsyncFunSuite with Matchers {
       serialMap <- SerialMap.of[F, String, Int]
       value0    <- serialMap.modify(key) { value =>
         val value1 = value.fold(0) { _ + 1 }
-        val directive = SerialMap.Directive.update(value1)
-        (directive, value).pure[F]
+        (value1.some, value).pure[F]
       }
       value1    <- serialMap.modify(key) { value =>
-        val directive = SerialMap.Directive.remove[Int]
-        (directive, value).pure[F]
+        (none[Int], value).pure[F]
       }
       value2    <- serialMap.modify(key) { value =>
-        val directive = SerialMap.Directive.remove[Int]
-        (directive, value).pure[F]
+        (none[Int], value).pure[F]
       }
     } yield {
       value0 shouldEqual none[Int]
@@ -117,21 +114,11 @@ class SerialMapSpec extends AsyncFunSuite with Matchers {
     val key = "key"
     for {
       serialMap <- SerialMap.of[F, String, Int]
-      _         <- serialMap.update(key) { value =>
-        val value1 = value.fold(0) { _ + 1 }
-        val directive = SerialMap.Directive.update(value1)
-        directive.pure[F]
-      }
+      _         <- serialMap.update(key) { _.fold(0) { _ + 1 }.some.pure[F] }
       value0    <- serialMap.get(key)
-      _ <- serialMap.update(key) { _ =>
-        val directive = SerialMap.Directive.remove[Int]
-        directive.pure[F]
-      }
+      _         <- serialMap.update(key) { _ => none[Int].pure[F] }
       value1    <- serialMap.get(key)
-      _ <- serialMap.update(key) { _ =>
-        val directive = SerialMap.Directive.remove[Int]
-        directive.pure[F]
-      }
+      _         <- serialMap.update(key) { _ => none[Int].pure[F] }
       value2    <- serialMap.get(key)
     } yield {
       value0 shouldEqual 0.some
@@ -213,7 +200,7 @@ class SerialMapSpec extends AsyncFunSuite with Matchers {
       cache     <- LoadingCache.of(LoadingCache.EntryRefs.empty[F, String, SerialRef[F, SerialMap.State[Int]]])
       serialMap  = SerialMap(cache)
       value0    <- cache.get(key)
-      _         <- serialMap.update(key) { _ => SerialMap.Directive.update(0).pure[F] }
+      _         <- serialMap.update(key) { _ => 0.some.pure[F] }
       value1    <- cache.get(key)
       value2    <- serialMap.remove(key)
       value3    <- cache.get(key)
@@ -246,7 +233,7 @@ class SerialMapSpec extends AsyncFunSuite with Matchers {
     for {
       cache       <- LoadingCache.of(LoadingCache.EntryRefs.empty[F, String, SerialRef[F, SerialMap.State[Int]]])
       serialMap    = SerialMap(cache)
-      modifyError  = serialMap.modify(key) { _ => TestError.raiseError[F, (SerialMap.Directive[Int], Unit)] }.attempt
+      modifyError  = serialMap.modify(key) { _ => TestError.raiseError[F, (Option[Int], Unit)] }.attempt
       value0      <- modifyError
       value1      <- cache.get(key)
       _           <- serialMap.put(key, 0)
@@ -316,10 +303,9 @@ class SerialMapSpec extends AsyncFunSuite with Matchers {
 
 object SerialMapSpec {
 
-  def inc(value: Option[Int]): (SerialMap.Directive[Int], Int) = {
+  def inc(value: Option[Int]): (Option[Int], Int) = {
     val value1 = value.fold(0) { _ + 1 }
-    val directive = SerialMap.Directive.update(value1)
-    (directive, value1)
+    (value1.some, value1)
   }
 
   case object TestError extends RuntimeException with NoStackTrace

@@ -54,9 +54,6 @@ trait Cache[F[_], K, V] {
 ## SerialMap.scala
 
 ```scala
-/**
-  * Map-like concurrent data structure, which runs updates serially for the same key
-  */
 trait SerialMap[F[_], K, V] {
 
   def get(key: K): F[Option[V]]
@@ -64,14 +61,14 @@ trait SerialMap[F[_], K, V] {
   def put(key: K, value: V): F[Option[V]]
 
   /**
-    * `f` will be run serially for the same key
+    * `f` will be run serially for the same key, entry will be removed in case of `f` returns `none`
     */
-  def modify[A](key: K)(f: Option[V] => F[(Directive[V], A)]): F[A]
+  def modify[A](key: K)(f: Option[V] => F[(Option[V], A)]): F[A]
 
   /**
-    * `f` will be run serially for the same key
+    * `f` will be run serially for the same key, entry will be removed in case of `f` returns `none`
     */
-  def update[A](key: K)(f: Option[V] => F[Directive[V]]): F[Unit]
+  def update[A](key: K)(f: Option[V] => F[Option[V]]): F[Unit]
 
   def size: F[Int]
 
