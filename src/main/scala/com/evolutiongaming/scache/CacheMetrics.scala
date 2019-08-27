@@ -1,7 +1,7 @@
 package com.evolutiongaming.scache
 
-import cats.Applicative
-import cats.effect.{Resource, Sync}
+import cats.{Applicative, Monad}
+import cats.effect.Resource
 import cats.implicits._
 import com.evolutiongaming.smetrics.MetricsHelper._
 import com.evolutiongaming.smetrics.{CollectorRegistry, LabelNames, Quantile, Quantiles}
@@ -41,7 +41,7 @@ object CacheMetrics {
   }
 
 
-  def of[F[_] : Sync](
+  def of[F[_] : Monad](
     collectorRegistry: CollectorRegistry[F],
     prefix: Prefix = Prefix.Default,
   ): Resource[F, Name => CacheMetrics[F]] = {
