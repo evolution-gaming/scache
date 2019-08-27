@@ -16,7 +16,7 @@ bintrayOrganization := Some("evolutiongaming")
 
 scalaVersion := crossScalaVersions.value.head
 
-crossScalaVersions := Seq("2.12.8")
+crossScalaVersions := Seq("2.12.9")
 
 resolvers += Resolver.bintrayRepo("evolutiongaming", "maven")
 
