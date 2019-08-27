@@ -1,5 +1,6 @@
 package com.evolutiongaming.scache
 
+import cats.Applicative
 import cats.effect.{Resource, Sync}
 import cats.implicits._
 import com.evolutiongaming.smetrics.MetricsHelper._
@@ -7,7 +8,29 @@ import com.evolutiongaming.smetrics.{CollectorRegistry, LabelNames, Quantile, Qu
 
 import scala.concurrent.duration.FiniteDuration
 
+trait CacheMetrics[F[_]] {
+
+  def get(hit: Boolean): F[Unit]
+
+  def load(time: FiniteDuration, success: Boolean): F[Unit]
+
+  def size(size: Int): F[Unit]
+}
+
 object CacheMetrics {
+
+  def empty[F[_] : Applicative]: CacheMetrics[F] = const(().pure[F])
+
+
+  def const[F[_]](unit: F[Unit]): CacheMetrics[F] = new CacheMetrics[F] {
+
+    def get(hit: Boolean) = unit
+
+    def load(time: FiniteDuration, success: Boolean) = unit
+
+    def size(size: Int) = unit
+  }
+
 
   type Name = String
 
@@ -21,7 +44,7 @@ object CacheMetrics {
   def of[F[_] : Sync](
     collectorRegistry: CollectorRegistry[F],
     prefix: Prefix = Prefix.Default,
-  ): Resource[F, Name => Cache.Metrics[F]] = {
+  ): Resource[F, Name => CacheMetrics[F]] = {
 
     val getCounter = collectorRegistry.counter(
       name = s"${ prefix }_get",
@@ -66,7 +89,7 @@ object CacheMetrics {
 
         val failureSummary = loadTimeSummary.labels(name, "failure")
 
-        new Cache.Metrics[F] {
+        new CacheMetrics[F] {
 
           def get(hit: Boolean) = {
             val counter = if (hit) hitCounter else missCounter

@@ -12,7 +12,7 @@ object CacheMetered {
 
   def apply[F[_] : Concurrent : Timer : MeasureDuration, K, V](
     cache: Cache[F, K, V],
-    metrics: Cache.Metrics[F],
+    metrics: CacheMetrics[F],
     interval: FiniteDuration = 1.minute
   ): Resource[F, Cache[F, K, V]] = {
 

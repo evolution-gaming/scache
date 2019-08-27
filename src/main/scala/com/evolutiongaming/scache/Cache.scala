@@ -97,36 +97,11 @@ object Cache {
     }
   }
 
-
-  trait Metrics[F[_]] {
-
-    def get(hit: Boolean): F[Unit]
-
-    def load(time: FiniteDuration, success: Boolean): F[Unit]
-
-    def size(size: Int): F[Unit]
-  }
-
-  object Metrics {
-
-    def empty[F[_] : Applicative]: Metrics[F] = const(().pure[F])
-
-
-    def const[F[_]](unit: F[Unit]): Metrics[F] = new Metrics[F] {
-
-      def get(hit: Boolean) = unit
-
-      def load(time: FiniteDuration, success: Boolean) = unit
-
-      def size(size: Int) = unit
-    }
-  }
-
   
   implicit class CacheOps[F[_], K, V](val self: Cache[F, K, V]) extends AnyVal {
 
     def withMetrics(
-      metrics: Metrics[F])(implicit
+      metrics: CacheMetrics[F])(implicit
       F: Concurrent[F],
       timer: Timer[F],
       measureDuration: MeasureDuration[F]

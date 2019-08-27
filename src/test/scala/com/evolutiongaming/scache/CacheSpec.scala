@@ -7,6 +7,7 @@ import cats.effect.implicits._
 import cats.implicits._
 import com.evolutiongaming.scache.IOSuite._
 import com.evolutiongaming.catshelper.EffectHelper._
+import com.evolutiongaming.smetrics.CollectorRegistry
 import org.scalatest.{AsyncFunSuite, Matchers}
 
 import scala.concurrent.duration._
@@ -24,8 +25,9 @@ class CacheSpec extends AsyncFunSuite with Matchers {
   } yield {
 
     val cache = for {
-      cache <- cache0
-      cache <- cache.withMetrics(Cache.Metrics.empty)
+      cache   <- cache0
+      metrics <- CacheMetrics.of(CollectorRegistry.empty[IO])
+      cache   <- cache.withMetrics(metrics("name"))
     } yield cache
 
     test(s"get: $name") {
