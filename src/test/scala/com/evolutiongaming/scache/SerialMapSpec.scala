@@ -3,7 +3,7 @@ package com.evolutiongaming.scache
 import cats.effect.concurrent.Deferred
 import cats.effect.{Concurrent, IO}
 import cats.implicits._
-import com.evolutiongaming.catshelper.EffectHelper._
+import com.evolutiongaming.catshelper.CatsHelper._
 import com.evolutiongaming.catshelper.SerialRef
 import com.evolutiongaming.scache.IOSuite._
 import org.scalatest.{AsyncFunSuite, Matchers}

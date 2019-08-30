@@ -1,8 +1,8 @@
 package com.evolutiongaming.scache
 
-import cats.{Applicative, Parallel}
 import cats.effect.{Concurrent, Resource, Timer}
 import cats.implicits._
+import cats.{Monad, Parallel}
 import com.evolutiongaming.catshelper.Runtime
 import com.evolutiongaming.smetrics.MeasureDuration
 
@@ -18,9 +18,18 @@ trait Cache[F[_], K, V] {
   def getOrUpdate(key: K)(value: => F[V]): F[V]
 
   /**
+    * Does not run `value` concurrently for the same key
+    * Releasable.release will be called upon key removal from the cache
+    */
+  def getOrUpdateReleasable(key: K)(value: => F[Releasable[F, V]]): F[V]
+
+  /**
     * @return previous value if any, possibly not yet loaded
     */
-  def put(key: K, value: V): F[Option[F[V]]]
+  def put(key: K, value: V): F[Option[V]]
+
+
+  def put(key: K, value: V, release: F[Unit]): F[Option[V]]
 
 
   def size: F[Int]
@@ -36,7 +45,7 @@ trait Cache[F[_], K, V] {
   /**
     * @return previous value if any, possibly not yet loaded
     */
-  def remove(key: K): F[Option[F[V]]]
+  def remove(key: K): F[F[Option[V]]]
 
 
   /**
@@ -47,13 +56,17 @@ trait Cache[F[_], K, V] {
 
 object Cache {
 
-  def empty[F[_] : Applicative, K, V]: Cache[F, K, V] = new Cache[F, K, V] {
+  def empty[F[_] : Monad, K, V]: Cache[F, K, V] = new Cache[F, K, V] {
 
     def get(key: K) = none[V].pure[F]
 
     def getOrUpdate(key: K)(value: => F[V]) = value
 
-    def put(key: K, value: V) = none[F[V]].pure[F]
+    def getOrUpdateReleasable(key: K)(value: => F[Releasable[F, V]]) = value.map(_.value)
+
+    def put(key: K, value: V) = none[V].pure[F]
+
+    def put(key: K, value: V, release: F[Unit]) = none[V].pure[F]
 
     val size = 0.pure[F]
 
@@ -61,7 +74,7 @@ object Cache {
 
     val values = Map.empty[K, F[V]].pure[F]
 
-    def remove(key: K) = none[F[V]].pure[F]
+    def remove(key: K) = none[V].pure[F].pure[F]
 
     val clear = ().pure[F]
   }
@@ -96,7 +109,7 @@ object Cache {
     }
   }
 
-  
+
   implicit class CacheOps[F[_], K, V](val self: Cache[F, K, V]) extends AnyVal {
 
     def withMetrics(

@@ -2,10 +2,10 @@ package com.evolutiongaming.scache
 
 
 import cats.effect.concurrent.Deferred
-import cats.effect.IO
+import cats.effect.{IO, Sync}
 import cats.implicits._
 import com.evolutiongaming.scache.IOSuite._
-import com.evolutiongaming.catshelper.EffectHelper._
+import com.evolutiongaming.catshelper.CatsHelper._
 import org.scalatest.{AsyncFunSuite, Matchers}
 
 class CacheEmptySpec extends AsyncFunSuite with Matchers {
@@ -16,56 +16,49 @@ class CacheEmptySpec extends AsyncFunSuite with Matchers {
   test("get") {
     val result = for {
       value <- cache.get(0)
-    } yield {
-      value shouldEqual none[Int]
-    }
+      _     <- Sync[IO].delay { value shouldEqual none[Int] }
+    } yield {}
     result.run()
   }
 
   test("put") {
     val result = for {
-      value0 <- cache.put(0, 0)
-      value0 <- value0.swap
-      value1 <- cache.get(0)
-      value2 <- cache.put(0, 1)
-      value2 <- value2.swap
-      value3 <- cache.put(0, 2)
-      value3 <- value3.swap
-    } yield {
-      value0 shouldEqual none
-      value1 shouldEqual none
-      value2 shouldEqual none
-      value3 shouldEqual none
-    }
+      value <- cache.put(0, 0)
+      _     <- Sync[IO].delay { value shouldEqual none }
+      value <- cache.get(0)
+      _     <- Sync[IO].delay { value shouldEqual none }
+      value <- cache.put(0, 1)
+      _     <- Sync[IO].delay { value shouldEqual none }
+      value <- cache.put(0, 2)
+      _     <- Sync[IO].delay { value shouldEqual none }
+    } yield {}
     result.run()
   }
 
 
   test("remove") {
     val result = for {
-      _      <- cache.put(0, 0)
-      value0 <- cache.remove(0)
-      value0 <- value0.swap
-      value1 <- cache.get(0)
-    } yield {
-      value0 shouldEqual none
-      value1 shouldEqual none
-    }
+      _     <- cache.put(0, 0)
+      value <- cache.remove(0)
+      value <- value
+      _     <- Sync[IO].delay { value shouldEqual none }
+      value <- cache.get(0)
+      _     <- Sync[IO].delay { value shouldEqual none }
+    } yield {}
     result.run()
   }
 
 
   test("clear") {
     val result = for {
-      _      <- cache.put(0, 0)
-      _      <- cache.put(1, 1)
-      _      <- cache.clear
-      value0 <- cache.get(0)
-      value1 <- cache.get(1)
-    } yield {
-      value0 shouldEqual none
-      value1 shouldEqual none
-    }
+      _     <- cache.put(0, 0)
+      _     <- cache.put(1, 1)
+      _     <- cache.clear
+      value <- cache.get(0)
+      _     <- Sync[IO].delay { value shouldEqual none }
+      value <- cache.get(1)
+      _     <- Sync[IO].delay { value shouldEqual none }
+    } yield {}
     result.run()
   }
 

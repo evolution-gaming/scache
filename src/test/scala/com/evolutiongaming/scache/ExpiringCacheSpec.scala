@@ -1,8 +1,8 @@
 package com.evolutiongaming.scache
 
 import cats.{Monad, Parallel}
-import cats.effect.concurrent.Ref
-import cats.effect.{Concurrent, IO, Timer}
+import cats.effect.concurrent.{Deferred, Ref}
+import cats.effect.{Concurrent, IO, Sync, Timer}
 import cats.implicits._
 import com.evolutiongaming.scache.IOSuite._
 import org.scalatest.{AsyncFunSuite, Matchers}
@@ -52,16 +52,16 @@ class ExpiringCacheSpec extends AsyncFunSuite with Matchers {
       }
 
       for {
-        value0 <- cache.put(0, 0)
-        value1 <- cache.get(0)
-        value2 <- retryUntilExpired(0)
-        value3 <- cache.get(0)
-      } yield {
-        value0 shouldEqual none
-        value1 shouldEqual 0.some
-        value2 shouldEqual ().some
-        value3 shouldEqual none[Int]
-      }
+        release <- Deferred[F, Unit]
+        value   <- cache.put(0, 0, release.complete(()))
+        _       <- Sync[F].delay { value shouldEqual none }
+        value   <- cache.get(0)
+        _       <- Sync[F].delay { value shouldEqual 0.some }
+        value   <- retryUntilExpired(0)
+        _       <- Sync[F].delay { value shouldEqual ().some }
+        value   <- cache.get(0)
+        _       <- Sync[F].delay { value shouldEqual none }
+      } yield {}
     }
   }
 

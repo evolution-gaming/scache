@@ -20,6 +20,8 @@ crossScalaVersions := Seq("2.12.10", "2.13.0")
 
 resolvers += Resolver.bintrayRepo("evolutiongaming", "maven")
 
+libraryDependencies += compilerPlugin(`kind-projector` cross CrossVersion.binary)
+
 libraryDependencies ++= Seq(
   Cats.core,
   Cats.effect,

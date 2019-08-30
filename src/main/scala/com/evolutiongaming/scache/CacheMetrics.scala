@@ -14,6 +14,8 @@ trait CacheMetrics[F[_]] {
 
   def load(time: FiniteDuration, success: Boolean): F[Unit]
 
+  def put: F[Unit]
+
   def size(size: Int): F[Unit]
 }
 
@@ -27,6 +29,8 @@ object CacheMetrics {
     def get(hit: Boolean) = unit
 
     def load(time: FiniteDuration, success: Boolean) = unit
+
+    val put = unit
 
     def size(size: Int) = unit
   }
@@ -51,6 +55,11 @@ object CacheMetrics {
       help = "Get type: hit or miss",
       labels = LabelNames("name", "type"))
 
+    val putCounter = collectorRegistry.counter(
+      name = s"${ prefix }_put",
+      help = "Put",
+      labels = LabelNames("name"))
+
     val loadResultCounter = collectorRegistry.counter(
       name = s"${ prefix }_load_result",
       help = "Load result: success or failure",
@@ -71,6 +80,7 @@ object CacheMetrics {
 
     for {
       getsCounter       <- getCounter
+      putCounter        <- putCounter
       loadResultCounter <- loadResultCounter
       loadTimeSummary   <- loadTimeSummary
       sizeGauge         <- sizeGauge
@@ -89,15 +99,13 @@ object CacheMetrics {
 
         val failureSummary = loadTimeSummary.labels(name, "failure")
 
+        val putCounter1 = putCounter.labels(name)
+
         new CacheMetrics[F] {
 
           def get(hit: Boolean) = {
             val counter = if (hit) hitCounter else missCounter
             counter.inc()
-          }
-
-          def size(size: Int) = {
-            sizeGauge.labels(name).set(size.toDouble)
           }
 
           def load(time: FiniteDuration, success: Boolean) = {
@@ -107,6 +115,12 @@ object CacheMetrics {
               _ <- resultCounter.inc()
               _ <- timeSummary.observe(time.toNanos.nanosToSeconds)
             } yield {}
+          }
+
+          val put = putCounter1.inc()
+
+          def size(size: Int) = {
+            sizeGauge.labels(name).set(size.toDouble)
           }
         }
     }

@@ -26,9 +26,21 @@ trait Cache[F[_], K, V] {
   def getOrUpdate(key: K)(value: => F[V]): F[V]
 
   /**
+    * Does not run `value` concurrently for the same key
+    * Releasable.release will be called upon key removal from the cache
+    */
+  def getOrUpdateReleasable(key: K)(value: => F[Releasable[F, V]]): F[V]
+
+  /**
     * @return previous value if any, possibly not yet loaded
     */
-  def put(key: K, value: V): F[Option[F[V]]]
+  def put(key: K, value: V): F[Option[V]]
+
+
+  def put(key: K, value: V, release: F[Unit]): F[Option[V]]
+
+
+  def size: F[Int]
 
 
   def keys: F[Set[K]]
@@ -41,7 +53,7 @@ trait Cache[F[_], K, V] {
   /**
     * @return previous value if any, possibly not yet loaded
     */
-  def remove(key: K): F[Option[F[V]]]
+  def remove(key: K): F[F[Option[V]]]
 
 
   /**
@@ -90,5 +102,5 @@ trait SerialMap[F[_], K, V] {
 ```scala
 resolvers += Resolver.bintrayRepo("evolutiongaming", "maven")
 
-libraryDependencies += "com.evolutiongaming" %% "scache" % "0.0.6"
+libraryDependencies += "com.evolutiongaming" %% "scache" % "1.0.0"
 ```

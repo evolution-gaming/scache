@@ -23,7 +23,7 @@ object ExpiringCache {
     maxSize: Option[Int] = None,
     refresh: Option[Refresh[K, F[V]]] = None,
   ): Resource[F, Cache[F, K, V]] = {
-
+    
     type E = Entry[V]
 
     val cooldown       = expireAfter.toMillis / 5
@@ -156,7 +156,7 @@ object ExpiringCache {
 
         def touch(entryRef: LoadingCache.EntryRef[F, E]) = {
           entryRef.update {
-            case entry: LoadingCache.Entry.Loaded[F, E]  => LoadingCache.Entry.loaded(entry.value.touch(timestamp))
+            case entry: LoadingCache.Entry.Loaded[F, E]  => entry.copy(value = entry.value.touch(timestamp))
             case entry: LoadingCache.Entry.Loading[F, E] => entry
           }
         }
@@ -208,6 +208,26 @@ object ExpiringCache {
         }
       }
 
+      def getOrUpdateReleasable(key: K)(value: => F[Releasable[F, V]]) = {
+
+        def entry = {
+          for {
+            value     <- value
+            timestamp <- Clock[F].millis
+          } yield {
+            val entry = Entry(value.value, timestamp)
+            value.copy(value = entry)
+          }
+        }
+
+        for {
+          entry <- cache.getOrUpdateReleasable(key)(entry)
+          _     <- touch(key, entry)
+        } yield {
+          entry.value
+        }
+      }
+
       def put(key: K, value: V) = {
         for {
           timestamp <- Clock[F].millis
@@ -215,6 +235,16 @@ object ExpiringCache {
           entry     <- cache.put(key, entry)
         } yield for {
           entry <- entry
+        } yield {
+          entry.value
+        }
+      }
+
+      def put(key: K, value: V, release: F[Unit]) = {
+        for {
+          timestamp <- Clock[F].millis
+          entry      = Entry(value, timestamp)
+          entry     <- cache.put(key, entry, release)
         } yield for {
           entry <- entry
         } yield {

@@ -2,11 +2,11 @@ package com.evolutiongaming.scache
 
 import cats.Monad
 import cats.effect.concurrent.Deferred
-import cats.effect.{Concurrent, Fiber, IO, Resource}
+import cats.effect.{Async, Concurrent, Fiber, IO, Resource, Sync}
 import cats.effect.implicits._
 import cats.implicits._
 import com.evolutiongaming.scache.IOSuite._
-import com.evolutiongaming.catshelper.EffectHelper._
+import com.evolutiongaming.catshelper.CatsHelper._
 import com.evolutiongaming.smetrics.CollectorRegistry
 import org.scalatest.{AsyncFunSuite, Matchers}
 
@@ -30,6 +30,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
       cache   <- cache.withMetrics(metrics("name"))
     } yield cache
 
+    
     test(s"get: $name") {
       val result = cache.use { cache =>
         for {
@@ -41,22 +42,38 @@ class CacheSpec extends AsyncFunSuite with Matchers {
       result.run()
     }
 
+
     test(s"put: $name") {
       val result = cache.use { cache =>
         for {
-          value0 <- cache.put(0, 0)
-          value0 <- value0.swap
-          value1 <- cache.get(0)
-          value2 <- cache.put(0, 1)
-          value2 <- value2.swap
-          value3 <- cache.put(0, 2)
-          value3 <- value3.swap
-        } yield {
-          value0 shouldEqual none
-          value1 shouldEqual 0.some
-          value2 shouldEqual 0.some
-          value3 shouldEqual 1.some
-        }
+          value <- cache.put(0, 0)
+          _     <- Sync[IO].delay { value shouldEqual none }
+          value <- cache.get(0)
+          _     <- Sync[IO].delay { value shouldEqual 0.some }
+          value <- cache.put(0, 1)
+          _     <- Sync[IO].delay { value shouldEqual 0.some }
+          value <- cache.put(0, 2)
+          _     <- Sync[IO].delay { value shouldEqual 1.some }
+        } yield {}
+      }
+      result.run()
+    }
+
+
+    test(s"put releasable: $name") {
+      val result = cache.use { cache =>
+        for {
+          release <- Deferred[IO, Unit]
+          value   <- cache.put(0, 0, release.complete(()))
+          _       <- Sync[IO].delay { value shouldEqual none }
+          value   <- cache.get(0)
+          _       <- Sync[IO].delay { value shouldEqual 0.some }
+          value   <- cache.put(0, 1)
+          _       <- release.get
+          _       <- Sync[IO].delay { value shouldEqual 0.some }
+          value   <- cache.put(0, 2)
+          _       <- Sync[IO].delay { value shouldEqual 1.some }
+        } yield {}
       }
       result.run()
     }
@@ -92,14 +109,13 @@ class CacheSpec extends AsyncFunSuite with Matchers {
     test(s"remove: $name") {
       val result = cache.use { cache =>
         for {
-          _      <- cache.put(0, 0)
-          value0 <- cache.remove(0)
-          value0 <- value0.swap
-          value1 <- cache.get(0)
-        } yield {
-          value0 shouldEqual 0.some
-          value1 shouldEqual none
-        }
+          _     <- cache.put(0, 0)
+          value <- cache.remove(0)
+          value <- value
+          _     <- Sync[IO].delay { value shouldEqual 0.some }
+          value <- cache.get(0)
+          _     <- Sync[IO].delay { value shouldEqual none }
+        } yield {}
       }
       result.run()
     }
@@ -117,6 +133,31 @@ class CacheSpec extends AsyncFunSuite with Matchers {
           value0 shouldEqual none[Int]
           value1 shouldEqual none[Int]
         }
+      }
+      result.run()
+    }
+
+
+    test(s"clear releasable: $name") {
+      val result = cache.use { cache =>
+        for {
+          release  <- Deferred[IO, Unit]
+          _        <- cache.put(0, 0, release.complete(()))
+          _        <- Deferred[IO, Unit]
+          _        <- cache.put(1, 1, Async[IO].never[Unit])
+          _        <- Deferred[IO, Unit]
+          _        <- cache.put(2, 2, TestError.raiseError[IO, Unit])
+          keys     <- cache.keys
+          _        <- Sync[IO].delay { keys shouldEqual Set(0, 1, 2) }
+          _        <- cache.clear
+          value    <- cache.get(0)
+          _        <- Sync[IO].delay { value shouldEqual none[Int] }
+          value    <- cache.get(1)
+          _        <- Sync[IO].delay { value shouldEqual none[Int] }
+          keys     <- cache.keys
+          _        <- Sync[IO].delay { keys shouldEqual Set.empty }
+          _        <- release.get
+        } yield {}
       }
       result.run()
     }
@@ -168,21 +209,143 @@ class CacheSpec extends AsyncFunSuite with Matchers {
     }
 
 
+    test(s"getOrUpdateReleasable: $name") {
+      val result = cache.use { cache =>
+        for {
+          deferred <- Deferred[IO, Releasable[IO, Int]]
+          value0   <- cache.getOrUpdateReleasableEnsure(0) { deferred.get }
+          value2   <- cache.getOrUpdateReleasable(0)(Releasable[IO].pure(1).pure[IO]).startEnsure
+          _        <- deferred.complete(Releasable(0, Async[IO].never[Unit]))
+          value    <- value0.join
+          _        <- Sync[IO].delay { value shouldEqual 0 }
+          value    <- value2.join
+          _        <- Sync[IO].delay { value shouldEqual 0 }
+        } yield {}
+      }
+      result.run()
+    }
+
+
+    test(s"cancel getOrUpdateReleasable: $name") {
+      val result = cache.use { cache =>
+        for {
+          deferred0 <- Deferred[IO, Releasable[IO, Int]]
+          fiber0    <- cache.getOrUpdateReleasableEnsure(0) { deferred0.get }
+          fiber1    <- cache.getOrUpdateReleasable(0) { Async[IO].never }.startEnsure
+          release   <- Deferred[IO, Unit]
+          _         <- fiber0.cancel
+          _         <- deferred0.complete(Releasable(0, release.complete(())))
+          value     <- fiber1.join
+          _         <- Sync[IO].delay { value shouldEqual 0 }
+          _         <- cache.remove(0)
+          _         <- release.get
+        } yield {}
+      }
+      result.run()
+    }
+
+
     test(s"put while getOrUpdate: $name") {
       val result = cache.use { cache =>
         for {
           deferred <- Deferred[IO, Int]
           fiber    <- cache.getOrUpdateEnsure(0) { deferred.get }
-          value1   <- cache.put(0, 1)
+          value    <- cache.put(0, 1)
           _        <- deferred.complete(0)
-          value1   <- value1.swap
-          value0   <- fiber.join
-          value2   <- cache.get(0)
-        } yield {
-          value0 shouldEqual 0
-          value1 shouldEqual 0.some
-          value2 shouldEqual 1.some
-        }
+          _        <- Sync[IO].delay { value shouldEqual none }
+          value    <- fiber.join
+          _        <- Sync[IO].delay { value shouldEqual 1 }
+          value    <- cache.get(0)
+          _        <- Sync[IO].delay { value shouldEqual 1.some }
+        } yield {}
+      }
+      result.run()
+    }
+
+
+    test(s"put while getOrUpdateReleasable: $name") {
+      val result = cache.use { cache =>
+        for {
+          deferred <- Deferred[IO, Releasable[IO, Int]]
+          fiber    <- cache.getOrUpdateReleasableEnsure(0) { deferred.get }
+          value    <- cache.put(0, 1)
+          release  <- Deferred[IO, Unit]
+          _        <- deferred.complete(Releasable(0, release.complete(())))
+          _        <- release.get
+          _        <- Sync[IO].delay { value shouldEqual none }
+          value    <- fiber.join
+          _        <- Sync[IO].delay { value shouldEqual 1 }
+          value    <- cache.get(0)
+          _        <- Sync[IO].delay { value shouldEqual 1.some }
+        } yield {}
+      }
+      result.run()
+    }
+
+
+    test(s"put while getOrUpdate never: $name") {
+      val result = cache.use { cache =>
+        for {
+          fiber    <- cache.getOrUpdateEnsure(0) { Async[IO].never[Int] }
+          value    <- cache.put(0, 0)
+          _        <- Sync[IO].delay { value shouldEqual none }
+          value    <- fiber.join
+          _        <- Sync[IO].delay { value shouldEqual 0 }
+          value    <- cache.get(0)
+          _        <- Sync[IO].delay { value shouldEqual 0.some }
+        } yield {}
+      }
+      result.run()
+    }
+
+
+    test(s"put while getOrUpdateReleasable never: $name") {
+      val result = cache.use { cache =>
+        for {
+          fiber    <- cache.getOrUpdateReleasableEnsure(0) { Async[IO].never[Releasable[IO, Int]] }
+          value    <- cache.put(0, 0)
+          _        <- Sync[IO].delay { value shouldEqual none }
+          value    <- fiber.join
+          _        <- Sync[IO].delay { value shouldEqual 0 }
+          value    <- cache.get(0)
+          _        <- Sync[IO].delay { value shouldEqual 0.some }
+        } yield {}
+      }
+      result.run()
+    }
+
+
+    test(s"put while getOrUpdate failed: $name") {
+      val result = cache.use { cache =>
+        for {
+          deferred <- Deferred[IO, IO[Int]]
+          fiber    <- cache.getOrUpdateEnsure(0) { deferred.get.flatten }
+          value    <- cache.put(0, 1)
+          _        <- deferred.complete(TestError.raiseError[IO, Int])
+          _        <- Sync[IO].delay { value shouldEqual none }
+          value    <- fiber.join
+          _        <- Sync[IO].delay { value shouldEqual 1 }
+          value    <- cache.get(0)
+          _        <- Sync[IO].delay { value shouldEqual 1.some }
+        } yield {}
+      }
+      result.run()
+    }
+
+
+    test(s"put while getOrUpdateReleasable failed: $name") {
+      val result = cache.use { cache =>
+        for {
+          deferred <- Deferred[IO, IO[Releasable[IO, Int]]]
+          fiber    <- cache.getOrUpdateReleasableEnsure(0) { deferred.get.flatten }
+          value    <- cache.put(0, 1)
+          _        <- deferred.complete(TestError.raiseError[IO, Releasable[IO, Int]])
+          _        <- Sync[IO].delay { value shouldEqual none }
+          value    <- fiber.join
+          _        <- Sync[IO].delay { value shouldEqual 1 }
+          value    <- cache.get(0)
+          _        <- Sync[IO].delay { value shouldEqual 1.some }
+        } yield {}
       }
       result.run()
     }
@@ -195,12 +358,28 @@ class CacheSpec extends AsyncFunSuite with Matchers {
           value0   <- cache.getOrUpdateEnsure(0) { deferred.get }
           value1   <- cache.get(0).startEnsure
           _        <- deferred.complete(0)
-          value0   <- value0.join
-          value1   <- value1.join
-        } yield {
-          value0 shouldEqual 0
-          value1 shouldEqual 0.some
-        }
+          value    <- value0.join
+          _        <- Sync[IO].delay { value shouldEqual 0 }
+          value    <- value1.join
+          _        <- Sync[IO].delay { value shouldEqual 0.some }
+        } yield {}
+      }
+      result.run()
+    }
+
+
+    test(s"get while getOrUpdateReleasable: $name") {
+      val result = cache.use { cache =>
+        for {
+          deferred <- Deferred[IO, Releasable[IO, Int]]
+          value0   <- cache.getOrUpdateReleasableEnsure(0) { deferred.get }
+          value1   <- cache.get(0).startEnsure
+          _        <- deferred.complete(Releasable(0, Async[IO].never[Unit]))
+          value    <- value0.join
+          _        <- Sync[IO].delay { value shouldEqual 0 }
+          value    <- value1.join
+          _        <- Sync[IO].delay { value shouldEqual 0.some }
+        } yield {}
       }
       result.run()
     }
@@ -213,12 +392,28 @@ class CacheSpec extends AsyncFunSuite with Matchers {
           value0   <- cache.getOrUpdateEnsure(0) { deferred.get.flatten }
           value1   <- cache.get(0).startEnsure
           _        <- deferred.complete(TestError.raiseError[IO, Int])
-          value0   <- value0.join.attempt
-          value1   <- value1.join.attempt
-        } yield {
-          value0 shouldEqual TestError.asLeft
-          value1 shouldEqual TestError.asLeft
-        }
+          value    <- value0.join.attempt
+          _        <- Sync[IO].delay { value shouldEqual TestError.asLeft }
+          value    <- value1.join
+          _        <- Sync[IO].delay { value shouldEqual none }
+        } yield {}
+      }
+      result.run()
+    }
+
+
+    test(s"get while getOrUpdateReleasable failed: $name") {
+      val result = cache.use { cache =>
+        for {
+          deferred <- Deferred[IO, IO[Releasable[IO, Int]]]
+          value0   <- cache.getOrUpdateReleasableEnsure(0) { deferred.get.flatten }
+          value1   <- cache.get(0).startEnsure
+          _        <- deferred.complete(TestError.raiseError[IO, Releasable[IO, Int]])
+          value    <- value0.join.attempt
+          _        <- Sync[IO].delay { value shouldEqual TestError.asLeft }
+          value    <- value1.join
+          _        <- Sync[IO].delay { value shouldEqual none }
+        } yield {}
       }
       result.run()
     }
@@ -231,12 +426,68 @@ class CacheSpec extends AsyncFunSuite with Matchers {
           value0   <- cache.getOrUpdateEnsure(0) { deferred.get }
           value1   <- cache.remove(0)
           _        <- deferred.complete(0)
-          value0   <- value0.join
-          value1   <- value1.swap
-        } yield {
-          value0 shouldEqual 0
-          value1 shouldEqual 0.some
-        }
+          value    <- value0.join
+          _        <- Sync[IO].delay { value shouldEqual 0 }
+          value    <- value1
+          _        <- Sync[IO].delay { value shouldEqual 0.some }
+        } yield {}
+      }
+      result.run()
+    }
+
+
+    test(s"remove while getOrUpdateReleasable: $name") {
+      val result = cache.use { cache =>
+        for {
+          deferred <- Deferred[IO, Releasable[IO, Int]]
+          value0   <- cache.getOrUpdateReleasableEnsure(0) { deferred.get }
+          value1   <- cache.remove(0)
+          release  <- Deferred[IO, Unit]
+          _        <- deferred.complete(Releasable(0, release.complete(())))
+          value    <- value0.join
+          _        <- Sync[IO].delay { value shouldEqual 0 }
+          value    <- value1
+          _        <- release.get
+          _        <- Sync[IO].delay { value shouldEqual 0.some }
+        } yield {}
+      }
+      result.run()
+    }
+
+
+    test(s"remove while getOrUpdate failed: $name") {
+      val result = cache.use { cache =>
+        for {
+          deferred <- Deferred[IO, IO[Int]]
+          fiber    <- cache.getOrUpdateEnsure(0) { deferred.get.flatten }
+          value    <- cache.remove(0)
+          _        <- deferred.complete(TestError.raiseError[IO, Int])
+          value    <- value
+          _        <- Sync[IO].delay { value shouldEqual none }
+          value    <- fiber.join.attempt
+          _        <- Sync[IO].delay { value shouldEqual TestError.asLeft }
+          value    <- cache.get(0)
+          _        <- Sync[IO].delay { value shouldEqual none }
+        } yield {}
+      }
+      result.run()
+    }
+
+
+    test(s"remove while getOrUpdateReleasable failed: $name") {
+      val result = cache.use { cache =>
+        for {
+          deferred <- Deferred[IO, IO[Releasable[IO, Int]]]
+          fiber    <- cache.getOrUpdateReleasableEnsure(0) { deferred.get.flatten }
+          value    <- cache.remove(0)
+          _        <- deferred.complete(TestError.raiseError[IO, Releasable[IO, Int]])
+          value    <- value
+          _        <- Sync[IO].delay { value shouldEqual none }
+          value    <- fiber.join.attempt
+          _        <- Sync[IO].delay { value shouldEqual TestError.asLeft }
+          value    <- cache.get(0)
+          _        <- Sync[IO].delay { value shouldEqual none }
+        } yield {}
       }
       result.run()
     }
@@ -259,6 +510,49 @@ class CacheSpec extends AsyncFunSuite with Matchers {
           keys1 shouldEqual Set.empty
           keys2 shouldEqual Set.empty
         }
+      }
+      result.run()
+    }
+
+
+    test(s"clear while getOrUpdateReleasable: $name") {
+      val result = cache.use { cache =>
+        for {
+          deferred <- Deferred[IO, Unit]
+          value    <- cache.getOrUpdateReleasable(0) { Releasable(0, deferred.complete(())).pure[IO] }
+          keys     <- cache.keys
+          _        <- Sync[IO].delay { keys shouldEqual Set(0) }
+          _        <- cache.clear
+          keys     <- cache.keys
+          _        <- Sync[IO].delay { keys shouldEqual Set.empty }
+          _        <- deferred.get
+          _        <- Sync[IO].delay { value shouldEqual 0 }
+          keys     <- cache.keys
+          _        <- Sync[IO].delay { keys shouldEqual Set.empty }
+        } yield {}
+      }
+      result.run()
+    }
+
+
+    test(s"clear while getOrUpdateReleasable loading: $name") {
+      val result = cache.use { cache =>
+        for {
+          deferred <- Deferred[IO, Releasable[IO, Int]]
+          value    <- cache.getOrUpdateReleasableEnsure(0) { deferred.get }
+          keys     <- cache.keys
+          _        <- Sync[IO].delay { keys shouldEqual Set(0) }
+          _        <- cache.clear
+          keys     <- cache.keys
+          _        <- Sync[IO].delay { keys shouldEqual Set.empty }
+          release  <- Deferred[IO, Unit]
+          _        <- deferred.complete(Releasable(0, release.complete(())))
+          value    <- value.join
+          _        <- Sync[IO].delay { value shouldEqual 0 }
+          keys     <- cache.keys
+          _        <- Sync[IO].delay { keys shouldEqual Set.empty }
+          _        <- release.get
+        } yield {}
       }
       result.run()
     }
@@ -383,13 +677,13 @@ object CacheSpec {
         _        <- deferred.get
       } yield fiber
     }
-  }
 
-
-  implicit class CacheSpecOptionFOps[F[_], A](val self: Option[F[A]]) extends AnyVal {
-
-    def swap(implicit F: Monad[F]): F[Option[A]] = {
-      self.flatTraverse { _.map(_.some) }
+    def getOrUpdateReleasableEnsure(key: K)(value: => F[Releasable[F, V]])(implicit F: Concurrent[F]): F[Fiber[F, V]] = {
+      for {
+        deferred <- Deferred[F, Unit]
+        fiber    <- self.getOrUpdateReleasable(key) { deferred.complete(()) *> value }.start
+        _        <- deferred.get
+      } yield fiber
     }
   }
 }

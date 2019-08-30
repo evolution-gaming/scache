@@ -21,9 +21,19 @@ object PartitionedCache {
         cache.getOrUpdate(key)(value)
       }
 
+      def getOrUpdateReleasable(key: K)(value: => F[Releasable[F, V]]) = {
+        val cache = partitions.get(key)
+        cache.getOrUpdateReleasable(key)(value)
+      }
+      
       def put(key: K, value: V) = {
         val cache = partitions.get(key)
         cache.put(key, value)
+      }
+
+      def put(key: K, value: V, release: F[Unit]) = {
+        val cache = partitions.get(key)
+        cache.put(key, value, release)
       }
 
       val size = {

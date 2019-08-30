@@ -23,6 +23,27 @@ object CacheMetered {
       } yield {}
     }
 
+    def measureLoad[A, B](value: => F[A])(f: (() => F[A]) => F[B]): F[B] = {
+
+      def measured(ref: Ref[F, Boolean]) = {
+        for {
+          _        <- ref.set(false)
+          duration <- MeasureDuration[F].start
+          value    <- value.attempt
+          duration <- duration
+          _        <- metrics.load(duration, value.isRight)
+          value    <- value.liftTo[F]
+        } yield value
+      }
+
+      for {
+        ref   <- Ref[F].of(true)
+        value <- f(() => measured(ref))
+        hit   <- ref.get
+        _     <- metrics.get(hit)
+      } yield value
+    }
+
     for {
       _ <- Schedule(interval, interval)(measureSize)
     } yield {
@@ -37,27 +58,26 @@ object CacheMetered {
         }
 
         def getOrUpdate(key: K)(value: => F[V]) = {
-
-          def valueOf(ref: Ref[F, Boolean]) = {
-            for {
-              _        <- ref.set(false)
-              duration <- MeasureDuration[F].start
-              value    <- value.attempt
-              duration <- duration
-              _        <- metrics.load(duration, value.isRight)
-              value    <- value.liftTo[F]
-            } yield value
-          }
-
-          for {
-            ref   <- Ref[F].of(true)
-            value <- cache.getOrUpdate(key)(valueOf(ref))
-            hit   <- ref.get
-            _     <- metrics.get(hit)
-          } yield value
+          measureLoad(value) { value => cache.getOrUpdate(key)(value()) }
         }
 
-        def put(key: K, value: V) = cache.put(key, value)
+        def getOrUpdateReleasable(key: K)(value: => F[Releasable[F, V]]) = {
+          measureLoad(value) { value => cache.getOrUpdateReleasable(key)(value()) }
+        }
+
+        def put(key: K, value: V) = {
+          for {
+            _ <- metrics.put
+            v <- cache.put(key, value)
+          } yield v
+        }
+
+        def put(key: K, value: V, release: F[Unit]) = {
+          for {
+            _ <- metrics.put
+            v <- cache.put(key, value, release)
+          } yield v
+        }
 
         def size = cache.size
 
