@@ -25,15 +25,17 @@ object ExpiringCache {
     refresh: Option[Refresh[K, F[V]]] = None,
   ): Resource[F, Cache[F, K, V]] = {
 
+    type E = Entry[V]
+
     val cooldown       = expireAfter.toMillis / 5
     val expireAfterMs  = expireAfter.toMillis + cooldown / 2
     val expireInterval = (expireAfterMs / 10).millis
 
-    def removeExpiredAndCheckSize(ref: Ref[F, LoadingCache.EntryRefs[F, K, Entry[V]]]) = {
+    def removeExpiredAndCheckSize(ref: Ref[F, LoadingCache.EntryRefs[F, K, E]]) = {
 
-      def removeExpired(key: K, entryRefs: LoadingCache.EntryRefs[F, K, Entry[V]]) = {
+      def removeExpired(key: K, entryRefs: LoadingCache.EntryRefs[F, K, E]) = {
 
-        def removeExpired(entry: Entry[V]) = {
+        def removeExpired(entry: E) = {
           for {
             now    <- Clock[F].millis
             result <- if (entry.timestamp + expireAfterMs < now) ref.update { _ - key } else ().pure[F]
@@ -45,8 +47,8 @@ object ExpiringCache {
           for {
             entry  <- entryRef.get
             result <- entry match {
-              case entry: LoadingCache.Entry.Loaded[F, Entry[V]]  => removeExpired(entry.value)
-              case _    : LoadingCache.Entry.Loading[F, Entry[V]] => ().pure[F]
+              case entry: LoadingCache.Entry.Loaded[F, E]  => removeExpired(entry.value)
+              case _    : LoadingCache.Entry.Loading[F, E] => ().pure[F]
             }
           } yield result
         }
@@ -54,7 +56,7 @@ object ExpiringCache {
 
       def notExceedMaxSize(maxSize: Int) = {
 
-        def drop(entryRefs: LoadingCache.EntryRefs[F, K, Entry[V]]) = {
+        def drop(entryRefs: LoadingCache.EntryRefs[F, K, E]) = {
 
           case class Elem(key: K, timestamp: Timestamp)
 
@@ -64,8 +66,8 @@ object ExpiringCache {
               result <- result
               entry  <- entryRef.get
             } yield entry match {
-              case entry: LoadingCache.Entry.Loaded[F, Entry[V]]  => Elem(key, entry.value.timestamp) :: result
-              case _    : LoadingCache.Entry.Loading[F, Entry[V]] => result
+              case entry: LoadingCache.Entry.Loaded[F, E]  => Elem(key, entry.value.timestamp) :: result
+              case _    : LoadingCache.Entry.Loading[F, E] => result
             }
           }
 
@@ -91,29 +93,29 @@ object ExpiringCache {
 
     def refreshEntries(
       refresh: Refresh[K, F[V]],
-      ref: Ref[F, LoadingCache.EntryRefs[F, K, Entry[V]]]
+      ref: Ref[F, LoadingCache.EntryRefs[F, K, E]]
     ) = {
 
-      def refreshEntry(key: K, entryRef: LoadingCache.EntryRef[F, Entry[V]]) = {
+      def refreshEntry(key: K, entryRef: LoadingCache.EntryRef[F, E]) = {
         val result = for {
           value  <- refresh.value(key)
           result <- entryRef.update {
-            case entry: LoadingCache.Entry.Loaded[F, Entry[V]]  => entry.copy(value = entry.value.copy(value = value))
-            case entry: LoadingCache.Entry.Loading[F, Entry[V]] => entry
+            case entry: LoadingCache.Entry.Loaded[F, E]  => entry.copy(value = entry.value.copy(value = value))
+            case entry: LoadingCache.Entry.Loading[F, E] => entry
           }
         } yield result
         result.handleError { _ => () }
       }
 
-      def refreshEntries(entryRefs: LoadingCache.EntryRefs[F, K, Entry[V]]) = {
+      def refreshEntries(entryRefs: LoadingCache.EntryRefs[F, K, E]) = {
         for {
           key      <- entryRefs.keys.toList
           entryRef <- entryRefs.get(key)
         } yield for {
           entry  <- entryRef.get
           result <- entry match {
-            case _: LoadingCache.Entry.Loaded[F, Entry[V]]  => refreshEntry(key, entryRef)
-            case _: LoadingCache.Entry.Loading[F, Entry[V]] => ().pure[F]
+            case _: LoadingCache.Entry.Loaded[F, E]  => refreshEntry(key, entryRef)
+            case _: LoadingCache.Entry.Loading[F, E] => ().pure[F]
           }
         } yield result
       }
@@ -126,7 +128,7 @@ object ExpiringCache {
 
     def schedule(interval: FiniteDuration)(fa: F[Unit]) = Schedule(interval, interval)(fa)
 
-    val entryRefs = LoadingCache.EntryRefs.empty[F, K, Entry[V]]
+    val entryRefs = LoadingCache.EntryRefs.empty[F, K, E]
     val ref = Ref[F].of(entryRefs)
     for {
       ref   <- Resource.liftF(ref)
@@ -145,16 +147,18 @@ object ExpiringCache {
     cooldown: Long,
   ): Cache[F, K, V] = {
 
+    type E = Entry[V]
+
     implicit val monoidUnit = Applicative.monoid[F, Unit]
 
-    def touch(key: K, entry: Entry[V]) = {
+    def touch(key: K, entry: E) = {
 
       def touch(timestamp: Timestamp): F[Unit] = {
 
-        def touch(entryRef: LoadingCache.EntryRef[F, Entry[V]]) = {
+        def touch(entryRef: LoadingCache.EntryRef[F, E]) = {
           entryRef.update {
-            case entry: LoadingCache.Entry.Loaded[F, Entry[V]]  => LoadingCache.Entry.loaded(entry.value.touch(timestamp))
-            case entry: LoadingCache.Entry.Loading[F, Entry[V]] => entry
+            case entry: LoadingCache.Entry.Loaded[F, E]  => LoadingCache.Entry.loaded(entry.value.touch(timestamp))
+            case entry: LoadingCache.Entry.Loading[F, E] => entry
           }
         }
 
