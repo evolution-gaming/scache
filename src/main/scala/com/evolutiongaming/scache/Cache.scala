@@ -1,9 +1,8 @@
 package com.evolutiongaming.scache
 
-import cats.Applicative
+import cats.{Applicative, Parallel}
 import cats.effect.{Concurrent, Resource, Timer}
 import cats.implicits._
-import cats.temp.par.Par
 import com.evolutiongaming.catshelper.Runtime
 import com.evolutiongaming.smetrics.MeasureDuration
 
@@ -79,7 +78,7 @@ object Cache {
   }
 
 
-  def expiring[F[_] : Concurrent : Timer : Runtime : Par, K, V](
+  def expiring[F[_] : Concurrent : Timer : Runtime : Parallel, K, V](
     expireAfter: FiniteDuration,
     maxSize: Option[Int] = None,
     refresh: Option[ExpiringCache.Refresh[K, F[V]]] = None

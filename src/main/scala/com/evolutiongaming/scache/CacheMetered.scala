@@ -45,7 +45,7 @@ object CacheMetered {
               value    <- value.attempt
               duration <- duration
               _        <- metrics.load(duration, value.isRight)
-              value    <- value.raiseOrPure[F]
+              value    <- value.liftTo[F]
             } yield value
           }
 
