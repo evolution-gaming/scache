@@ -47,8 +47,8 @@ object LoadingCache {
                 }
                 case Left(_)      => ref.update { _ - key }
               }
-              _     <- deferred.complete(value.raiseOrPure[F])
-              value <- value.raiseOrPure[F]
+              _     <- deferred.complete(value.liftTo[F])
+              value <- value.liftTo[F]
             } yield value
           }
 
@@ -138,7 +138,7 @@ object LoadingCache {
         for {
           entryRefs <- ref.get
         } yield {
-          entryRefs.mapValues(_.value)
+          entryRefs.map { case (k, v) => k -> v.value }
         }
       }
 

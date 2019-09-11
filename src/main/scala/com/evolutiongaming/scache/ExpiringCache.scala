@@ -3,7 +3,6 @@ package com.evolutiongaming.scache
 import cats.effect.concurrent.Ref
 import cats.effect.{Clock, Concurrent, Resource, Timer}
 import cats.implicits._
-import cats.temp.par.{Par, _}
 import cats.{Applicative, Monad, Parallel}
 import com.evolutiongaming.catshelper.ClockHelper._
 import com.evolutiongaming.catshelper.Schedule
@@ -19,7 +18,7 @@ object ExpiringCache {
 
   type Timestamp = Long
 
-  private[scache] def of[F[_] : Concurrent : Timer : Par, K, V](
+  private[scache] def of[F[_] : Concurrent : Timer : Parallel, K, V](
     expireAfter: FiniteDuration,
     maxSize: Option[Int] = None,
     refresh: Option[Refresh[K, F[V]]] = None,
@@ -231,8 +230,8 @@ object ExpiringCache {
         for {
           entries <- cache.values
         } yield {
-          entries.mapValues { entry =>
-            for {
+          entries.map { case (key, entry) =>
+            key -> for {
               entry <- entry
             } yield {
               entry.value

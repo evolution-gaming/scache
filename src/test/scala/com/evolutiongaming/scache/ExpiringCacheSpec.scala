@@ -1,10 +1,9 @@
 package com.evolutiongaming.scache
 
-import cats.Monad
+import cats.{Monad, Parallel}
 import cats.effect.concurrent.Ref
 import cats.effect.{Concurrent, IO, Timer}
 import cats.implicits._
-import cats.temp.par._
 import com.evolutiongaming.scache.IOSuite._
 import org.scalatest.{AsyncFunSuite, Matchers}
 
@@ -37,7 +36,7 @@ class ExpiringCacheSpec extends AsyncFunSuite with Matchers {
     refreshFails[IO].run()
   }
 
-  private def expireRecords[F[_] : Concurrent : Timer : Par] = {
+  private def expireRecords[F[_] : Concurrent : Timer : Parallel] = {
 
     ExpiringCache.of[F, Int, Int](100.millis).use { cache =>
 
@@ -66,7 +65,7 @@ class ExpiringCacheSpec extends AsyncFunSuite with Matchers {
     }
   }
 
-  private def notExpireUsedRecords[F[_] : Concurrent : Timer : Par] = {
+  private def notExpireUsedRecords[F[_] : Concurrent : Timer : Parallel] = {
     ExpiringCache.of[F, Int, Int](50.millis).use { cache =>
       val touch = for {
         _ <- Timer[F].sleep(10.millis)
@@ -88,7 +87,7 @@ class ExpiringCacheSpec extends AsyncFunSuite with Matchers {
   }
 
 
-  private def notExceedMaxSize[F[_] : Concurrent : Timer : Par] = {
+  private def notExceedMaxSize[F[_] : Concurrent : Timer : Parallel] = {
     ExpiringCache.of[F, Int, Int](expireAfter = 100.millis, maxSize = 10.some).use { cache =>
 
       def retryUntilCleaned(key: Int) = {
@@ -114,7 +113,7 @@ class ExpiringCacheSpec extends AsyncFunSuite with Matchers {
     }
   }
 
-  private def refreshPeriodically[F[_] : Concurrent : Timer : Par] = {
+  private def refreshPeriodically[F[_] : Concurrent : Timer : Parallel] = {
 
     val value = (key: Int) => key.pure[F]
     val refresh = ExpiringCache.Refresh(100.millis, value)
@@ -143,7 +142,7 @@ class ExpiringCacheSpec extends AsyncFunSuite with Matchers {
     }
   }
 
-  private def refreshDoesNotTouch[F[_] : Concurrent : Timer : Par] = {
+  private def refreshDoesNotTouch[F[_] : Concurrent : Timer : Parallel] = {
     val value = (key: Int) => key.pure[F]
     val refresh = ExpiringCache.Refresh(100.millis, value)
 
@@ -184,7 +183,7 @@ class ExpiringCacheSpec extends AsyncFunSuite with Matchers {
     }
   }
 
-  private def refreshFails[F[_] : Concurrent : Timer : Par] = {
+  private def refreshFails[F[_] : Concurrent : Timer : Parallel] = {
 
     def valueOf(ref: Ref[F, Int]) = {
       (_: Int) => {
