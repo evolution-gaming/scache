@@ -231,11 +231,12 @@ object ExpiringCache {
           entries <- cache.values
         } yield {
           entries.map { case (key, entry) =>
-            key -> for {
+            val value = for {
               entry <- entry
             } yield {
               entry.value
             }
+            key -> value
           }
         }
       }
