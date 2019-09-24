@@ -39,26 +39,14 @@ class ExpiringCacheSpec extends AsyncFunSuite with Matchers {
   private def expireRecords[F[_] : Concurrent : Timer : Parallel] = {
 
     ExpiringCache.of[F, Int, Int](100.millis).use { cache =>
-
-      def retryUntilExpired(key: Int) = {
-        Retry(10.millis, 100) {
-          for {
-            values <- cache.values
-          } yield {
-            val value = values.get(key)
-            value.fold { ().some } { _ => none[Unit] }
-          }
-        }
-      }
-
       for {
         release <- Deferred[F, Unit]
         value   <- cache.put(0, 0, release.complete(()))
+        value   <- value
         _       <- Sync[F].delay { value shouldEqual none }
         value   <- cache.get(0)
         _       <- Sync[F].delay { value shouldEqual 0.some }
-        value   <- retryUntilExpired(0)
-        _       <- Sync[F].delay { value shouldEqual ().some }
+        _       <- release.get
         value   <- cache.get(0)
         _       <- Sync[F].delay { value shouldEqual none }
       } yield {}
@@ -72,44 +60,36 @@ class ExpiringCacheSpec extends AsyncFunSuite with Matchers {
         _ <- cache.get(0)
       } yield {}
       for {
-        value0 <- cache.put(0, 0)
-        value1 <- cache.put(1, 1)
-        _      <- List.fill(6)(touch).foldMapM(identity)
-        value2 <- cache.get(0)
-        value3 <- cache.get(1)
-      } yield {
-        value0 shouldEqual none
-        value1 shouldEqual none
-        value2 shouldEqual 0.some
-        value3 shouldEqual none
-      }
+        release <- Ref[F].of(false)
+        value   <- cache.put(0, 0, release.set(true))
+        value   <- value
+        _       <- Sync[F].delay { value shouldEqual none }
+        value   <- cache.put(1, 1)
+        value   <- value
+        _       <- Sync[F].delay { value shouldEqual none }
+        _       <- List.fill(6)(touch).foldMapM(identity)
+        value   <- cache.get(0)
+        _       <- Sync[F].delay { value shouldEqual 0.some }
+        value   <- cache.get(1)
+        _       <- Sync[F].delay { value shouldEqual none }
+        release <- release.get
+        _       <- Sync[F].delay { release shouldEqual false}
+      } yield {}
     }
   }
 
 
   private def notExceedMaxSize[F[_] : Concurrent : Timer : Parallel] = {
     ExpiringCache.of[F, Int, Int](expireAfter = 100.millis, maxSize = 10.some).use { cache =>
-
-      def retryUntilCleaned(key: Int) = {
-        Retry(10.millis, 100) {
-          for {
-            values <- cache.values
-          } yield {
-            val value = values.get(key)
-            value.fold { ().some } { _ => none[Unit] }
-          }
-        }
-      }
-
       for {
-        _      <- (0 until 10).toList.foldMapM { n => cache.put(n, n).void }
-        value0 <- cache.get(0)
-        _      <- cache.put(10, 10)
-        value1 <- retryUntilCleaned(0)
-      } yield {
-        value0 shouldEqual 0.some
-        value1 shouldEqual ().some
-      }
+        release <- Deferred[F, Unit]
+        _       <- cache.put(0, 0, release.complete(()))
+        _       <- (1 until 10).toList.foldMapM { n => cache.put(n, n).void }
+        value   <- cache.get(0)
+        _       <- Sync[F].delay { value shouldEqual 0.some }
+        _       <- cache.put(10, 10)
+        _       <- release.get
+      } yield {}
     }
   }
 
@@ -131,14 +111,14 @@ class ExpiringCacheSpec extends AsyncFunSuite with Matchers {
       }
 
       for {
-        value0 <- cache.put(0, 1)
-        value1 <- cache.get(0)
-        value2 <- retryUntilRefreshed(0, 1)
-      } yield {
-        value0 shouldEqual none
-        value1 shouldEqual 1.some
-        value2 shouldEqual 0.some
-      }
+        value <- cache.put(0, 1)
+        value <- value
+        _     <- Sync[F].delay { value shouldEqual none }
+        value <- cache.get(0)
+        _     <- Sync[F].delay { value shouldEqual 1.some }
+        value <- retryUntilRefreshed(0, 1)
+        _     <- Sync[F].delay { value shouldEqual 0.some }
+      } yield {}
     }
   }
 
@@ -158,28 +138,20 @@ class ExpiringCacheSpec extends AsyncFunSuite with Matchers {
         }
       }
 
-      def retryUntilExpired(key: Int) = {
-        Retry(10.millis, 100) {
-          for {
-            values <- cache.values // TODO replace with getNotTouch and others
-          } yield {
-            val value = values.get(key)
-            value.fold { ().some } { _ => none[Unit] }
-          }
-        }
-      }
-
       for {
-        value0 <- cache.put(0, 1)
-        value1 <- cache.get(0)
-        value2 <- retryUntilRefreshed(0, 1)
-        value3 <- retryUntilExpired(0)
-      } yield {
-        value0 shouldEqual none
-        value1 shouldEqual 1.some
-        value2 shouldEqual 0.some
-        value3 shouldEqual ().some
-      }
+        released <- Ref[F].of(false)
+        release  <- Deferred[F, Unit]
+        value    <- cache.put(0, 1, released.set(true) *> release.complete(()))
+        value    <- value
+        _        <- Sync[F].delay { value shouldEqual none }
+        value    <- cache.get(0)
+        _        <- Sync[F].delay { value shouldEqual 1.some }
+        value    <- retryUntilRefreshed(0, 1)
+        released <- released.get
+        _        <- Sync[F].delay { released shouldEqual false}
+        _        <- Sync[F].delay { value shouldEqual 0.some }
+        _        <- release.get
+      } yield {}
     }
   }
 
@@ -211,16 +183,16 @@ class ExpiringCacheSpec extends AsyncFunSuite with Matchers {
         }
 
         for {
-          value0 <- cache.put(0, 0)
-          value1 <- cache.get(0)
-          value2 <- retryUntilRefreshed(0, 0)
-          value4 <- ref.get
-        } yield {
-          value0 shouldEqual none
-          value1 shouldEqual 0.some
-          value2 shouldEqual 1.some
-          value4 should be >= 1
-        }
+          value <- cache.put(0, 0)
+          value <- value
+          _     <- Sync[F].delay { value shouldEqual none }
+          value <- cache.get(0)
+          _     <- Sync[F].delay { value shouldEqual 0.some }
+          value <- retryUntilRefreshed(0, 0)
+          _     <- Sync[F].delay { value shouldEqual 1.some }
+          value <- ref.get
+          _     <- Sync[F].delay { value should be >= 1 }
+        } yield {}
       }
     } yield result
   }

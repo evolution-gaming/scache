@@ -196,19 +196,21 @@ class SerialMapSpec extends AsyncFunSuite with Matchers {
 
   private def remove[F[_] : Concurrent] = {
     val key = "key"
-    for {
-      cache     <- LoadingCache.of(LoadingCache.EntryRefs.empty[F, String, SerialRef[F, SerialMap.State[Int]]])
-      serialMap  = SerialMap(cache)
-      value0    <- cache.get(key)
-      _         <- serialMap.update(key) { _ => 0.some.pure[F] }
-      value1    <- cache.get(key)
-      value2    <- serialMap.remove(key)
-      value3    <- cache.get(key)
-    } yield {
-      value0.isDefined shouldEqual false
-      value1.isDefined shouldEqual true
-      value2 shouldEqual 0.some
-      value3.isDefined shouldEqual false
+    val cache = LoadingCache.of(LoadingCache.EntryRefs.empty[F, String, SerialRef[F, SerialMap.State[Int]]])
+    cache.use { cache =>
+      val serialMap = SerialMap(cache)
+      for {
+        value0 <- cache.get(key)
+        _      <- serialMap.update(key) { _ => 0.some.pure[F] }
+        value1 <- cache.get(key)
+        value2 <- serialMap.remove(key)
+        value3 <- cache.get(key)
+      } yield {
+        value0.isDefined shouldEqual false
+        value1.isDefined shouldEqual true
+        value2 shouldEqual 0.some
+        value3.isDefined shouldEqual false
+      }
     }
   }
 
@@ -230,20 +232,22 @@ class SerialMapSpec extends AsyncFunSuite with Matchers {
 
   private def `not leak on failures`[F[_] : Concurrent] = {
     val key = "key"
-    for {
-      cache       <- LoadingCache.of(LoadingCache.EntryRefs.empty[F, String, SerialRef[F, SerialMap.State[Int]]])
-      serialMap    = SerialMap(cache)
-      modifyError  = serialMap.modify(key) { _ => TestError.raiseError[F, (Option[Int], Unit)] }.attempt
-      value0      <- modifyError
-      value1      <- cache.get(key)
-      _           <- serialMap.put(key, 0)
-      value2      <- modifyError
-      value3      <- serialMap.get(key)
-    } yield {
-      value0 shouldEqual TestError.asLeft
-      value1.isDefined shouldEqual false
-      value2 shouldEqual TestError.asLeft
-      value3 shouldEqual 0.some
+    val cache = LoadingCache.of(LoadingCache.EntryRefs.empty[F, String, SerialRef[F, SerialMap.State[Int]]])
+    cache.use { cache =>
+      val serialMap = SerialMap(cache)
+      val modifyError = serialMap.modify(key) { _ => TestError.raiseError[F, (Option[Int], Unit)] }.attempt
+      for {
+        value0 <- modifyError
+        value1 <- cache.get(key)
+        _      <- serialMap.put(key, 0)
+        value2 <- modifyError
+        value3 <- serialMap.get(key)
+      } yield {
+        value0 shouldEqual TestError.asLeft
+        value1.isDefined shouldEqual false
+        value2 shouldEqual TestError.asLeft
+        value3 shouldEqual 0.some
+      }
     }
   }
 

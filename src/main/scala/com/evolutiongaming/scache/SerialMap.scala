@@ -70,9 +70,9 @@ object SerialMap { self =>
 
   def of[F[_] : Concurrent : Runtime, K, V]: F[SerialMap[F, K, V]] = {
     for {
-      cache <- Cache.loading[F, K, SerialRef[F, State[V]]]()
+      cache <- Cache.loading[F, K, SerialRef[F, State[V]]].allocated
     } yield {
-      apply(cache)
+      apply(cache._1)
     }
   }
 

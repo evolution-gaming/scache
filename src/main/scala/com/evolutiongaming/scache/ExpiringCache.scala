@@ -5,15 +5,11 @@ import cats.effect.{Clock, Concurrent, Resource, Timer}
 import cats.implicits._
 import cats.{Applicative, Monad, Parallel}
 import com.evolutiongaming.catshelper.ClockHelper._
+import com.evolutiongaming.catshelper.ParallelHelper._
 import com.evolutiongaming.catshelper.Schedule
 
 import scala.concurrent.duration._
 
-/**
-  * TODO list
-  * * add getNotTouch
-  * * add getOrUpdateNotTouch
-  */
 object ExpiringCache {
 
   type Timestamp = Long
@@ -30,25 +26,24 @@ object ExpiringCache {
     val expireAfterMs  = expireAfter.toMillis + cooldown / 2
     val expireInterval = (expireAfterMs / 10).millis
 
-    def removeExpiredAndCheckSize(ref: Ref[F, LoadingCache.EntryRefs[F, K, E]]) = {
+    def removeExpiredAndCheckSize(ref: Ref[F, LoadingCache.EntryRefs[F, K, E]], cache: Cache[F, K, E]) = {
+
+      def remove(key: K) = cache.remove(key).flatten.void
 
       def removeExpired(key: K, entryRefs: LoadingCache.EntryRefs[F, K, E]) = {
 
         def removeExpired(entry: E) = {
           for {
             now    <- Clock[F].millis
-            result <- if (entry.timestamp + expireAfterMs < now) ref.update { _ - key } else ().pure[F]
+            result <- if (entry.timestamp + expireAfterMs < now) remove(key) else ().pure[F]
           } yield result
         }
 
         val entryRef = entryRefs.get(key)
         entryRef.foldMapM { entryRef =>
           for {
-            entry  <- entryRef.get
-            result <- entry match {
-              case entry: LoadingCache.Entry.Loaded[F, E]  => removeExpired(entry.value)
-              case _    : LoadingCache.Entry.Loading[F, E] => ().pure[F]
-            }
+            values <- entryRef.getLoaded
+            result <- values.parFoldMap(removeExpired)
           } yield result
         }
       }
@@ -63,17 +58,20 @@ object ExpiringCache {
           val entries = entryRefs.foldLeft(zero.pure[F]) { case (result, (key, entryRef)) =>
             for {
               result <- result
-              entry  <- entryRef.get
-            } yield entry match {
-              case entry: LoadingCache.Entry.Loaded[F, E]  => Elem(key, entry.value.timestamp) :: result
-              case _    : LoadingCache.Entry.Loading[F, E] => result
+              value  <- entryRef.getLoaded
+            } yield {
+              value.fold {
+                result
+              } { value =>
+                Elem(key, value.timestamp) :: result
+              }
             }
           }
 
           for {
             entries <- entries
             drop     = entries.sortBy(_.timestamp).take(maxSize / 10)
-            result  <- drop.foldMapM { elem => ref.update { _ - elem.key } }
+            result  <- drop.parFoldMap { elem => remove(elem.key) }
           } yield result
         }
 
@@ -95,13 +93,10 @@ object ExpiringCache {
       ref: Ref[F, LoadingCache.EntryRefs[F, K, E]]
     ) = {
 
-      def refreshEntry(key: K, entryRef: LoadingCache.EntryRef[F, E]) = {
+      def refreshEntry(key: K, entryRef: EntryRef[F, E]) = {
         val result = for {
           value  <- refresh.value(key)
-          result <- entryRef.update {
-            case entry: LoadingCache.Entry.Loaded[F, E]  => entry.copy(value = entry.value.copy(value = value))
-            case entry: LoadingCache.Entry.Loading[F, E] => entry
-          }
+          result <- entryRef.updateLoaded(_.copy(value = value))
         } yield result
         result.handleError { _ => () }
       }
@@ -111,17 +106,14 @@ object ExpiringCache {
           key      <- entryRefs.keys.toList
           entryRef <- entryRefs.get(key)
         } yield for {
-          entry  <- entryRef.get
-          result <- entry match {
-            case _: LoadingCache.Entry.Loaded[F, E]  => refreshEntry(key, entryRef)
-            case _: LoadingCache.Entry.Loading[F, E] => ().pure[F]
-          }
+          value <- entryRef.getLoaded
+          result <- value.foldMapM { _ => refreshEntry(key, entryRef) }
         } yield result
       }
 
       for {
         entryRefs <- ref.get
-        _         <- Parallel.parSequence(refreshEntries(entryRefs))
+        _         <- refreshEntries(entryRefs).parSequence
       } yield {}
     }
 
@@ -132,7 +124,7 @@ object ExpiringCache {
     for {
       ref   <- Resource.liftF(ref)
       cache  = LoadingCache(ref)
-      _     <- schedule(expireInterval) { removeExpiredAndCheckSize(ref) }
+      _     <- schedule(expireInterval) { removeExpiredAndCheckSize(ref, cache) }
       _     <- refresh.foldMapM { refresh => schedule(refresh.interval) { refreshEntries(refresh, ref) } }
     } yield {
       apply(ref, cache, cooldown)
@@ -154,11 +146,8 @@ object ExpiringCache {
 
       def touch(timestamp: Timestamp): F[Unit] = {
 
-        def touch(entryRef: LoadingCache.EntryRef[F, E]) = {
-          entryRef.update {
-            case entry: LoadingCache.Entry.Loaded[F, E]  => entry.copy(value = entry.value.touch(timestamp))
-            case entry: LoadingCache.Entry.Loading[F, E] => entry
-          }
+        def touch(entryRef: EntryRef[F, E]) = {
+          entryRef.updateLoaded(_.touch(timestamp))
         }
 
         for {
@@ -235,6 +224,8 @@ object ExpiringCache {
           entry     <- cache.put(key, entry)
         } yield for {
           entry <- entry
+        } yield for {
+          entry <- entry
         } yield {
           entry.value
         }
@@ -245,6 +236,8 @@ object ExpiringCache {
           timestamp <- Clock[F].millis
           entry      = Entry(value, timestamp)
           entry     <- cache.put(key, entry, release)
+        } yield for {
+          entry <- entry
         } yield for {
           entry <- entry
         } yield {

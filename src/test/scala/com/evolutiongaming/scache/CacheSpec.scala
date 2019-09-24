@@ -1,8 +1,8 @@
 package com.evolutiongaming.scache
 
 import cats.Monad
-import cats.effect.concurrent.Deferred
-import cats.effect.{Async, Concurrent, Fiber, IO, Resource, Sync}
+import cats.effect.concurrent.{Deferred, Ref}
+import cats.effect.{Async, Concurrent, Fiber, IO, Sync}
 import cats.effect.implicits._
 import cats.implicits._
 import com.evolutiongaming.scache.IOSuite._
@@ -18,8 +18,8 @@ class CacheSpec extends AsyncFunSuite with Matchers {
 
   for {
     (name, cache0) <- List(
-      ("default"               , Resource.liftF(Cache.loading[IO, Int, Int]())),
-      ("no partitions"         , Resource.liftF(LoadingCache.of(LoadingCache.EntryRefs.empty[IO, Int, Int]))),
+      ("default"               , Cache.loading[IO, Int, Int]),
+      ("no partitions"         , LoadingCache.of(LoadingCache.EntryRefs.empty[IO, Int, Int])),
       ("expiring"              , Cache.expiring[IO, Int, Int](1.minute)),
       ("expiring no partitions", ExpiringCache.of[IO, Int, Int](1.minute)))
   } yield {
@@ -47,12 +47,15 @@ class CacheSpec extends AsyncFunSuite with Matchers {
       val result = cache.use { cache =>
         for {
           value <- cache.put(0, 0)
+          value <- value
           _     <- Sync[IO].delay { value shouldEqual none }
           value <- cache.get(0)
           _     <- Sync[IO].delay { value shouldEqual 0.some }
           value <- cache.put(0, 1)
+          value <- value
           _     <- Sync[IO].delay { value shouldEqual 0.some }
           value <- cache.put(0, 2)
+          value <- value
           _     <- Sync[IO].delay { value shouldEqual 1.some }
         } yield {}
       }
@@ -63,16 +66,24 @@ class CacheSpec extends AsyncFunSuite with Matchers {
     test(s"put releasable: $name") {
       val result = cache.use { cache =>
         for {
-          release <- Deferred[IO, Unit]
-          value   <- cache.put(0, 0, release.complete(()))
-          _       <- Sync[IO].delay { value shouldEqual none }
-          value   <- cache.get(0)
-          _       <- Sync[IO].delay { value shouldEqual 0.some }
-          value   <- cache.put(0, 1)
-          _       <- release.get
-          _       <- Sync[IO].delay { value shouldEqual 0.some }
-          value   <- cache.put(0, 2)
-          _       <- Sync[IO].delay { value shouldEqual 1.some }
+          release0 <- Deferred[IO, Unit]
+          release1 <- Deferred[IO, Unit]
+          released <- Ref[IO].of(false)
+          value    <- cache.put(0, 0, release0.complete(()) *> release1.get *> released.set(true))
+          value    <- value
+          _        <- Sync[IO].delay { value shouldEqual none }
+          value    <- cache.get(0)
+          _        <- Sync[IO].delay { value shouldEqual 0.some }
+          value    <- cache.put(0, 1)
+          _        <- release0.get
+          _        <- release1.complete(())
+          value    <- value
+          _        <- Sync[IO].delay { value shouldEqual 0.some }
+          value    <- released.get
+          _        <- Sync[IO].delay { value shouldEqual true }
+          value    <- cache.put(0, 2)
+          value    <- value
+          _        <- Sync[IO].delay { value shouldEqual 1.some }
         } yield {}
       }
       result.run()
@@ -141,23 +152,32 @@ class CacheSpec extends AsyncFunSuite with Matchers {
     test(s"clear releasable: $name") {
       val result = cache.use { cache =>
         for {
-          deferred <- Deferred[IO, Unit]
-          release  <- Deferred[IO, Unit]
-          _        <- cache.put(0, 0, deferred.get *> release.complete(()))
-          _        <- Deferred[IO, Unit]
-          _        <- cache.put(1, 1, TestError.raiseError[IO, Unit])
-          keys     <- cache.keys
-          _        <- Sync[IO].delay { keys shouldEqual Set(0, 1) }
-          result   <- cache.clear
-          value    <- cache.get(0)
-          _        <- Sync[IO].delay { value shouldEqual none[Int] }
-          value    <- cache.get(1)
-          _        <- Sync[IO].delay { value shouldEqual none[Int] }
-          keys     <- cache.keys
-          _        <- Sync[IO].delay { keys shouldEqual Set.empty }
-          _        <- deferred.complete(())
-          _        <- release.get
-          _        <- result
+          release   <- Deferred[IO, Unit]
+          released0 <- Ref[IO].of(false)
+          _         <- cache.put(0, 0, release.get *> released0.set(true))
+          _         <- Deferred[IO, Unit]
+          _         <- cache.put(1, 1, TestError.raiseError[IO, Unit])
+          released1 <- Ref[IO].of(false)
+          _         <- cache.getOrUpdateReleasable(2)(Releasable(2, release.get *> released1.set(true)).pure[IO])
+          _         <- Deferred[IO, Unit]
+          _         <- cache.getOrUpdateReleasable(3)(Releasable(3, TestError.raiseError[IO, Unit]).pure[IO])
+          keys      <- cache.keys
+          _         <- Sync[IO].delay { keys shouldEqual Set(0, 1, 2, 3) }
+          clear     <- cache.clear
+          _ <- keys.toList.foldMapM { key =>
+            for {
+              value    <- cache.get(key)
+              _        <- Sync[IO].delay { value shouldEqual none[Int] }
+            } yield {}
+          }
+          keys      <- cache.keys
+          _         <- Sync[IO].delay { keys shouldEqual Set.empty }
+          _         <- release.complete(()).start
+          _         <- clear
+          value     <- released0.get
+          _         <- Sync[IO].delay { value shouldEqual true }
+          value     <- released1.get
+          _         <- Sync[IO].delay { value shouldEqual true }
         } yield {}
       }
       result.run()
@@ -216,11 +236,13 @@ class CacheSpec extends AsyncFunSuite with Matchers {
           deferred <- Deferred[IO, Releasable[IO, Int]]
           value0   <- cache.getOrUpdateReleasableEnsure(0) { deferred.get }
           value2   <- cache.getOrUpdateReleasable(0)(Releasable[IO].pure(1).pure[IO]).startEnsure
-          _        <- deferred.complete(Releasable(0, Async[IO].never[Unit]))
+          released <- Deferred[IO, Unit]
+          _        <- deferred.complete(Releasable(0, released.get))
           value    <- value0.join
           _        <- Sync[IO].delay { value shouldEqual 0 }
           value    <- value2.join
           _        <- Sync[IO].delay { value shouldEqual 0 }
+          _        <- released.complete(())
         } yield {}
       }
       result.run()
@@ -253,6 +275,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
           fiber    <- cache.getOrUpdateEnsure(0) { deferred.get }
           value    <- cache.put(0, 1)
           _        <- deferred.complete(0)
+          value    <- value
           _        <- Sync[IO].delay { value shouldEqual none }
           value    <- fiber.join
           _        <- Sync[IO].delay { value shouldEqual 1 }
@@ -273,6 +296,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
           release  <- Deferred[IO, Unit]
           _        <- deferred.complete(Releasable(0, release.complete(())))
           _        <- release.get
+          value    <- value
           _        <- Sync[IO].delay { value shouldEqual none }
           value    <- fiber.join
           _        <- Sync[IO].delay { value shouldEqual 1 }
@@ -289,6 +313,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         for {
           fiber    <- cache.getOrUpdateEnsure(0) { Async[IO].never[Int] }
           value    <- cache.put(0, 0)
+          value    <- value
           _        <- Sync[IO].delay { value shouldEqual none }
           value    <- fiber.join
           _        <- Sync[IO].delay { value shouldEqual 0 }
@@ -305,6 +330,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         for {
           fiber    <- cache.getOrUpdateReleasableEnsure(0) { Async[IO].never[Releasable[IO, Int]] }
           value    <- cache.put(0, 0)
+          value    <- value
           _        <- Sync[IO].delay { value shouldEqual none }
           value    <- fiber.join
           _        <- Sync[IO].delay { value shouldEqual 0 }
@@ -323,6 +349,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
           fiber    <- cache.getOrUpdateEnsure(0) { deferred.get.flatten }
           value    <- cache.put(0, 1)
           _        <- deferred.complete(TestError.raiseError[IO, Int])
+          value    <- value
           _        <- Sync[IO].delay { value shouldEqual none }
           value    <- fiber.join
           _        <- Sync[IO].delay { value shouldEqual 1 }
@@ -341,6 +368,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
           fiber    <- cache.getOrUpdateReleasableEnsure(0) { deferred.get.flatten }
           value    <- cache.put(0, 1)
           _        <- deferred.complete(TestError.raiseError[IO, Releasable[IO, Int]])
+          value    <- value
           _        <- Sync[IO].delay { value shouldEqual none }
           value    <- fiber.join
           _        <- Sync[IO].delay { value shouldEqual 1 }
@@ -373,13 +401,15 @@ class CacheSpec extends AsyncFunSuite with Matchers {
       val result = cache.use { cache =>
         for {
           deferred <- Deferred[IO, Releasable[IO, Int]]
+          released <- Deferred[IO, Unit]
           value0   <- cache.getOrUpdateReleasableEnsure(0) { deferred.get }
           value1   <- cache.get(0).startEnsure
-          _        <- deferred.complete(Releasable(0, Async[IO].never[Unit]))
+          _        <- deferred.complete(Releasable(0, released.get))
           value    <- value0.join
           _        <- Sync[IO].delay { value shouldEqual 0 }
           value    <- value1.join
           _        <- Sync[IO].delay { value shouldEqual 0.some }
+          _        <- released.complete(())
         } yield {}
       }
       result.run()
@@ -441,14 +471,18 @@ class CacheSpec extends AsyncFunSuite with Matchers {
       val result = cache.use { cache =>
         for {
           deferred <- Deferred[IO, Releasable[IO, Int]]
-          value0   <- cache.getOrUpdateReleasableEnsure(0) { deferred.get }
+          fiber    <- cache.getOrUpdateReleasableEnsure(0) { deferred.get }
           value1   <- cache.remove(0)
           release  <- Deferred[IO, Unit]
-          _        <- deferred.complete(Releasable(0, release.complete(())))
-          value    <- value0.join
+          released <- Ref[IO].of(false)
+          _        <- deferred.complete(Releasable(0, release.get *> released.set(true)))
+          value    <- fiber.join
           _        <- Sync[IO].delay { value shouldEqual 0 }
-          value    <- value1
-          _        <- release.get
+          value    <- value1.startEnsure
+          _        <- release.complete(())
+          value    <- value.join
+          released <- released.get
+          _        <- Sync[IO].delay { released shouldEqual true }
           _        <- Sync[IO].delay { value shouldEqual 0.some }
         } yield {}
       }
@@ -519,15 +553,19 @@ class CacheSpec extends AsyncFunSuite with Matchers {
     test(s"clear while getOrUpdateReleasable: $name") {
       val result = cache.use { cache =>
         for {
-          deferred <- Deferred[IO, Unit]
-          value    <- cache.getOrUpdateReleasable(0) { Releasable(0, deferred.complete(())).pure[IO] }
+          release  <- Deferred[IO, Unit]
+          released <- Ref[IO].of(false)
+          value    <- cache.getOrUpdateReleasable(0) { Releasable(0, release.get *> released.set(true)).pure[IO] }
+          _        <- Sync[IO].delay { value shouldEqual 0 }
           keys     <- cache.keys
           _        <- Sync[IO].delay { keys shouldEqual Set(0) }
-          _        <- cache.clear
+          clear    <- cache.clear
           keys     <- cache.keys
           _        <- Sync[IO].delay { keys shouldEqual Set.empty }
-          _        <- deferred.get
-          _        <- Sync[IO].delay { value shouldEqual 0 }
+          _        <- release.complete(())
+          _        <- clear
+          released <- released.get
+          _        <- Sync[IO].delay { released shouldEqual true }
           keys     <- cache.keys
           _        <- Sync[IO].delay { keys shouldEqual Set.empty }
         } yield {}
@@ -543,16 +581,20 @@ class CacheSpec extends AsyncFunSuite with Matchers {
           value    <- cache.getOrUpdateReleasableEnsure(0) { deferred.get }
           keys     <- cache.keys
           _        <- Sync[IO].delay { keys shouldEqual Set(0) }
-          _        <- cache.clear
+          clear    <- cache.clear
           keys     <- cache.keys
           _        <- Sync[IO].delay { keys shouldEqual Set.empty }
           release  <- Deferred[IO, Unit]
-          _        <- deferred.complete(Releasable(0, release.complete(())))
+          released <- Ref[IO].of(false)
+          _        <- deferred.complete(Releasable(0, release.get *> released.set(true)))
           value    <- value.join
           _        <- Sync[IO].delay { value shouldEqual 0 }
           keys     <- cache.keys
           _        <- Sync[IO].delay { keys shouldEqual Set.empty }
-          _        <- release.get
+          _        <- release.complete(())
+          _        <- clear
+          released <- released.get
+          _        <- Sync[IO].delay { released shouldEqual true }
         } yield {}
       }
       result.run()

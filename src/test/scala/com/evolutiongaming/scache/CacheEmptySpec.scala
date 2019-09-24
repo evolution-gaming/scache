@@ -24,12 +24,15 @@ class CacheEmptySpec extends AsyncFunSuite with Matchers {
   test("put") {
     val result = for {
       value <- cache.put(0, 0)
+      value <- value
       _     <- Sync[IO].delay { value shouldEqual none }
       value <- cache.get(0)
       _     <- Sync[IO].delay { value shouldEqual none }
       value <- cache.put(0, 1)
+      value <- value
       _     <- Sync[IO].delay { value shouldEqual none }
       value <- cache.put(0, 2)
+      value <- value
       _     <- Sync[IO].delay { value shouldEqual none }
     } yield {}
     result.run()

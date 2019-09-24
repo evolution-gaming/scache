@@ -26,10 +26,10 @@ trait Cache[F[_], K, V] {
   /**
     * @return previous value if any, possibly not yet loaded
     */
-  def put(key: K, value: V): F[Option[V]]
+  def put(key: K, value: V): F[F[Option[V]]]
 
 
-  def put(key: K, value: V, release: F[Unit]): F[Option[V]]
+  def put(key: K, value: V, release: F[Unit]): F[F[Option[V]]]
 
 
   def size: F[Int]
@@ -64,9 +64,9 @@ object Cache {
 
     def getOrUpdateReleasable(key: K)(value: => F[Releasable[F, V]]) = value.map(_.value)
 
-    def put(key: K, value: V) = none[V].pure[F]
+    def put(key: K, value: V) = none[V].pure[F].pure[F]
 
-    def put(key: K, value: V, release: F[Unit]) = none[V].pure[F]
+    def put(key: K, value: V, release: F[Unit]) = none[V].pure[F].pure[F]
 
     val size = 0.pure[F]
 
@@ -80,18 +80,7 @@ object Cache {
   }
 
 
-  def loading[F[_] : Concurrent : Runtime, K, V](): F[Cache[F, K, V]] = {
-    for {
-      nrOfPartitions <- NrOfPartitions[F]()
-      cache           = LoadingCache.of(LoadingCache.EntryRefs.empty[F, K, V])
-      partitions     <- Partitions.of[F, K, Cache[F, K, V]](nrOfPartitions, _ => cache, _.hashCode())
-    } yield {
-      PartitionedCache(partitions)
-    }
-  }
-
-  // TODO
-  /*def loading[F[_] : Concurrent : Runtime, K, V](): Resource[F, Cache[F, K, V]] = {
+  def loading[F[_] : Concurrent : Runtime, K, V]: Resource[F, Cache[F, K, V]] = {
 
     type G[A] = Resource[F, A]
 
@@ -102,7 +91,7 @@ object Cache {
     } yield {
       PartitionedCache(partitions)
     }
-  }*/
+  }
 
 
   def expiring[F[_] : Concurrent : Timer : Runtime : Parallel, K, V](

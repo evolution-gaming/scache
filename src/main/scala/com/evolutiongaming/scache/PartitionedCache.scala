@@ -1,6 +1,6 @@
 package com.evolutiongaming.scache
 
-import cats.{Applicative, Foldable, Monad}
+import cats.{Applicative, Monad}
 import cats.implicits._
 
 object PartitionedCache {
@@ -73,7 +73,7 @@ object PartitionedCache {
         for {
           clear <- partitions.values.traverse(_.clear)
         } yield {
-          Foldable[List].fold(clear)
+          clear.combineAll
         }
       }
     }
