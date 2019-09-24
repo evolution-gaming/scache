@@ -1,6 +1,6 @@
 package com.evolutiongaming.scache
 
-import cats.Monad
+import cats.{Applicative, Foldable, Monad}
 import cats.implicits._
 
 object PartitionedCache {
@@ -8,6 +8,8 @@ object PartitionedCache {
   def apply[F[_] : Monad, K, V](
     partitions: Partitions[K, Cache[F, K, V]]
   ): Cache[F, K, V] = {
+
+    implicit val monoidUnit = Applicative.monoid[F, Unit]
 
     new Cache[F, K, V] {
 
@@ -68,7 +70,11 @@ object PartitionedCache {
       }
 
       val clear = {
-        partitions.values.foldMapM(_.clear)
+        for {
+          clear <- partitions.values.traverse(_.clear)
+        } yield {
+          Foldable[List].fold(clear)
+        }
       }
     }
   }

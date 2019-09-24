@@ -20,6 +20,18 @@ object LoadingCache {
     }
   }
 
+  /*private[scache] def of[F[_] : Concurrent, K, V](
+    map: EntryRefs[F, K, V],
+  ): Resource[F, Cache[F, K, V]] = {
+    val result = for {
+      ref <- Ref[F].of(map)
+    } yield {
+      val cache = apply(ref)
+      (cache, cache.clear/*TODO flatten*/)
+    }
+    Resource(result)
+  }*/
+
 
   private[scache] def apply[F[_] : Concurrent, K, V](
     ref: Ref[F, EntryRefs[F, K, V]],
@@ -112,7 +124,8 @@ object LoadingCache {
 
 
       def put(key: K, value: V, release: F[Unit]) = {
-        val loaded = Entry.Loaded[F, V](value, release)
+        
+        val loaded = Entry.Loaded[F, V](value, release.handleError(_ => ()))
 
         def update(entryRef: EntryRef[F, V]) = {
 
@@ -225,8 +238,10 @@ object LoadingCache {
       val clear = {
         for {
           entryRefs <- ref.getAndSet(EntryRefs.empty)
-          _         <- entryRefs.values.toList.foldMapM { _.release.start }
-        } yield {}
+          releases  <- entryRefs.values.toList.foldMapM { _.release.start }
+        } yield {
+          releases.join
+        }
       }
     }
   }

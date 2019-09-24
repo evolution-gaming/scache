@@ -49,7 +49,7 @@ object SerialMap { self =>
 
     def put(key: K, value: V) = none[V].pure[F]
 
-    def modify[A](key: K)(f: Option[V] => F[(Option[V], A)]) = f(none[V]).map(_._2)
+    def modify[A](key: K)(f: Option[V] => F[(Option[V], A)]) = f(none[V]).map { case (_, value) => value }
 
     def update[A](key: K)(f: Option[V] => F[Option[V]]) = f(none[V]).void
 
@@ -206,7 +206,7 @@ object SerialMap { self =>
       }
 
 
-      val clear = cache.clear
+      val clear = cache.clear.flatten
     }
   }
 

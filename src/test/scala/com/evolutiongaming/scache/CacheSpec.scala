@@ -141,22 +141,23 @@ class CacheSpec extends AsyncFunSuite with Matchers {
     test(s"clear releasable: $name") {
       val result = cache.use { cache =>
         for {
+          deferred <- Deferred[IO, Unit]
           release  <- Deferred[IO, Unit]
-          _        <- cache.put(0, 0, release.complete(()))
+          _        <- cache.put(0, 0, deferred.get *> release.complete(()))
           _        <- Deferred[IO, Unit]
-          _        <- cache.put(1, 1, Async[IO].never[Unit])
-          _        <- Deferred[IO, Unit]
-          _        <- cache.put(2, 2, TestError.raiseError[IO, Unit])
+          _        <- cache.put(1, 1, TestError.raiseError[IO, Unit])
           keys     <- cache.keys
-          _        <- Sync[IO].delay { keys shouldEqual Set(0, 1, 2) }
-          _        <- cache.clear
+          _        <- Sync[IO].delay { keys shouldEqual Set(0, 1) }
+          result   <- cache.clear
           value    <- cache.get(0)
           _        <- Sync[IO].delay { value shouldEqual none[Int] }
           value    <- cache.get(1)
           _        <- Sync[IO].delay { value shouldEqual none[Int] }
           keys     <- cache.keys
           _        <- Sync[IO].delay { keys shouldEqual Set.empty }
+          _        <- deferred.complete(())
           _        <- release.get
+          _        <- result
         } yield {}
       }
       result.run()

@@ -51,7 +51,7 @@ trait Cache[F[_], K, V] {
   /**
     * Removes loading values from the cache, however does not cancel them
     */
-  def clear: F[Unit]
+  def clear: F[F[Unit]]
 }
 
 object Cache {
@@ -76,7 +76,7 @@ object Cache {
 
     def remove(key: K) = none[V].pure[F].pure[F]
 
-    val clear = ().pure[F]
+    val clear = ().pure[F].pure[F]
   }
 
 
@@ -89,6 +89,20 @@ object Cache {
       PartitionedCache(partitions)
     }
   }
+
+  // TODO
+  /*def loading[F[_] : Concurrent : Runtime, K, V](): Resource[F, Cache[F, K, V]] = {
+
+    type G[A] = Resource[F, A]
+
+    for {
+      nrOfPartitions <- Resource.liftF(NrOfPartitions[F]())
+      cache           = LoadingCache.of(LoadingCache.EntryRefs.empty[F, K, V])
+      partitions     <- Partitions.of[G, K, Cache[F, K, V]](nrOfPartitions, _ => cache, _.hashCode())
+    } yield {
+      PartitionedCache(partitions)
+    }
+  }*/
 
 
   def expiring[F[_] : Concurrent : Timer : Runtime : Parallel, K, V](
