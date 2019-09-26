@@ -17,8 +17,8 @@ object Releasable {
     for {
       ab <- resource.allocated
     } yield {
-      val (a, b) = ab
-      Releasable(a, b)
+      val (value, release) = ab
+      Releasable(value, release)
     }
   }
 
