@@ -34,10 +34,10 @@ trait Cache[F[_], K, V] {
   /**
     * @return previous value if any, possibly not yet loaded
     */
-  def put(key: K, value: V): F[Option[V]]
+  def put(key: K, value: V): F[F[Option[V]]]
 
 
-  def put(key: K, value: V, release: F[Unit]): F[Option[V]]
+  def put(key: K, value: V, release: F[Unit]): F[F[Option[V]]]
 
 
   def size: F[Int]
@@ -59,7 +59,7 @@ trait Cache[F[_], K, V] {
   /**
     * Removes loading values from the cache, however does not cancel them
     */
-  def clear: F[Unit]
+  def clear: F[F[Unit]]
 }
 ```
 
