@@ -1,7 +1,9 @@
 package com.evolutiongaming.scache
 
+import cats.effect.Resource
 import cats.implicits._
 import cats.{Applicative, Functor}
+import com.evolutiongaming.catshelper.BracketThrowable
 
 final case class Releasable[F[_], A](value: A, release: F[Unit])
 
@@ -9,8 +11,16 @@ object Releasable {
 
   def pure[F[_] : Applicative, A](value: A): Releasable[F, A] = Releasable(value, ().pure[F])
 
-
   def apply[F[_]](implicit F: Applicative[F]): ApplyBuilders[F] = new ApplyBuilders(F)
+
+  def of[F[_] : BracketThrowable, A](resource: Resource[F, A]): F[Releasable[F, A]] = {
+    for {
+      ab <- resource.allocated
+    } yield {
+      val (a, b) = ab
+      Releasable(a, b)
+    }
+  }
 
 
   final class ApplyBuilders[F[_]](val F: Applicative[F]) extends AnyVal {
