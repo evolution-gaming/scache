@@ -14,6 +14,8 @@ trait CacheMetrics[F[_]] {
 
   def load(time: FiniteDuration, success: Boolean): F[Unit]
 
+  def life(time: FiniteDuration): F[Unit]
+
   def put: F[Unit]
 
   def size(size: Int): F[Unit]
@@ -29,6 +31,8 @@ object CacheMetrics {
     def get(hit: Boolean) = unit
 
     def load(time: FiniteDuration, success: Boolean) = unit
+
+    def life(time: FiniteDuration) = unit
 
     val put = unit
 
@@ -78,11 +82,20 @@ object CacheMetrics {
       help = s"Cache size",
       labels = LabelNames("name"))
 
+    val lifeTimeSummary = collectorRegistry.summary(
+      name = s"${ prefix }_life_time",
+      help = s"Life time in seconds",
+      quantiles = Quantiles(
+        Quantile(value = 0.9, error = 0.05),
+        Quantile(value = 0.99, error = 0.005)),
+      labels = LabelNames("name"))
+
     for {
       getsCounter       <- getCounter
       putCounter        <- putCounter
       loadResultCounter <- loadResultCounter
       loadTimeSummary   <- loadTimeSummary
+      lifeTimeSummary   <- lifeTimeSummary
       sizeGauge         <- sizeGauge
     } yield {
       name: Name =>
@@ -101,6 +114,8 @@ object CacheMetrics {
 
         val putCounter1 = putCounter.labels(name)
 
+        val lifeTimeSummary1 = lifeTimeSummary.labels(name)
+
         new CacheMetrics[F] {
 
           def get(hit: Boolean) = {
@@ -115,6 +130,10 @@ object CacheMetrics {
               _ <- resultCounter.inc()
               _ <- timeSummary.observe(time.toNanos.nanosToSeconds)
             } yield {}
+          }
+
+          def life(time: FiniteDuration) = {
+            lifeTimeSummary1.observe(time.toNanos.nanosToSeconds)
           }
 
           val put = putCounter1.inc()

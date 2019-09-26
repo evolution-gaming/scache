@@ -23,30 +23,17 @@ object CacheMetered {
       } yield {}
     }
 
-    def measureLoad[A, B](value: => F[A])(f: (() => F[A]) => F[B]): F[B] = {
-
-      def measured(ref: Ref[F, Boolean]) = {
-        for {
-          _        <- ref.set(false)
-          duration <- MeasureDuration[F].start
-          value    <- value.attempt
-          duration <- duration
-          _        <- metrics.load(duration, value.isRight)
-          value    <- value.liftTo[F]
-        } yield value
-      }
-
-      for {
-        ref   <- Ref[F].of(true)
-        value <- f(() => measured(ref))
-        hit   <- ref.get
-        _     <- metrics.get(hit)
-      } yield value
-    }
-
     for {
       _ <- Schedule(interval, interval)(measureSize)
     } yield {
+
+      def releaseOf(duration: F[FiniteDuration], release: F[Unit]) = {
+        for {
+          d <- duration
+          _ <- metrics.life(d)
+          _ <- release
+        } yield {}
+      }
 
       new Cache[F, K, V] {
 
@@ -58,25 +45,50 @@ object CacheMetered {
         }
 
         def getOrUpdate(key: K)(value: => F[V]) = {
-          measureLoad(value) { value => cache.getOrUpdate(key)(value()) }
+          getOrUpdateReleasable(key) { 
+            for {
+              value <- value
+            } yield {
+              Releasable(value, ().pure[F])
+            }
+          }
         }
 
         def getOrUpdateReleasable(key: K)(value: => F[Releasable[F, V]]) = {
-          measureLoad(value) { value => cache.getOrUpdateReleasable(key)(value()) }
+
+          def valueMetered(ref: Ref[F, Boolean]) = {
+            for {
+              _        <- ref.set(false)
+              start    <- MeasureDuration[F].start
+              value    <- value.attempt
+              duration <- start
+              _        <- metrics.load(duration, value.isRight)
+              value    <- value.liftTo[F]
+            } yield {
+              val release = releaseOf(start, value.release)
+              value.copy(release = release)
+            }
+          }
+
+          for {
+            ref   <- Ref[F].of(true)
+            value <- cache.getOrUpdateReleasable(key)(valueMetered(ref))
+            hit   <- ref.get
+            _     <- metrics.get(hit)
+          } yield value
+
         }
 
         def put(key: K, value: V) = {
-          for {
-            _ <- metrics.put
-            v <- cache.put(key, value)
-          } yield v
+          put(key, value, ().pure[F])
         }
 
         def put(key: K, value: V, release: F[Unit]) = {
           for {
-            _ <- metrics.put
-            v <- cache.put(key, value, release)
-          } yield v
+            duration <- MeasureDuration[F].start
+            _        <- metrics.put
+            value    <- cache.put(key, value, releaseOf(duration, release))
+          } yield value
         }
 
         def size = cache.size
