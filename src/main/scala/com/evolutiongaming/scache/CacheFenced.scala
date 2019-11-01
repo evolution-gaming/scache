@@ -2,15 +2,16 @@ package com.evolutiongaming.scache
 
 import cats.FlatMap
 import cats.effect.concurrent.Ref
-import cats.effect.{Resource, Sync}
+import cats.effect.{Concurrent, Resource}
 import cats.implicits._
+import com.evolutiongaming.catshelper.CatsHelper._
 
 /**
   * Prevents adding new resources to cache after it was released
   */
 object CacheFenced {
 
-  def of[F[_] : Sync, K, V](cache: Resource[F, Cache[F, K, V]]): Resource[F, Cache[F, K, V]] = {
+  def of[F[_] : Concurrent, K, V](cache: Resource[F, Cache[F, K, V]]): Resource[F, Cache[F, K, V]] = {
 
     val fence = Resource.make {
       Ref[F].of(().pure[F])
@@ -18,12 +19,14 @@ object CacheFenced {
       fence.set(CacheReleasedError.raiseError[F, Unit])
     }
 
-    for {
+    val result = for {
       cache <- cache
       fence <- fence
     } yield {
       apply(cache, fence.get.flatten)
     }
+
+    result.fenced
   }
 
   def apply[F[_] : FlatMap, K, V](cache: Cache[F, K, V], fence: F[Unit]): Cache[F, K, V] = {

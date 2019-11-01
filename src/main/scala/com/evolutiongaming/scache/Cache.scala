@@ -1,6 +1,6 @@
 package com.evolutiongaming.scache
 
-import cats.effect.{Concurrent, Resource, Sync, Timer}
+import cats.effect.{Concurrent, Resource, Timer}
 import cats.implicits._
 import cats.{Functor, Monad, Parallel, ~>}
 import com.evolutiongaming.catshelper.Runtime
@@ -153,6 +153,6 @@ object Cache {
 
   implicit class CacheResourceOps[F[_], K, V](val self: Resource[F, Cache[F, K, V]]) extends AnyVal {
 
-    def withFence(implicit F: Sync[F]): Resource[F, Cache[F, K, V]] = CacheFenced.of(self)
+    def withFence(implicit F: Concurrent[F]): Resource[F, Cache[F, K, V]] = CacheFenced.of(self)
   }
 }
