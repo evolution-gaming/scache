@@ -1,8 +1,8 @@
 package com.evolutiongaming.scache
 
-import cats.effect.{Concurrent, Resource, Timer}
+import cats.effect.{Concurrent, Resource, Sync, Timer}
 import cats.implicits._
-import cats.{Monad, Parallel}
+import cats.{Functor, Monad, Parallel, ~>}
 import com.evolutiongaming.catshelper.Runtime
 import com.evolutiongaming.smetrics.MeasureDuration
 
@@ -123,5 +123,36 @@ object Cache {
     ): Resource[F, Cache[F, K, V]] = {
       CacheMetered(self, metrics)
     }
+
+    def mapK[G[_]](fg: F ~> G, gf: G ~> F)(implicit F: Functor[F]): Cache[G, K, V] = new Cache[G, K, V] {
+
+      def get(key: K) = fg(self.get(key))
+
+      def getOrUpdate(key: K)(value: => G[V]) = fg(self.getOrUpdate(key)(gf(value)))
+
+      def getOrUpdateReleasable(key: K)(value: => G[Releasable[G, V]]) = {
+        fg(self.getOrUpdateReleasable(key)(gf(value).map(_.mapK(gf))))
+      }
+
+      def put(key: K, value: V) = fg(self.put(key, value).map(fg.apply))
+
+      def put(key: K, value: V, release: G[Unit]) = fg(self.put(key, value, gf(release)).map(fg.apply))
+
+      def size = fg(self.size)
+
+      def keys = fg(self.keys)
+
+      def values = fg(self.values.map(_.map { case (k, v) => (k, fg(v))} ) )
+
+      def remove(key: K) = fg(self.remove(key).map(fg.apply))
+
+      def clear = fg(self.clear.map(fg.apply))
+    }
+  }
+
+
+  implicit class CacheResourceOps[F[_], K, V](val self: Resource[F, Cache[F, K, V]]) extends AnyVal {
+
+    def withFence(implicit F: Sync[F]): Resource[F, Cache[F, K, V]] = CacheFenced.of(self)
   }
 }

@@ -1,6 +1,7 @@
 package com.evolutiongaming.scache
 
 import cats.Monad
+import cats.arrow.FunctionK
 import cats.effect.concurrent.{Deferred, Ref}
 import cats.effect.{Async, Concurrent, Fiber, IO, Sync}
 import cats.effect.implicits._
@@ -24,13 +25,17 @@ class CacheSpec extends AsyncFunSuite with Matchers {
       ("expiring no partitions", ExpiringCache.of[IO, Int, Int](1.minute)))
   } yield {
 
-    val cache = for {
-      cache   <- cache0
-      metrics <- CacheMetrics.of(CollectorRegistry.empty[IO])
-      cache   <- cache.withMetrics(metrics("name"))
-    } yield cache
+    val cache = {
+      val cache = for {
+        cache   <- cache0
+        metrics <- CacheMetrics.of(CollectorRegistry.empty[IO])
+        cache   <- cache.withMetrics(metrics("name"))
+      } yield {
+        cache.mapK(FunctionK.id, FunctionK.id)
+      }
+      cache.withFence
+    }
 
-    
     test(s"get: $name") {
       val result = cache.use { cache =>
         for {
@@ -39,6 +44,16 @@ class CacheSpec extends AsyncFunSuite with Matchers {
           value shouldEqual none[Int]
         }
       }
+      result.run()
+    }
+
+
+    test(s"get succeeds after cache is released: $name") {
+      val result = for {
+        cache <- cache.use(_.pure[IO])
+        a     <- cache.get(0)
+        _      = a shouldEqual none
+      } yield {}
       result.run()
     }
 
@@ -59,6 +74,16 @@ class CacheSpec extends AsyncFunSuite with Matchers {
           _     <- Sync[IO].delay { value shouldEqual 1.some }
         } yield {}
       }
+      result.run()
+    }
+
+
+    test(s"put succeeds after cache is released: $name") {
+      val result = for {
+        cache <- cache.use(_.pure[IO])
+        a     <- cache.put(0, 0).flatten
+        _      = a shouldEqual none
+      } yield {}
       result.run()
     }
 
@@ -90,6 +115,16 @@ class CacheSpec extends AsyncFunSuite with Matchers {
     }
 
 
+    test(s"put releasable fails after cache is released: $name") {
+      val result = for {
+        cache <- cache.use(_.pure[IO])
+        a     <- cache.put(0, 0, ().pure[IO]).flatten.attempt
+        _      = a shouldEqual CacheReleasedError.asLeft
+      } yield {}
+      result.run()
+    }
+
+
     test(s"size: $name") {
       val result = cache.use { cache =>
         for {
@@ -117,6 +152,16 @@ class CacheSpec extends AsyncFunSuite with Matchers {
     }
 
 
+    test(s"size succeeds after cache is released: $name") {
+      val result = for {
+        cache <- cache.use { cache => cache.put(0, 0).flatten as cache }
+        a     <- cache.size
+        _      = a shouldEqual 0
+      } yield {}
+      result.run()
+    }
+
+
     test(s"remove: $name") {
       val result = cache.use { cache =>
         for {
@@ -128,6 +173,16 @@ class CacheSpec extends AsyncFunSuite with Matchers {
           _     <- Sync[IO].delay { value shouldEqual none }
         } yield {}
       }
+      result.run()
+    }
+
+
+    test(s"remove succeeds after cache is released: $name") {
+      val result = for {
+        cache <- cache.use(_.pure[IO])
+        a     <- cache.remove(0).flatten
+        _      = a shouldEqual none
+      } yield {}
       result.run()
     }
 
@@ -145,6 +200,15 @@ class CacheSpec extends AsyncFunSuite with Matchers {
           value1 shouldEqual none[Int]
         }
       }
+      result.run()
+    }
+
+
+    test(s"clear succeeds after cache is released: $name") {
+      val result = for {
+        cache <- cache.use(_.pure[IO])
+        _     <- cache.clear.flatten
+      } yield {}
       result.run()
     }
 
@@ -230,6 +294,16 @@ class CacheSpec extends AsyncFunSuite with Matchers {
     }
 
 
+    test(s"getOrUpdate succeeds after cache is released: $name") {
+      val result = for {
+        cache <- cache.use(_.pure[IO])
+        a     <- cache.getOrUpdate(0)(1.pure[IO])
+        _      = a shouldEqual 1
+      } yield {}
+      result.run()
+    }
+
+
     test(s"getOrUpdateReleasable: $name") {
       val result = cache.use { cache =>
         for {
@@ -245,6 +319,16 @@ class CacheSpec extends AsyncFunSuite with Matchers {
           _        <- released.complete(())
         } yield {}
       }
+      result.run()
+    }
+
+
+    test(s"getOrUpdateReleasable fails after cache is released: $name") {
+      val result = for {
+        cache <- cache.use(_.pure[IO])
+        a     <- cache.getOrUpdateReleasable(0)(Releasable[IO].pure(1).pure[IO]).attempt
+        _      = a shouldEqual CacheReleasedError.asLeft
+      } yield {}
       result.run()
     }
 

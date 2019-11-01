@@ -12,13 +12,21 @@ object LoadingCache {
   private[scache] def of[F[_] : Concurrent, K, V](
     map: EntryRefs[F, K, V],
   ): Resource[F, Cache[F, K, V]] = {
-    val result = for {
-      ref <- Ref[F].of(map)
-    } yield {
-      val cache = apply(ref)
-      (cache, cache.clear.flatten)
+    for {
+      ref   <- Resource.liftF(Ref[F].of(map))
+      cache <- of(ref)
+    } yield cache
+  }
+
+
+  private[scache] def of[F[_] : Concurrent, K, V](
+    ref: Ref[F, EntryRefs[F, K, V]],
+  ): Resource[F, Cache[F, K, V]] = {
+    Resource.make {
+      apply(ref).pure[F]
+    } { cache =>
+      cache.clear.flatten
     }
-    Resource(result)
   }
 
 

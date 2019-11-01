@@ -2,7 +2,7 @@ package com.evolutiongaming.scache
 
 import cats.effect.Resource
 import cats.implicits._
-import cats.{Applicative, Functor}
+import cats.{Applicative, Functor, ~>}
 import com.evolutiongaming.catshelper.BracketThrowable
 
 final case class Releasable[F[_], A](value: A, release: F[Unit])
@@ -38,5 +38,7 @@ object Releasable {
   implicit class ReleasableOps[F[_], A](val self: Releasable[F, A]) extends AnyVal {
 
     def map[B](f: A => B): Releasable[F, B] = self.copy(value = f(self.value))
+    
+    def mapK[G[_]](f: F ~> G): Releasable[G, A] = self.copy(release = f(self.release))
   }
 }
