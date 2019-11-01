@@ -102,5 +102,5 @@ trait SerialMap[F[_], K, V] {
 ```scala
 resolvers += Resolver.bintrayRepo("evolutiongaming", "maven")
 
-libraryDependencies += "com.evolutiongaming" %% "scache" % "1.0.0"
+libraryDependencies += "com.evolutiongaming" %% "scache" % "2.0.3"
 ```
