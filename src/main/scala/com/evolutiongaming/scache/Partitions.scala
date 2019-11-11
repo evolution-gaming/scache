@@ -2,6 +2,7 @@ package com.evolutiongaming.scache
 
 import cats.Monad
 import cats.implicits._
+import cats.kernel.Hash
 
 trait Partitions[-K, +V] {
 
@@ -22,10 +23,9 @@ object Partitions {
     val values = List(value)
   }
 
-  def of[F[_] : Monad, K, V](
+  def of[F[_] : Monad, K : Hash, V](
     nrOfPartitions: Int,
-    valueOf: Partition => F[V],
-    hashCodeOf: K => Int
+    valueOf: Partition => F[V]
   ): F[Partitions[K, V]] = {
 
     def apply(nrOfPartitions: Int) = {
@@ -40,7 +40,7 @@ object Partitions {
       for {
         partitions <- partitions
       } yield {
-        Partitions(partitions.reverse.toVector, hashCodeOf)
+        Partitions[K, V](partitions.reverse.toVector)
       }
     }
 
@@ -48,15 +48,15 @@ object Partitions {
   }
 
 
-  private def apply[K, V](partitions: Vector[V], hashCodeOf: K => Int): Partitions[K, V] = {
+  private def apply[K : Hash, V](partitions: Vector[V]): Partitions[K, V] = {
 
     val nrOfPartitions = partitions.size
 
     new Partitions[K, V] {
 
       def get(key: K) = {
-        val hashCode = hashCodeOf(key)
-        val partition = math.abs(hashCode % nrOfPartitions)
+        val hash = key.hash
+        val partition = math.abs(hash % nrOfPartitions)
         partitions(partition)
       }
 

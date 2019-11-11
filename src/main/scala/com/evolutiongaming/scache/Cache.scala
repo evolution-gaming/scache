@@ -2,6 +2,7 @@ package com.evolutiongaming.scache
 
 import cats.effect.{Concurrent, Resource, Timer}
 import cats.implicits._
+import cats.kernel.Hash
 import cats.{Functor, Monad, Parallel, ~>}
 import com.evolutiongaming.catshelper.Runtime
 import com.evolutiongaming.smetrics.MeasureDuration
@@ -84,10 +85,12 @@ object Cache {
 
     type G[A] = Resource[F, A]
 
+    implicit val hash = Hash.fromUniversalHashCode[K]
+
     for {
       nrOfPartitions <- Resource.liftF(NrOfPartitions[F]())
       cache           = LoadingCache.of(LoadingCache.EntryRefs.empty[F, K, V])
-      partitions     <- Partitions.of[G, K, Cache[F, K, V]](nrOfPartitions, _ => cache, _.hashCode())
+      partitions     <- Partitions.of[G, K, Cache[F, K, V]](nrOfPartitions, _ => cache)
     } yield {
       PartitionedCache(partitions)
     }
@@ -102,11 +105,13 @@ object Cache {
 
     type G[A] = Resource[F, A]
 
+    implicit val hash = Hash.fromUniversalHashCode[K]
+
     for {
       nrOfPartitions <- Resource.liftF(NrOfPartitions[F]())
       maxSize1        = maxSize.map { maxSize => (maxSize * 1.1 / nrOfPartitions).toInt }
       cache           = ExpiringCache.of[F, K, V](expireAfter, maxSize1, refresh)
-      partitions     <- Partitions.of[G, K, Cache[F, K, V]](nrOfPartitions, _ => cache, _.hashCode())
+      partitions     <- Partitions.of[G, K, Cache[F, K, V]](nrOfPartitions, _ => cache)
     } yield {
       PartitionedCache(partitions)
     }

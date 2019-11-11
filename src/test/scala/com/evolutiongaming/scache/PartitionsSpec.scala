@@ -1,13 +1,16 @@
 package com.evolutiongaming.scache
 
 import cats.Id
+import cats.kernel.Hash
 import org.scalatest.{Matchers, WordSpec}
 
 class PartitionsSpec extends WordSpec with Matchers {
 
   "apply" should {
 
-    val partitions = Partitions.of[Id, Int, String](3, _.toString, identity)
+    implicit val hash = Hash.fromUniversalHashCode[Int]
+
+    val partitions = Partitions.of[Id, Int, String](3, _.toString)
 
     "get" in {
       for {
