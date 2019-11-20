@@ -16,18 +16,19 @@ bintrayOrganization := Some("evolutiongaming")
 
 scalaVersion := crossScalaVersions.value.head
 
-crossScalaVersions := Seq("2.12.10", "2.13.0")
+crossScalaVersions := Seq("2.12.10", "2.13.1")
 
 resolvers += Resolver.bintrayRepo("evolutiongaming", "maven")
 
-libraryDependencies += compilerPlugin(`kind-projector` cross CrossVersion.binary)
+libraryDependencies += compilerPlugin(`kind-projector` cross CrossVersion.full)
 
 libraryDependencies ++= Seq(
   Cats.core,
   Cats.effect,
   `cats-helper`,
   smetrics,
-  scalatest % Test)
+  scalatest % Test
+)
 
 licenses := Seq(("MIT", url("https://opensource.org/licenses/MIT")))
 
