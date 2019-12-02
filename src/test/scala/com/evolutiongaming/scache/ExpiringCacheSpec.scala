@@ -5,10 +5,11 @@ import cats.effect.concurrent.{Deferred, Ref}
 import cats.effect.{Concurrent, IO, Sync, Timer}
 import cats.implicits._
 import com.evolutiongaming.scache.IOSuite._
-import org.scalatest.{AsyncFunSuite, Matchers}
 
 import scala.concurrent.duration._
 import scala.util.control.NoStackTrace
+import org.scalatest.funsuite.AsyncFunSuite
+import org.scalatest.matchers.should.Matchers
 
 class ExpiringCacheSpec extends AsyncFunSuite with Matchers {
 

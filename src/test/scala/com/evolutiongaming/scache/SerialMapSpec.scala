@@ -6,9 +6,10 @@ import cats.implicits._
 import com.evolutiongaming.catshelper.CatsHelper._
 import com.evolutiongaming.catshelper.SerialRef
 import com.evolutiongaming.scache.IOSuite._
-import org.scalatest.{AsyncFunSuite, Matchers}
 
 import scala.util.control.NoStackTrace
+import org.scalatest.funsuite.AsyncFunSuite
+import org.scalatest.matchers.should.Matchers
 
 class SerialMapSpec extends AsyncFunSuite with Matchers {
   import SerialMapSpec._
