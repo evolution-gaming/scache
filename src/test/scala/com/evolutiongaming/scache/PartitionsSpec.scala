@@ -2,9 +2,10 @@ package com.evolutiongaming.scache
 
 import cats.Id
 import cats.kernel.Hash
-import org.scalatest.{Matchers, WordSpec}
+import org.scalatest.matchers.should.Matchers
+import org.scalatest.wordspec.AnyWordSpec
 
-class PartitionsSpec extends WordSpec with Matchers {
+class PartitionsSpec extends AnyWordSpec with Matchers {
 
   "apply" should {
 

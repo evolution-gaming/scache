@@ -9,10 +9,11 @@ import cats.implicits._
 import com.evolutiongaming.scache.IOSuite._
 import com.evolutiongaming.catshelper.CatsHelper._
 import com.evolutiongaming.smetrics.CollectorRegistry
-import org.scalatest.{AsyncFunSuite, Matchers}
 
 import scala.concurrent.duration._
 import scala.util.control.NoStackTrace
+import org.scalatest.funsuite.AsyncFunSuite
+import org.scalatest.matchers.should.Matchers
 
 class CacheSpec extends AsyncFunSuite with Matchers {
   import CacheSpec._
