@@ -27,24 +27,14 @@ object Partitions {
     nrOfPartitions: Int,
     valueOf: Partition => F[V]
   ): F[Partitions[K, V]] = {
-
-    def apply(nrOfPartitions: Int) = {
-
-      val partitions = (0 until nrOfPartitions).toList.foldLeftM(List.empty[V]) { (a, b) =>
-        for {
-          value <- valueOf(b)
-        } yield {
-          value :: a
-        }
-      }
-      for {
-        partitions <- partitions
-      } yield {
-        Partitions[K, V](partitions.reverse.toVector)
-      }
+    if (nrOfPartitions <= 1) {
+      valueOf(0).map(const)
+    } else {
+      (0 until nrOfPartitions)
+        .toList
+        .foldLeftM(List.empty[V]) { (a, b) => valueOf(b).map { _ :: a } }
+        .map { partitions => Partitions[K, V](partitions.reverse.toVector) }
     }
-
-    if (nrOfPartitions <= 1) valueOf(0).map(const) else apply(nrOfPartitions)
   }
 
 
