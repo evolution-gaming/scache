@@ -31,9 +31,9 @@ object Partitions {
       valueOf(0).map(const)
     } else {
       (0 until nrOfPartitions)
-        .toList
-        .foldLeftM(List.empty[V]) { (a, b) => valueOf(b).map { _ :: a } }
-        .map { partitions => Partitions[K, V](partitions.reverse.toVector) }
+        .toVector
+        .traverse { partition => valueOf(partition) }
+        .map { partitions => Partitions[K, V](partitions) }
     }
   }
 
