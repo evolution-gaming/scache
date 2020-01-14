@@ -41,60 +41,58 @@ object LoadingCache {
     }
 
     def put1(key: K, loaded: EntryRef.Entry.Loaded[F, V]) = {
-
-      def add = {
-
-        def add(entryRef: EntryRef[F, V], entryRefs: EntryRefs[F, K, V]) = {
+      ref
+        .get
+        .flatMap { entryRefs =>
           entryRefs
             .get(key)
             .fold {
-              (entryRefs.updated(key, entryRef), none[V].pure[F].pure[F])
-            } { entryRef =>
-              (entryRefs, entryRef.put(loaded))
+              EntryRef
+                .loaded(loaded)
+                .flatMap { entryRef =>
+                  ref
+                    .modify { entryRefs =>
+                      entryRefs
+                        .get(key)
+                        .fold {
+                          (entryRefs.updated(key, entryRef), none[V].pure[F].pure[F])
+                        } { entryRef =>
+                          (entryRefs, entryRef.put(loaded))
+                        }
+                    }
+                    .flatten
+                }
+            } {
+              _.put(loaded)
             }
         }
-
-        for {
-          entryRef <- EntryRef.loaded(loaded)
-          value    <- ref.modify { entryRefs => add(entryRef, entryRefs) }
-          value    <- value
-        } yield value
-      }
-
-      for {
-        entryRefs <- ref.get
-        value     <- entryRefs.get(key).fold(add)(_.put(loaded))
-      } yield value
     }
 
     def getOrUpdateReleasable1(key: K)(loaded: => F[EntryRef.Entry.Loaded[F, V]]) = {
-
-      def update = {
-
-        def update(entryRef: EntryRef[F, V], load: F[V]) = {
-          ref
-            .modify { entryRefs =>
-              entryRefs.get(key).fold {
-                (entryRefs.updated(key, entryRef), load)
-              } { entryRef =>
-                (entryRefs, entryRef.get)
-              }
+      ref
+        .get
+        .flatMap { entryRefs =>
+          entryRefs
+            .get(key)
+            .fold {
+              EntryRef
+                .loading(loaded, ref.update { _ - key })
+                .flatMap { case (entryRef, load) =>
+                  ref
+                    .modify { entryRefs =>
+                      entryRefs.get(key).fold {
+                        (entryRefs.updated(key, entryRef), load)
+                      } { entryRef =>
+                        (entryRefs, entryRef.get)
+                      }
+                    }
+                    .flatten
+                    .uncancelable
+                }
+            } {
+              _.get
             }
-            .flatten
-            .uncancelable
         }
-
-        for {
-          entryRefAndLoad  <- EntryRef.loading(loaded, ref.update { _ - key })
-          (entryRef, load)  = entryRefAndLoad
-          value            <- update(entryRef, load)
-        } yield value
-      }
-
-      for {
-        entryRefs <- ref.get
-        value     <- entryRefs.get(key).fold { update } { _.get }
-      } yield value
     }
 
     new Cache[F, K, V] {
@@ -108,21 +106,13 @@ object LoadingCache {
 
       def getOrUpdate(key: K)(value: => F[V]) = {
         getOrUpdateReleasable1(key) {
-          for {
-            value <- value
-          } yield {
-            loadedOf(value, none)
-          }
+          value.map { loadedOf(_, none) }
         }
       }
 
       def getOrUpdateReleasable(key: K)(value: => F[Releasable[F, V]]) = {
         getOrUpdateReleasable1(key) {
-          for {
-            value <- value
-          } yield {
-            loadedOf(value.value, value.release.some)
-          }
+          value.map { value => loadedOf(value.value, value.release.some) }
         }
       }
 
@@ -140,67 +130,61 @@ object LoadingCache {
 
 
       val size = {
-        for {
-          entryRefs <- ref.get
-        } yield {
-          entryRefs.size
-        }
+        ref
+          .get
+          .map { _.size }
       }
 
 
       val keys = {
-        for {
-          entryRefs <- ref.get
-        } yield {
-          entryRefs.keySet
-        }
+        ref
+          .get
+          .map { _.keySet }
       }
 
 
       val values = {
-        for {
-          entryRefs <- ref.get
-        } yield {
-          entryRefs.map { case (k, v) => k -> v.get }
-        }
+        ref
+          .get
+          .map { _.map { case (k, v) => k -> v.get } }
       }
 
 
       def remove(key: K) = {
-
-        def remove(entryRefs: EntryRefs[F, K, V]) = {
-          val entryRef = entryRefs.get(key)
-          val entryRefs1 = entryRefs.get(key).fold(entryRefs) { _ => entryRefs - key }
-          (entryRefs1, entryRef)
-        }
-
-        def release(entryRef: EntryRef[F, V]) = {
-          val result = for {
-            _     <- entryRef.release
-            value <- entryRef.get
-          } yield {
-            value
+        ref
+          .modify { entryRefs =>
+            val entryRef = entryRefs.get(key)
+            val entryRefs1 = entryRefs
+              .get(key)
+              .fold(entryRefs) { _ => entryRefs - key }
+            (entryRefs1, entryRef)
           }
-          result.redeem((_ : Throwable) => none[V], _.some)
-        }
-
-        val result = for {
-          entryRef <- ref.modify(remove)
-          value    <- entryRef.flatTraverse(release).start
-        } yield {
-          value.join
-        }
-        result.uncancelable
+          .flatMap { entryRef =>
+            entryRef
+              .flatTraverse { entryRef =>
+                entryRef
+                  .release
+                  .flatMap { _ => entryRef.get }
+                  .redeem((_: Throwable) => none[V], _.some)
+              }
+              .start
+          }
+          .uncancelable
+          .map { _.join }
       }
 
 
       val clear = {
-        for {
-          entryRefs <- ref.getAndSet(EntryRefs.empty)
-          releases  <- entryRefs.values.toList.foldMapM { _.release.start }
-        } yield {
-          releases.join
-        }
+        ref
+          .getAndSet(EntryRefs.empty)
+          .flatMap { entryRefs =>
+            entryRefs
+              .values
+              .toList
+              .foldMapM { _.release.start }
+          }
+          .uncancelable
+          .map { _.join }
       }
     }
   }
