@@ -40,43 +40,39 @@ object EntryRef {
     implicit val monoidUnit = Applicative.monoid[F, Unit]
 
     def load(ref: Ref[F, Entry[F, A]]) = {
-      
-      def update(loaded: Entry.Loaded[F, A]) = {
-        
-        def update(entry: Entry.Loading[F, A]) = {
-          entry.deferred.complete(loaded.asRight).handleErrorWith(_ => loaded.release.combineAll)
+      value
+        .attempt
+        .flatMap {
+          case Right(value) =>
+            ref
+              .modify {
+                case entry: Entry.Loaded[F, A] =>
+                  val release = value.release.combineAll
+                  (entry, release)
+
+                case entry: Entry.Loading[F, A] =>
+                  val update = entry
+                    .deferred
+                    .complete(value.asRight)
+                    .handleErrorWith { _ => value.release.combineAll }
+                  (value, update)
+              }
+              .flatten
+
+          case Left(error) =>
+            ref
+              .get
+              .flatMap {
+                case _    : Entry.Loaded[F, A]      => ().pure[F]
+                case entry: Entry.Loading[F, A] =>
+                  cleanup.flatMap { _ =>
+                    entry
+                      .deferred
+                      .complete(error.asLeft)
+                      .handleError { _ => () }
+                  }
+              }
         }
-
-        ref
-          .modify {
-            case entry: Entry.Loaded[F, A]  => (entry, loaded.release.combineAll)
-            case entry: Entry.Loading[F, A] => (loaded, update(entry))
-          }
-          .flatten
-      }
-
-      def remove(error: Throwable) = {
-
-        def remove(entry: Entry.Loading[F, A]) = {
-          for {
-            _ <- cleanup
-            _ <- entry.deferred.complete(error.asLeft).handleError { _ => () }
-          } yield {}
-        }
-
-        for {
-          entry <- ref.get
-          entry <- entry match {
-            case _    : Entry.Loaded[F, A]  => ().pure[F]
-            case entry: Entry.Loading[F, A] => remove(entry)
-          }
-        } yield entry
-      }
-
-      for {
-        value <- value.attempt
-        _     <- value.fold(remove, update)
-      } yield {}
     }
 
     for {
