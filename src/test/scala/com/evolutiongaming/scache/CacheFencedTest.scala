@@ -22,6 +22,15 @@ class CacheFencedTest extends AsyncFunSuite with Matchers {
     result.run()
   }
 
+  test("getOrElse succeeds after cache is released") {
+    val result = for {
+      cache <- cache.use(_.pure[IO])
+      a     <- cache.getOrElse(0, 1)
+      _      = a shouldEqual 1
+    } yield {}
+    result.run()
+  }
+
   test(s"put succeeds after cache is released") {
     val result = for {
       cache <- cache.use(_.pure[IO])
