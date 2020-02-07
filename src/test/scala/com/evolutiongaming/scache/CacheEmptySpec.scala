@@ -24,10 +24,10 @@ class CacheEmptySpec extends AsyncFunSuite with Matchers {
 
   test("getOrElse") {
     val result = for {
-      value <- cache.getOrElse(0, 1)
+      value <- cache.getOrElse(0, 1.pure[IO])
       _     <- Sync[IO].delay { value shouldEqual 1 }
       _     <- cache.put(0, 2)
-      value <- cache.getOrElse(0, 1)
+      value <- cache.getOrElse(0, 1.pure[IO])
       _     <- Sync[IO].delay { value shouldEqual 1 }
     } yield {}
     result.run()

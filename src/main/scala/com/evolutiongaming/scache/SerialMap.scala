@@ -15,7 +15,7 @@ trait SerialMap[F[_], K, V] {
 
   def get(key: K): F[Option[V]]
 
-  def getOrElse(key: K, default: => V): F[V]
+  def getOrElse(key: K, default: => F[V]): F[V]
 
   def put(key: K, value: V): F[Option[V]]
 
@@ -49,7 +49,7 @@ object SerialMap { self =>
 
     def get(key: K) = none[V].pure[F]
 
-    def getOrElse(key: K, default: => V): F[V] = default.pure[F]
+    def getOrElse(key: K, default: => F[V]): F[V] = default
 
     def put(key: K, value: V) = none[V].pure[F]
 
@@ -97,7 +97,7 @@ object SerialMap { self =>
       }
 
 
-      def getOrElse(key: K, default: => V): F[V] = get(key).map(_.getOrElse(default))
+      def getOrElse(key: K, default: => F[V]): F[V] = get(key).flatMap(_.fold(default)(_.pure[F]))
 
 
       def put(key: K, value: V) = {

@@ -13,7 +13,7 @@ trait Cache[F[_], K, V] {
 
   def get(key: K): F[Option[V]]
 
-  def getOrElse(key: K, default: => V): F[V]
+  def getOrElse(key: K, default: => F[V]): F[V]
 
   /**
     * Does not run `value` concurrently for the same key
@@ -63,7 +63,7 @@ object Cache {
 
     def get(key: K) = none[V].pure[F]
 
-    def getOrElse(key: K, default: => V): F[V] = default.pure[F]
+    def getOrElse(key: K, default: => F[V]): F[V] = default
 
     def getOrUpdate(key: K)(value: => F[V]) = value
 
@@ -137,7 +137,7 @@ object Cache {
 
       def get(key: K) = fg(self.get(key))
 
-      def getOrElse(key: K, default: => V): G[V] = fg(self.getOrElse(key, default))
+      def getOrElse(key: K, default: => G[V]): G[V] = fg(self.getOrElse(key, gf(default)))
 
       def getOrUpdate(key: K)(value: => G[V]) = fg(self.getOrUpdate(key)(gf(value)))
 

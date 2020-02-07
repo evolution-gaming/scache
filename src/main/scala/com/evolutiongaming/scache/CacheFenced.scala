@@ -1,6 +1,6 @@
 package com.evolutiongaming.scache
 
-import cats.FlatMap
+import cats.Monad
 import cats.effect.concurrent.Ref
 import cats.effect.{Concurrent, Resource}
 import cats.implicits._
@@ -29,13 +29,13 @@ object CacheFenced {
     result.fenced
   }
 
-  def apply[F[_] : FlatMap, K, V](cache: Cache[F, K, V], fence: F[Unit]): Cache[F, K, V] = {
+  def apply[F[_] : Monad, K, V](cache: Cache[F, K, V], fence: F[Unit]): Cache[F, K, V] = {
 
     new Cache[F, K, V] {
 
       def get(key: K) = cache.get(key)
 
-      def getOrElse(key: K, default: => V): F[V] = cache.getOrElse(key, default)
+      def getOrElse(key: K, default: => F[V]): F[V] = get(key).flatMap(_.fold(default)(_.pure[F]))
 
       def getOrUpdate(key: K)(value: => F[V]) = cache.getOrUpdate(key)(value)
 

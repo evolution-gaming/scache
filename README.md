@@ -20,7 +20,7 @@ trait Cache[F[_], K, V] {
 
   def get(key: K): F[Option[V]]
 
-  def getOrElse(key: K, default: => V): F[V]
+  def getOrElse(key: K, default: => F[V]): F[V]
 
   /**
     * Does not run `value` concurrently for the same key
@@ -72,7 +72,7 @@ trait SerialMap[F[_], K, V] {
 
   def get(key: K): F[Option[V]]
 
-  def getOrElse(key: K, default: => V): F[V]
+  def getOrElse(key: K, default: => F[V]): F[V]
 
   def put(key: K, value: V): F[Option[V]]
 

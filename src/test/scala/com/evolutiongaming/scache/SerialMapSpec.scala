@@ -83,9 +83,9 @@ class SerialMapSpec extends AsyncFunSuite with Matchers {
     val key = "key"
     for {
       serialMap <- SerialMap.of[F, String, Int]
-      value0    <- serialMap.getOrElse(key, 1)
+      value0    <- serialMap.getOrElse(key, 1.pure[F])
       _         <- serialMap.put(key, 2)
-      value1    <- serialMap.getOrElse(key, 1)
+      value1    <- serialMap.getOrElse(key, 1.pure[F])
     } yield {
       value0 shouldEqual 1
       value1 shouldEqual 2
