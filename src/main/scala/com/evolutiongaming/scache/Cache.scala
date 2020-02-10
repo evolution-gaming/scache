@@ -81,14 +81,19 @@ object Cache {
   }
 
 
-  def loading[F[_] : Concurrent : Runtime, K, V]: Resource[F, Cache[F, K, V]] = {
+  def loading[F[_] : Concurrent : Runtime, K, V](partitions: Int): Resource[F, Cache[F, K, V]] = {
+    loading(Some(partitions))
+  }
+
+
+  def loading[F[_] : Concurrent : Runtime, K, V](partitions: Option[Int] = None): Resource[F, Cache[F, K, V]] = {
 
     type G[A] = Resource[F, A]
 
     implicit val hash = Hash.fromUniversalHashCode[K]
 
     for {
-      nrOfPartitions <- Resource.liftF(NrOfPartitions[F]())
+      nrOfPartitions <- Resource.liftF(partitions.fold(NrOfPartitions[F]())(_.pure[F]))
       cache           = LoadingCache.of(LoadingCache.EntryRefs.empty[F, K, V])
       partitions     <- Partitions.of[G, K, Cache[F, K, V]](nrOfPartitions, _ => cache)
     } yield {
@@ -100,7 +105,8 @@ object Cache {
   def expiring[F[_] : Concurrent : Timer : Runtime : Parallel, K, V](
     expireAfter: FiniteDuration,
     maxSize: Option[Int] = None,
-    refresh: Option[ExpiringCache.Refresh[K, F[V]]] = None
+    refresh: Option[ExpiringCache.Refresh[K, F[V]]] = None,
+    partitions: Option[Int] = None
   ): Resource[F, Cache[F, K, V]] = {
 
     type G[A] = Resource[F, A]
@@ -108,7 +114,7 @@ object Cache {
     implicit val hash = Hash.fromUniversalHashCode[K]
 
     for {
-      nrOfPartitions <- Resource.liftF(NrOfPartitions[F]())
+      nrOfPartitions <- Resource.liftF(partitions.fold(NrOfPartitions[F]())(_.pure[F]))
       maxSize1        = maxSize.map { maxSize => (maxSize * 1.1 / nrOfPartitions).toInt }
       cache           = ExpiringCache.of[F, K, V](expireAfter, maxSize1, refresh)
       partitions     <- Partitions.of[G, K, Cache[F, K, V]](nrOfPartitions, _ => cache)

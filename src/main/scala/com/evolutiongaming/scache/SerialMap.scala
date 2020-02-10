@@ -68,9 +68,14 @@ object SerialMap { self =>
   def apply[F[_]](implicit F: Concurrent[F]): Apply[F] = new Apply(F)
 
 
-  def of[F[_] : Concurrent : Runtime, K, V]: F[SerialMap[F, K, V]] = {
+  def of[F[_] : Concurrent : Runtime, K, V](partitions: Int): F[SerialMap[F, K, V]] = {
+    of(Some(partitions))
+  }
+
+
+  def of[F[_] : Concurrent : Runtime, K, V](partitions: Option[Int] = None): F[SerialMap[F, K, V]] = {
     for {
-      cache <- Cache.loading[F, K, SerialRef[F, State[V]]].allocated
+      cache <- Cache.loading[F, K, SerialRef[F, State[V]]](partitions).allocated
     } yield {
       apply(cache._1)
     }
@@ -213,7 +218,7 @@ object SerialMap { self =>
 
   class Apply[F[_]](val F: Concurrent[F]) extends AnyVal {
 
-    def of[K, V](implicit runtime: Runtime[F]): F[SerialMap[F, K, V]] = self.of[F, K, V](F, runtime)
+    def of[K, V](implicit runtime: Runtime[F]): F[SerialMap[F, K, V]] = self.of[F, K, V]()(F, runtime)
   }
 
 

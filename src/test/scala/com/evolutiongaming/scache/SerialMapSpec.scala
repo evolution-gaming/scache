@@ -65,7 +65,7 @@ class SerialMapSpec extends AsyncFunSuite with Matchers {
   private def get[F[_] : Concurrent] = {
     val key = "key"
     for {
-      serialMap <- SerialMap.of[F, String, Int]
+      serialMap <- SerialMap.of[F, String, Int]()
       value0    <- serialMap.get(key)
       _         <- serialMap.put(key, 0)
       value1    <- serialMap.get(key)
@@ -78,7 +78,7 @@ class SerialMapSpec extends AsyncFunSuite with Matchers {
   private def put[F[_] : Concurrent] = {
     val key = "key"
     for {
-      serialMap <- SerialMap.of[F, String, Int]
+      serialMap <- SerialMap.of[F, String, Int]()
       value0    <- serialMap.put(key, 0)
       value1    <- serialMap.put(key, 1)
       value2    <- serialMap.put(key, 2)
@@ -92,7 +92,7 @@ class SerialMapSpec extends AsyncFunSuite with Matchers {
   private def modify[F[_] : Concurrent] = {
     val key = "key"
     for {
-      serialMap <- SerialMap.of[F, String, Int]
+      serialMap <- SerialMap.of[F, String, Int]()
       value0    <- serialMap.modify(key) { value =>
         val value1 = value.fold(0) { _ + 1 }
         (value1.some, value).pure[F]
@@ -114,7 +114,7 @@ class SerialMapSpec extends AsyncFunSuite with Matchers {
   private def update[F[_] : Concurrent] = {
     val key = "key"
     for {
-      serialMap <- SerialMap.of[F, String, Int]
+      serialMap <- SerialMap.of[F, String, Int]()
       _         <- serialMap.update(key) { _.fold(0) { _ + 1 }.some.pure[F] }
       value0    <- serialMap.get(key)
       _         <- serialMap.update(key) { _ => none[Int].pure[F] }
@@ -131,7 +131,7 @@ class SerialMapSpec extends AsyncFunSuite with Matchers {
 
   private def size[F[_] : Concurrent] = {
     for {
-      serialMap <- SerialMap.of[F, Int, Int]
+      serialMap <- SerialMap.of[F, Int, Int]()
       size0     <- serialMap.size
       _         <- serialMap.put(0, 0)
       size1     <- serialMap.size
@@ -156,7 +156,7 @@ class SerialMapSpec extends AsyncFunSuite with Matchers {
 
   private def keys[F[_] : Concurrent] = {
     for {
-      serialMap <- SerialMap.of[F, Int, Int]
+      serialMap <- SerialMap.of[F, Int, Int]()
       _         <- serialMap.put(0, 0)
       keys       = serialMap.keys
       keys0     <- keys
@@ -177,7 +177,7 @@ class SerialMapSpec extends AsyncFunSuite with Matchers {
 
   private def values[F[_] : Concurrent] = {
     for {
-      serialMap <- SerialMap.of[F, Int, Int]
+      serialMap <- SerialMap.of[F, Int, Int]()
       _         <- serialMap.put(0, 0)
       values0   <- serialMap.values
       _         <- serialMap.put(1, 1)
@@ -218,7 +218,7 @@ class SerialMapSpec extends AsyncFunSuite with Matchers {
 
   private def clear[F[_] : Concurrent] = {
     for {
-      serialMap <- SerialMap.of[F, Int, Int]
+      serialMap <- SerialMap.of[F, Int, Int]()
       _         <- serialMap.put(0, 0)
       _         <- serialMap.put(1, 1)
       _         <- serialMap.clear
@@ -256,7 +256,7 @@ class SerialMapSpec extends AsyncFunSuite with Matchers {
   private def `modify serially for the same key`[F[_] : Concurrent] = {
     val key = "key"
     for {
-      serialMap <- SerialMap.of[F, String, Int]
+      serialMap <- SerialMap.of[F, String, Int]()
       blocked   <- Deferred[F, Unit]
       acquired  <- Deferred[F, Unit]
       value0     = serialMap.modify(key) { value =>
@@ -283,7 +283,7 @@ class SerialMapSpec extends AsyncFunSuite with Matchers {
 
   private def `modify in parallel for different keys`[F[_] : Concurrent] = {
     for {
-      serialMap <- SerialMap.of[F, String, Int]
+      serialMap <- SerialMap.of[F, String, Int]()
       blocked   <- Deferred[F, Unit]
       acquired  <- Deferred[F, Unit]
       value0     = serialMap.modify("key1") { value =>
