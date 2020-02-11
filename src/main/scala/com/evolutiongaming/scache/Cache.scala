@@ -106,8 +106,15 @@ object Cache {
   def expiring[F[_] : Concurrent : Timer : Runtime : Parallel, K, V](
     expireAfter: FiniteDuration,
     maxSize: Option[Int] = None,
-    refresh: Option[ExpiringCache.Refresh[K, F[V]]] = None,
-    partitions: Option[Int] = None
+    refresh: Option[ExpiringCache.Refresh[K, F[V]]] = None
+  ): Resource[F, Cache[F, K, V]] = expiring(expireAfter, maxSize, refresh, None)
+
+
+  def expiring[F[_] : Concurrent : Timer : Runtime : Parallel, K, V](
+    expireAfter: FiniteDuration,
+    maxSize: Option[Int],
+    refresh: Option[ExpiringCache.Refresh[K, F[V]]],
+    partitions: Option[Int]
   ): Resource[F, Cache[F, K, V]] = {
 
     type G[A] = Resource[F, A]
