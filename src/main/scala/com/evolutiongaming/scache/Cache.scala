@@ -13,7 +13,7 @@ trait Cache[F[_], K, V] {
 
   def get(key: K): F[Option[V]]
 
-  def getOrElse(key: K, default: => V): F[V]
+  def getOrElse(key: K, default: => F[V])(implicit F: Monad[F]): F[V] = get(key).flatMap(_.fold(default)(_.pure[F]))
 
   /**
     * Does not run `value` concurrently for the same key
@@ -62,8 +62,6 @@ object Cache {
   def empty[F[_] : Monad, K, V]: Cache[F, K, V] = new Cache[F, K, V] {
 
     def get(key: K) = none[V].pure[F]
-
-    def getOrElse(key: K, default: => V): F[V] = default.pure[F]
 
     def getOrUpdate(key: K)(value: => F[V]) = value
 
@@ -136,8 +134,6 @@ object Cache {
     def mapK[G[_]](fg: F ~> G, gf: G ~> F)(implicit F: Functor[F]): Cache[G, K, V] = new Cache[G, K, V] {
 
       def get(key: K) = fg(self.get(key))
-
-      def getOrElse(key: K, default: => V): G[V] = fg(self.getOrElse(key, default))
 
       def getOrUpdate(key: K)(value: => G[V]) = fg(self.getOrUpdate(key)(gf(value)))
 

@@ -35,8 +35,6 @@ object CacheFenced {
 
       def get(key: K) = cache.get(key)
 
-      def getOrElse(key: K, default: => V): F[V] = cache.getOrElse(key, default)
-
       def getOrUpdate(key: K)(value: => F[V]) = cache.getOrUpdate(key)(value)
 
       def getOrUpdateReleasable(key: K)(value: => F[Releasable[F, V]]) = {

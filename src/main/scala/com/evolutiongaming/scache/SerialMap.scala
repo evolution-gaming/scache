@@ -1,6 +1,6 @@
 package com.evolutiongaming.scache
 
-import cats.Applicative
+import cats.{Applicative, Monad}
 import cats.effect.Concurrent
 import cats.effect.concurrent.Ref
 import cats.effect.implicits._
@@ -15,7 +15,7 @@ trait SerialMap[F[_], K, V] {
 
   def get(key: K): F[Option[V]]
 
-  def getOrElse(key: K, default: => V): F[V]
+  def getOrElse(key: K, default: => F[V])(implicit F: Monad[F]): F[V] = get(key).flatMap(_.fold(default)(_.pure[F]))
 
   def put(key: K, value: V): F[Option[V]]
 
@@ -48,8 +48,6 @@ object SerialMap { self =>
   def empty[F[_] : Applicative, K, V]: SerialMap[F, K, V] = new SerialMap[F, K, V] {
 
     def get(key: K) = none[V].pure[F]
-
-    def getOrElse(key: K, default: => V): F[V] = default.pure[F]
 
     def put(key: K, value: V) = none[V].pure[F]
 
@@ -95,9 +93,6 @@ object SerialMap { self =>
           case State.Removed     => none[V]
         }
       }
-
-
-      def getOrElse(key: K, default: => V): F[V] = get(key).map(_.getOrElse(default))
 
 
       def put(key: K, value: V) = {

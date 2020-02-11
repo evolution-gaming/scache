@@ -179,8 +179,6 @@ object ExpiringCache {
         }
       }
 
-      def getOrElse(key: K, default: => V): F[V] = get(key).map(_.getOrElse(default))
-
       def getOrUpdate(key: K)(value: => F[V]) = {
 
         def entry = {
