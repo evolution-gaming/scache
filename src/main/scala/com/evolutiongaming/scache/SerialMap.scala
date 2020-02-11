@@ -1,6 +1,6 @@
 package com.evolutiongaming.scache
 
-import cats.Applicative
+import cats.{Applicative, Monad}
 import cats.effect.Concurrent
 import cats.effect.concurrent.Ref
 import cats.effect.implicits._
@@ -14,6 +14,8 @@ import com.evolutiongaming.catshelper.{Runtime, SerialRef}
 trait SerialMap[F[_], K, V] {
 
   def get(key: K): F[Option[V]]
+
+  def getOrElse(key: K, default: => F[V])(implicit F: Monad[F]): F[V] = get(key).flatMap(_.fold(default)(_.pure[F]))
 
   def put(key: K, value: V): F[Option[V]]
 

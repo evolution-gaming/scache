@@ -13,6 +13,8 @@ trait Cache[F[_], K, V] {
 
   def get(key: K): F[Option[V]]
 
+  def getOrElse(key: K, default: => F[V])(implicit F: Monad[F]): F[V] = get(key).flatMap(_.fold(default)(_.pure[F]))
+
   /**
     * Does not run `value` concurrently for the same key
     */
