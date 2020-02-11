@@ -68,9 +68,10 @@ object SerialMap { self =>
   def apply[F[_]](implicit F: Concurrent[F]): Apply[F] = new Apply(F)
 
 
-  def of[F[_] : Concurrent : Runtime, K, V](partitions: Int): F[SerialMap[F, K, V]] = {
-    of(Some(partitions))
-  }
+  def of[F[_] : Concurrent : Runtime, K, V]: F[SerialMap[F, K, V]] = of(None)
+
+
+  def of[F[_] : Concurrent : Runtime, K, V](partitions: Int): F[SerialMap[F, K, V]] = of(Some(partitions))
 
 
   def of[F[_] : Concurrent : Runtime, K, V](partitions: Option[Int] = None): F[SerialMap[F, K, V]] = {

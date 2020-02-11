@@ -81,9 +81,10 @@ object Cache {
   }
 
 
-  def loading[F[_] : Concurrent : Runtime, K, V](partitions: Int): Resource[F, Cache[F, K, V]] = {
-    loading(Some(partitions))
-  }
+  def loading[F[_] : Concurrent : Runtime, K, V]: Resource[F, Cache[F, K, V]] = loading(None)
+
+
+  def loading[F[_] : Concurrent : Runtime, K, V](partitions: Int): Resource[F, Cache[F, K, V]] = loading(Some(partitions))
 
 
   def loading[F[_] : Concurrent : Runtime, K, V](partitions: Option[Int] = None): Resource[F, Cache[F, K, V]] = {
