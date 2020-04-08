@@ -5,7 +5,6 @@ import cats.effect.Concurrent
 import cats.effect.concurrent.{Deferred, Ref}
 import cats.effect.implicits._
 import cats.implicits._
-import com.evolutiongaming.catshelper.CatsHelper._
 
 trait EntryRef[F[_], A] {
   import EntryRef.Entry

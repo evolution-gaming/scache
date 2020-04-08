@@ -4,7 +4,6 @@ import cats.effect.concurrent.Ref
 import cats.effect.implicits._
 import cats.effect.{Concurrent, Resource}
 import cats.implicits._
-import com.evolutiongaming.catshelper.CatsHelper._
 
 
 object LoadingCache {
