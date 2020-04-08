@@ -4,7 +4,7 @@ object Dependencies {
 
   val scalatest        = "org.scalatest"       %% "scalatest"      % "3.1.1"
   val `cats-helper`    = "com.evolutiongaming" %% "cats-helper"    % "1.7.1"
-  val smetrics         = "com.evolutiongaming" %% "smetrics"       % "0.1.0"
+  val smetrics         = "com.evolutiongaming" %% "smetrics"       % "0.1.1"
   val `kind-projector` = "org.typelevel"        % "kind-projector" % "0.11.0"
 
   object Cats {
