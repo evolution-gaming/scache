@@ -2,7 +2,6 @@ package com.evolutiongaming.scache
 
 import cats.Parallel
 import cats.effect.{Clock, Concurrent, ContextShift, IO, Timer}
-import cats.implicits._
 import com.evolutiongaming.smetrics.MeasureDuration
 import org.scalatest.Succeeded
 
@@ -21,7 +20,7 @@ object IOSuite {
   implicit val measureDuration: MeasureDuration[IO] = MeasureDuration.fromClock(Clock[IO])
 
   def runIO[A](io: IO[A], timeout: FiniteDuration = Timeout): Future[Succeeded.type] = {
-    io.timeout(timeout).as(Succeeded).unsafeToFuture
+    io.timeout(timeout).as(Succeeded).unsafeToFuture()
   }
 
   implicit class IOOps[A](val self: IO[A]) extends AnyVal {
