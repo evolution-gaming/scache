@@ -4,6 +4,7 @@ import cats.effect.{Concurrent, Resource, Timer}
 import cats.implicits._
 import cats.kernel.Hash
 import cats.{Functor, Monad, Parallel, ~>}
+import com.evolutiongaming.catshelper.CatsHelper._
 import com.evolutiongaming.catshelper.Runtime
 import com.evolutiongaming.smetrics.MeasureDuration
 
@@ -93,13 +94,14 @@ object Cache {
 
     implicit val hash = Hash.fromUniversalHashCode[K]
 
-    for {
+    val result = for {
       nrOfPartitions <- Resource.liftF(partitions.fold(NrOfPartitions[F]())(_.pure[F]))
       cache           = LoadingCache.of(LoadingCache.EntryRefs.empty[F, K, V])
       partitions     <- Partitions.of[Resource[F, *], K, Cache[F, K, V]](nrOfPartitions, _ => cache)
     } yield {
       PartitionedCache(partitions)
     }
+    result.breakFlatMapChain
   }
 
 
@@ -119,7 +121,7 @@ object Cache {
 
     implicit val hash = Hash.fromUniversalHashCode[K]
 
-    for {
+    val result = for {
       nrOfPartitions <- Resource.liftF(partitions.fold(NrOfPartitions[F]())(_.pure[F]))
       maxSize1        = maxSize.map { maxSize => (maxSize * 1.1 / nrOfPartitions).toInt }
       cache           = ExpiringCache.of[F, K, V](expireAfter, maxSize1, refresh)
@@ -127,6 +129,8 @@ object Cache {
     } yield {
       PartitionedCache(partitions)
     }
+
+    result.breakFlatMapChain
   }
 
 
