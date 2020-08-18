@@ -59,7 +59,7 @@ trait Cache[F[_], K, V] {
 
 object Cache {
 
-  def empty[F[_] : Monad, K, V]: Cache[F, K, V] = new Cache[F, K, V] {
+  def empty[F[_]: Monad, K, V]: Cache[F, K, V] = new Cache[F, K, V] {
 
     def get(key: K) = none[V].pure[F]
 
@@ -83,13 +83,13 @@ object Cache {
   }
 
 
-  def loading[F[_] : Concurrent : Runtime, K, V]: Resource[F, Cache[F, K, V]] = loading(None)
+  def loading[F[_]: Concurrent: Runtime, K, V]: Resource[F, Cache[F, K, V]] = loading(None)
 
 
-  def loading[F[_] : Concurrent : Runtime, K, V](partitions: Int): Resource[F, Cache[F, K, V]] = loading(Some(partitions))
+  def loading[F[_]: Concurrent: Runtime, K, V](partitions: Int): Resource[F, Cache[F, K, V]] = loading(Some(partitions))
 
 
-  def loading[F[_] : Concurrent : Runtime, K, V](partitions: Option[Int] = None): Resource[F, Cache[F, K, V]] = {
+  def loading[F[_]: Concurrent: Runtime, K, V](partitions: Option[Int] = None): Resource[F, Cache[F, K, V]] = {
 
     implicit val hash = Hash.fromUniversalHashCode[K]
 
@@ -103,14 +103,14 @@ object Cache {
   }
 
 
-  def expiring[F[_] : Concurrent : Timer : Runtime : Parallel, K, V](
+  def expiring[F[_]: Concurrent: Timer: Runtime: Parallel, K, V](
     expireAfter: FiniteDuration,
     maxSize: Option[Int] = None,
     refresh: Option[ExpiringCache.Refresh[K, F[V]]] = None
   ): Resource[F, Cache[F, K, V]] = expiring(expireAfter, maxSize, refresh, None)
 
 
-  def expiring[F[_] : Concurrent : Timer : Runtime : Parallel, K, V](
+  def expiring[F[_]: Concurrent: Timer: Runtime: Parallel, K, V](
     expireAfter: FiniteDuration,
     maxSize: Option[Int],
     refresh: Option[ExpiringCache.Refresh[K, F[V]]],
