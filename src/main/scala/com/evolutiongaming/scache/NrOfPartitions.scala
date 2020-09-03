@@ -1,7 +1,7 @@
 package com.evolutiongaming.scache
 
 import cats.FlatMap
-import cats.implicits._
+import cats.syntax.all._
 import com.evolutiongaming.catshelper.Runtime
 
 

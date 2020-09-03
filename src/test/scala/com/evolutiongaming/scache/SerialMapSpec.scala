@@ -2,7 +2,7 @@ package com.evolutiongaming.scache
 
 import cats.effect.concurrent.Deferred
 import cats.effect.{Concurrent, IO}
-import cats.implicits._
+import cats.syntax.all._
 import com.evolutiongaming.catshelper.CatsHelper._
 import com.evolutiongaming.catshelper.SerialRef
 import com.evolutiongaming.scache.IOSuite._

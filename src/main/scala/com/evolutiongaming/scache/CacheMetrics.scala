@@ -2,7 +2,7 @@ package com.evolutiongaming.scache
 
 import cats.{Applicative, Monad}
 import cats.effect.Resource
-import cats.implicits._
+import cats.syntax.all._
 import com.evolutiongaming.smetrics.MetricsHelper._
 import com.evolutiongaming.smetrics.{CollectorRegistry, LabelNames, Quantile, Quantiles}
 

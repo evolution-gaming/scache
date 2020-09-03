@@ -3,7 +3,7 @@ package com.evolutiongaming.scache
 
 import cats.effect.concurrent.Ref
 import cats.effect.{IO, Resource}
-import cats.implicits._
+import cats.syntax.all._
 import com.evolutiongaming.scache.IOSuite._
 import org.scalatest.funsuite.AsyncFunSuite
 import org.scalatest.matchers.should.Matchers
