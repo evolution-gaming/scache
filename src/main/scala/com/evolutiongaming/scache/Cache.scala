@@ -124,26 +124,54 @@ object Cache {
   }
 
 
+  @deprecated("use `expiring` with `config` argument", "2.3.0")
   def expiring[F[_]: Concurrent: Timer: Runtime: Parallel, K, V](
     expireAfter: FiniteDuration,
-    maxSize: Option[Int] = None,
-    refresh: Option[ExpiringCache.Refresh[K, F[V]]] = None
-  ): Resource[F, Cache[F, K, V]] = expiring(expireAfter, maxSize, refresh, None)
+    maxSize: Option[Int],
+    refresh: Option[ExpiringCache.Refresh[K, F[V]]]
+  ): Resource[F, Cache[F, K, V]] = {
+    expiring(
+      ExpiringCache.Config(
+        expireAfter = expireAfter,
+        maxSize = maxSize,
+        refresh = refresh),
+      none)
+  }
 
 
+  @deprecated("use `expiring` with `config` argument", "2.3.0")
   def expiring[F[_]: Concurrent: Timer: Runtime: Parallel, K, V](
     expireAfter: FiniteDuration,
     maxSize: Option[Int],
     refresh: Option[ExpiringCache.Refresh[K, F[V]]],
     partitions: Option[Int]
   ): Resource[F, Cache[F, K, V]] = {
+    expiring(
+      ExpiringCache.Config(
+        expireAfter = expireAfter,
+        maxSize = maxSize,
+        refresh = refresh),
+      partitions)
+  }
+
+
+  def expiring[F[_]: Concurrent: Timer: Runtime: Parallel, K, V](
+    config: ExpiringCache.Config[F, K, V],
+    partitions: Option[Int] = None
+  ): Resource[F, Cache[F, K, V]] = {
 
     implicit val hash = Hash.fromUniversalHashCode[K]
 
     val result = for {
       nrOfPartitions <- Resource.liftF(partitions.fold(NrOfPartitions[F]())(_.pure[F]))
-      maxSize1        = maxSize.map { maxSize => (maxSize * 1.1 / nrOfPartitions).toInt }
-      cache           = ExpiringCache.of[F, K, V](expireAfter, maxSize1, refresh)
+      config1         = config
+        .maxSize
+        .fold {
+          config
+        } {
+          maxSize => config.copy(maxSize = (maxSize * 1.1 / nrOfPartitions).toInt.some)
+        }
+      cache           = ExpiringCache.of[F, K, V](config1)
       partitions     <- Partitions.of[Resource[F, *], K, Cache[F, K, V]](nrOfPartitions, _ => cache)
     } yield {
       PartitionedCache(partitions)

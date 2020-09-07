@@ -15,15 +15,13 @@ object ExpiringCache {
   type Timestamp = Long
 
   private[scache] def of[F[_] : Concurrent : Timer : Parallel, K, V](
-    expireAfter: FiniteDuration,
-    maxSize: Option[Int] = None,
-    refresh: Option[Refresh[K, F[V]]] = None,
+    config: Config[F, K, V]
   ): Resource[F, Cache[F, K, V]] = {
     
     type E = Entry[V]
 
-    val cooldown       = expireAfter.toMillis / 5
-    val expireAfterMs  = expireAfter.toMillis + cooldown / 2
+    val cooldown       = config.expireAfter.toMillis / 5
+    val expireAfterMs  = config.expireAfter.toMillis + cooldown / 2
     val expireInterval = (expireAfterMs / 10).millis
 
     def removeExpiredAndCheckSize(ref: Ref[F, LoadingCache.EntryRefs[F, K, E]], cache: Cache[F, K, E]) = {
@@ -84,7 +82,7 @@ object ExpiringCache {
       for {
         entryRefs <- ref.get
         result    <- entryRefs.keys.toList.foldMapM { key => removeExpired(key, entryRefs) }
-        _         <- maxSize.foldMapM(notExceedMaxSize)
+        _         <- config.maxSize.foldMapM(notExceedMaxSize)
       } yield result
     }
 
@@ -126,7 +124,7 @@ object ExpiringCache {
       ref   <- Resource.liftF(ref)
       cache <- LoadingCache.of(ref)
       _     <- schedule(expireInterval) { removeExpiredAndCheckSize(ref, cache) }
-      _     <- refresh.foldMapM { refresh => schedule(refresh.interval) { refreshEntries(refresh, ref) } }
+      _     <- config.refresh.foldMapM { refresh => schedule(refresh.interval) { refreshEntries(refresh, ref) } }
     } yield {
       apply(ref, cache, cooldown)
     }
@@ -339,5 +337,11 @@ object ExpiringCache {
   }
 
   
-  final case class Refresh[K, V](interval: FiniteDuration, value: K => V)
+  final case class Refresh[-K, +V](interval: FiniteDuration, value: K => V)
+
+
+  case class Config[F[_], -K, V](
+    expireAfter: FiniteDuration,
+    maxSize: Option[Int] = None,
+    refresh: Option[Refresh[K, F[V]]] = None)
 }
