@@ -23,11 +23,21 @@ object PartitionedCache {
         cache.getOrUpdate(key)(value)
       }
 
+      def getOrUpdateOpt(key: K)(value: => F[Option[V]]) = {
+        val cache = partitions.get(key)
+        cache.getOrUpdateOpt(key)(value)
+      }
+
       def getOrUpdateReleasable(key: K)(value: => F[Releasable[F, V]]) = {
         val cache = partitions.get(key)
         cache.getOrUpdateReleasable(key)(value)
       }
-      
+
+      def getOrUpdateReleasableOpt(key: K)(value: => F[Option[Releasable[F, V]]]) = {
+        val cache = partitions.get(key)
+        cache.getOrUpdateReleasableOpt(key)(value)
+      }
+
       def put(key: K, value: V) = {
         val cache = partitions.get(key)
         cache.put(key, value)

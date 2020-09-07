@@ -35,10 +35,20 @@ object CacheFenced {
 
       def get(key: K) = cache.get(key)
 
-      def getOrUpdate(key: K)(value: => F[V]) = cache.getOrUpdate(key)(value)
+      def getOrUpdate(key: K)(value: => F[V]) = {
+        cache.getOrUpdate(key)(value)
+      }
+
+      def getOrUpdateOpt(key: K)(value: => F[Option[V]]) = {
+        cache.getOrUpdateOpt(key)(value)
+      }
 
       def getOrUpdateReleasable(key: K)(value: => F[Releasable[F, V]]) = {
         cache.getOrUpdateReleasable(key)(fence *> value)
+      }
+
+      def getOrUpdateReleasableOpt(key: K)(value: => F[Option[Releasable[F, V]]]) = {
+        cache.getOrUpdateReleasableOpt(key)(fence *> value)
       }
 
       def put(key: K, value: V) = cache.put(key, value)

@@ -5,6 +5,8 @@ import cats.effect.implicits._
 import cats.effect.{Concurrent, Resource}
 import cats.implicits._
 
+import scala.util.control.NoStackTrace
+
 
 object LoadingCache {
 
@@ -32,6 +34,8 @@ object LoadingCache {
   private[scache] def apply[F[_] : Concurrent, K, V](
     ref: Ref[F, EntryRefs[F, K, V]],
   ): Cache[F, K, V] = {
+
+    case object NoneError extends RuntimeException with NoStackTrace
 
     def loadedOf(value: V, release: Option[F[Unit]]) = {
       EntryRef.Entry.Loaded(
@@ -109,10 +113,36 @@ object LoadingCache {
         }
       }
 
+      def getOrUpdateOpt(key: K)(value: => F[Option[V]]) = {
+        getOrUpdateReleasable1(key) {
+          for {
+            value <- value
+            value <- value.fold { NoneError.raiseError[F, V] } { _.pure[F] }
+          } yield {
+            loadedOf(value, none)
+          }
+        }
+          .map { _.some }
+          .recover { case NoneError => none }
+      }
+
       def getOrUpdateReleasable(key: K)(value: => F[Releasable[F, V]]) = {
         getOrUpdateReleasable1(key) {
           value.map { value => loadedOf(value.value, value.release.some) }
         }
+      }
+
+      def getOrUpdateReleasableOpt(key: K)(value: => F[Option[Releasable[F, V]]]) = {
+        getOrUpdateReleasable1(key) {
+          for {
+            value <- value
+            value <- value.fold { NoneError.raiseError[F, Releasable[F, V]] } { _.pure[F] }
+          } yield {
+            loadedOf(value.value, value.release.some)
+          }
+        }
+          .map { _.some }
+          .recover { case NoneError => none }
       }
 
 

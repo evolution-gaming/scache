@@ -198,6 +198,30 @@ object ExpiringCache {
         }
       }
 
+      def getOrUpdateOpt(key: K)(value: => F[Option[V]]) = {
+        def entry = {
+          for {
+            value <- value
+            value <- value.traverse { value =>
+              for {
+                timestamp <- Clock[F].millis
+              } yield {
+                Entry(value, timestamp)
+              }
+            }
+          } yield value
+        }
+
+        for {
+          entry <- cache.getOrUpdateOpt(key)(entry)
+          _     <- entry.traverse { entry => touch(key, entry) }
+        } yield for {
+          entry <- entry
+        } yield {
+          entry.value
+        }
+      }
+
       def getOrUpdateReleasable(key: K)(value: => F[Releasable[F, V]]) = {
 
         def entry = {
@@ -213,6 +237,31 @@ object ExpiringCache {
         for {
           entry <- cache.getOrUpdateReleasable(key)(entry)
           _     <- touch(key, entry)
+        } yield {
+          entry.value
+        }
+      }
+
+      def getOrUpdateReleasableOpt(key: K)(value: => F[Option[Releasable[F, V]]]) = {
+        def entry = {
+          for {
+            value <- value
+            value <- value.traverse { value =>
+              for {
+                timestamp <- Clock[F].millis
+              } yield {
+                val entry = Entry(value.value, timestamp)
+                value.copy(value = entry)
+              }
+            }
+          } yield value
+        }
+
+        for {
+          entry <- cache.getOrUpdateReleasableOpt(key)(entry)
+          _     <- entry.traverse { entry => touch(key, entry) }
+        } yield for {
+          entry <- entry
         } yield {
           entry.value
         }

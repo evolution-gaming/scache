@@ -23,9 +23,22 @@ trait Cache[F[_], K, V] {
 
   /**
     * Does not run `value` concurrently for the same key
+    * In case of none returned, value will be ignored by cache
+    */
+  def getOrUpdateOpt(key: K)(value: => F[Option[V]]): F[Option[V]]
+
+  /**
+    * Does not run `value` concurrently for the same key
     * Releasable.release will be called upon key removal from the cache
     */
   def getOrUpdateReleasable(key: K)(value: => F[Releasable[F, V]]): F[V]
+
+  /**
+    * Does not run `value` concurrently for the same key
+    * Releasable.release will be called upon key removal from the cache
+    * In case of none returned, value will be ignored by cache
+    */
+  def getOrUpdateReleasableOpt(key: K)(value: => F[Option[Releasable[F, V]]]): F[Option[V]]
 
   /**
     * @return previous value if any, possibly not yet loaded
@@ -66,7 +79,13 @@ object Cache {
 
     def getOrUpdate(key: K)(value: => F[V]) = value
 
+    def getOrUpdateOpt(key: K)(value: => F[Option[V]]) = value
+
     def getOrUpdateReleasable(key: K)(value: => F[Releasable[F, V]]) = value.map(_.value)
+
+    def getOrUpdateReleasableOpt(key: K)(value: => F[Option[Releasable[F, V]]]) = {
+      value.map(_.map(_.value))
+    }
 
     def put(key: K, value: V) = none[V].pure[F].pure[F]
 
@@ -151,8 +170,16 @@ object Cache {
 
       def getOrUpdate(key: K)(value: => G[V]) = fg(self.getOrUpdate(key)(gf(value)))
 
+      def getOrUpdateOpt(key: K)(value: => G[Option[V]]) = {
+        fg(self.getOrUpdateOpt(key)(gf(value)))
+      }
+
       def getOrUpdateReleasable(key: K)(value: => G[Releasable[G, V]]) = {
         fg(self.getOrUpdateReleasable(key)(gf(value).map(_.mapK(gf))))
+      }
+
+      def getOrUpdateReleasableOpt(key: K)(value: => G[Option[Releasable[G, V]]]) = {
+        fg(self.getOrUpdateReleasableOpt(key)(gf(value).map(_.map(_.mapK(gf)))))
       }
 
       def put(key: K, value: V) = fg(self.put(key, value).map(fg.apply))

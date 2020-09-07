@@ -329,6 +329,25 @@ class CacheSpec extends AsyncFunSuite with Matchers {
     }
 
 
+    test(s"getOrUpdateOpt: $name") {
+      val result = cache.use { cache =>
+        for {
+          deferred <- Deferred[IO, Option[Int]]
+          value0   <- cache.getOrUpdateOptEnsure(0) { deferred.get }
+          value1   <- cache.getOrUpdateOpt(0)(0.some.pure[IO]).startEnsure
+          _        <- deferred.complete(none)
+          value0   <- value0.join
+          value1   <- value1.join
+          _         = value0 shouldEqual none
+          _         = value1 shouldEqual none
+          value    <- cache.getOrUpdateOpt(0)(0.some.pure[IO])
+          _         = value shouldEqual 0.some
+        } yield {}
+      }
+      result.run()
+    }
+
+
     test(s"getOrUpdateReleasable: $name") {
       val result = cache.use { cache =>
         for {
@@ -348,10 +367,40 @@ class CacheSpec extends AsyncFunSuite with Matchers {
     }
 
 
+    test(s"getOrUpdateReleasableOpt: $name") {
+      val result = cache.use { cache =>
+        for {
+          deferred <- Deferred[IO, Option[Releasable[IO, Int]]]
+          value0   <- cache.getOrUpdateReleasableOptEnsure(0) { deferred.get }
+          value1   <- cache.getOrUpdateReleasableOpt(0)(Releasable[IO].pure(1).some.pure[IO]).startEnsure
+          released <- Deferred[IO, Unit]
+          _        <- deferred.complete(none)
+          value    <- value0.join
+          _        <- Sync[IO].delay { value shouldEqual none }
+          value    <- value1.join
+          _        <- Sync[IO].delay { value shouldEqual none }
+          _        <- released.complete(())
+          value    <- cache.getOrUpdateReleasableOpt(0)(Releasable[IO].pure(1).some.pure[IO])
+          _        <- Sync[IO].delay { value shouldEqual 1.some }
+        } yield {}
+      }
+      result.run()
+    }
+
+
     test(s"getOrUpdateReleasable fails after cache is released: $name") {
       val result = for {
         cache <- cache.use(_.pure[IO])
         a     <- cache.getOrUpdateReleasable(0)(Releasable[IO].pure(1).pure[IO]).attempt
+        _      = a shouldEqual CacheReleasedError.asLeft
+      } yield {}
+      result.run()
+    }
+
+    test(s"getOrUpdateReleasableOpt fails after cache is released: $name") {
+      val result = for {
+        cache <- cache.use(_.pure[IO])
+        a     <- cache.getOrUpdateReleasableOpt(0)(Releasable[IO].pure(1).some.pure[IO]).attempt
         _      = a shouldEqual CacheReleasedError.asLeft
       } yield {}
       result.run()
@@ -830,10 +879,40 @@ object CacheSpec {
       } yield fiber
     }
 
+    def getOrUpdateOptEnsure(key: K)(value: => F[Option[V]])(implicit F: Concurrent[F]): F[Fiber[F, Option[V]]] = {
+
+      def getOrUpdateOpt(deferred: Deferred[F, Unit]) = {
+        self.getOrUpdateOpt(key) {
+          for {
+            _     <- deferred.complete(())
+            value <- value
+          } yield value
+        }
+      }
+
+      for {
+        deferred <- Deferred[F, Unit]
+        fiber    <- getOrUpdateOpt(deferred).start
+        _        <- deferred.get
+      } yield fiber
+    }
+
     def getOrUpdateReleasableEnsure(key: K)(value: => F[Releasable[F, V]])(implicit F: Concurrent[F]): F[Fiber[F, V]] = {
       for {
         deferred <- Deferred[F, Unit]
         fiber    <- self.getOrUpdateReleasable(key) { deferred.complete(()) *> value }.start
+        _        <- deferred.get
+      } yield fiber
+    }
+
+    def getOrUpdateReleasableOptEnsure(
+      key: K)(
+      value: => F[Option[Releasable[F, V]]])(implicit
+      F: Concurrent[F]
+    ): F[Fiber[F, Option[V]]] = {
+      for {
+        deferred <- Deferred[F, Unit]
+        fiber    <- self.getOrUpdateReleasableOpt(key) { deferred.complete(()) *> value }.start
         _        <- deferred.get
       } yield fiber
     }
