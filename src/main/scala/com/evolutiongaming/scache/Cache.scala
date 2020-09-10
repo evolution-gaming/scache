@@ -127,6 +127,15 @@ object Cache {
   @deprecated("use `expiring` with `config` argument", "2.3.0")
   def expiring[F[_]: Concurrent: Timer: Runtime: Parallel, K, V](
     expireAfter: FiniteDuration,
+  ): Resource[F, Cache[F, K, V]] = {
+    expiring(
+      ExpiringCache.Config(expireAfterRead = expireAfter),
+      none)
+  }
+
+  @deprecated("use `expiring` with `config` argument", "2.3.0")
+  def expiring[F[_]: Concurrent: Timer: Runtime: Parallel, K, V](
+    expireAfter: FiniteDuration,
     maxSize: Option[Int],
     refresh: Option[ExpiringCache.Refresh[K, F[V]]]
   ): Resource[F, Cache[F, K, V]] = {
