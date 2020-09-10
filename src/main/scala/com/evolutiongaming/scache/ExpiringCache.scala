@@ -20,9 +20,13 @@ object ExpiringCache {
     
     type E = Entry[V]
 
-    val cooldown       = config.expireAfter.toMillis / 5
-    val expireAfterMs  = config.expireAfter.toMillis + cooldown / 2
-    val expireInterval = (expireAfterMs / 10).millis
+    val cooldown           = config.expireAfterRead.toMillis / 5
+    val expireAfterReadMs  = config.expireAfterRead.toMillis + cooldown / 2
+    val expireAfterWriteMs = config.expireAfterWrite.map { _.toMillis }
+    val expireInterval     = {
+      val expireInterval = expireAfterWriteMs.fold(expireAfterReadMs) { _ min expireAfterReadMs }
+      (expireInterval / 10).millis
+    }
 
     def removeExpiredAndCheckSize(ref: Ref[F, LoadingCache.EntryRefs[F, K, E]], cache: Cache[F, K, E]) = {
 
@@ -32,8 +36,11 @@ object ExpiringCache {
 
         def removeExpired(entry: E) = {
           for {
-            now    <- Clock[F].millis
-            result <- if (entry.timestamp + expireAfterMs < now) remove(key) else ().pure[F]
+            now               <- Clock[F].millis
+            expiredAfterRead   = expireAfterReadMs + entry.touched < now
+            expiredAfterWrite  = () => expireAfterWriteMs.exists { _ + entry.created < now }
+            expired            = expiredAfterRead || expiredAfterWrite()
+            result            <- if (expired) remove(key) else ().pure[F]
           } yield result
         }
 
@@ -61,7 +68,7 @@ object ExpiringCache {
               value.fold {
                 result
               } { value =>
-                Elem(key, value.timestamp) :: result
+                Elem(key, value.touched) :: result
               }
             }
           }
@@ -104,7 +111,7 @@ object ExpiringCache {
           key      <- entryRefs.keys.toList
           entryRef <- entryRefs.get(key)
         } yield for {
-          value <- entryRef.getLoaded
+          value  <- entryRef.getLoaded
           result <- value.foldMapM { _ => refreshEntry(key, entryRef) }
         } yield result
       }
@@ -139,6 +146,14 @@ object ExpiringCache {
 
     type E = Entry[V]
 
+    def entryOf(value: V) = {
+      for {
+        timestamp <- Clock[F].millis
+      } yield {
+        Entry(value,  created = timestamp, read = none)
+      }
+    }
+
     implicit val monoidUnit = Applicative.monoid[F, Unit]
 
     def touch(key: K, entry: E) = {
@@ -155,7 +170,7 @@ object ExpiringCache {
         } yield result
       }
 
-      def shouldTouch(now: Timestamp) = (entry.timestamp + cooldown) <= now
+      def shouldTouch(now: Timestamp) = (entry.touched + cooldown) <= now
 
       /*TODO randomize cooldown to avoid contention?*/
       for {
@@ -181,11 +196,9 @@ object ExpiringCache {
 
         def entry = {
           for {
-            value     <- value
-            timestamp <- Clock[F].millis
-          } yield {
-            Entry(value, timestamp)
-          }
+            value <- value
+            entry <- entryOf(value)
+          } yield entry
         }
 
         for {
@@ -200,13 +213,7 @@ object ExpiringCache {
         def entry = {
           for {
             value <- value
-            value <- value.traverse { value =>
-              for {
-                timestamp <- Clock[F].millis
-              } yield {
-                Entry(value, timestamp)
-              }
-            }
+            value <- value.traverse { value => entryOf(value) }
           } yield value
         }
 
@@ -224,10 +231,9 @@ object ExpiringCache {
 
         def entry = {
           for {
-            value     <- value
-            timestamp <- Clock[F].millis
+            value <- value
+            entry <- entryOf(value.value)
           } yield {
-            val entry = Entry(value.value, timestamp)
             value.copy(value = entry)
           }
         }
@@ -246,9 +252,8 @@ object ExpiringCache {
             value <- value
             value <- value.traverse { value =>
               for {
-                timestamp <- Clock[F].millis
+                entry <- entryOf(value.value)
               } yield {
-                val entry = Entry(value.value, timestamp)
                 value.copy(value = entry)
               }
             }
@@ -267,9 +272,8 @@ object ExpiringCache {
 
       def put(key: K, value: V) = {
         for {
-          timestamp <- Clock[F].millis
-          entry      = Entry(value, timestamp)
-          entry     <- cache.put(key, entry)
+          entry <- entryOf(value)
+          entry <- cache.put(key, entry)
         } yield for {
           entry <- entry
         } yield for {
@@ -281,9 +285,8 @@ object ExpiringCache {
 
       def put(key: K, value: V, release: F[Unit]) = {
         for {
-          timestamp <- Clock[F].millis
-          entry      = Entry(value, timestamp)
-          entry     <- cache.put(key, entry, release)
+          entry <- entryOf(value)
+          entry <- cache.put(key, entry, release)
         } yield for {
           entry <- entry
         } yield for {
@@ -329,19 +332,32 @@ object ExpiringCache {
   }
 
 
-  final case class Entry[A](value: A, timestamp: Timestamp) { self =>
+  final case class Entry[A](value: A, created: Timestamp, read: Option[Timestamp]) { self =>
 
     def touch(timestamp: Timestamp): Entry[A] = {
-      if (timestamp > self.timestamp) copy(timestamp = timestamp) else self
+      if (self.read.forall { timestamp > _ }) copy(read = timestamp.some)
+      else self
     }
+
+    def touched: Timestamp = read.getOrElse(created)
   }
 
   
   final case class Refresh[-K, +V](interval: FiniteDuration, value: K => V)
 
+  object Refresh {
+    def apply[K](interval: FiniteDuration): Apply[K] = new Apply(interval)
+
+    private[Refresh] final class Apply[K](val interval: FiniteDuration) extends AnyVal {
+
+      def apply[V](f: K => V): Refresh[K, V] = Refresh(interval, f)
+    }
+  }
+
 
   case class Config[F[_], -K, V](
-    expireAfter: FiniteDuration,
-    maxSize: Option[Int] = None,
-    refresh: Option[Refresh[K, F[V]]] = None)
+    expireAfterRead: FiniteDuration,
+    expireAfterWrite: Option[FiniteDuration] = none,
+    maxSize: Option[Int] = none,
+    refresh: Option[Refresh[K, F[V]]] = none)
 }

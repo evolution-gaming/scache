@@ -132,7 +132,7 @@ object Cache {
   ): Resource[F, Cache[F, K, V]] = {
     expiring(
       ExpiringCache.Config(
-        expireAfter = expireAfter,
+        expireAfterRead = expireAfter,
         maxSize = maxSize,
         refresh = refresh),
       none)
@@ -148,7 +148,7 @@ object Cache {
   ): Resource[F, Cache[F, K, V]] = {
     expiring(
       ExpiringCache.Config(
-        expireAfter = expireAfter,
+        expireAfterRead = expireAfter,
         maxSize = maxSize,
         refresh = refresh),
       partitions)

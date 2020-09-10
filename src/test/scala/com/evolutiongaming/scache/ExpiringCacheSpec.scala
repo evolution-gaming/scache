@@ -17,6 +17,10 @@ class ExpiringCacheSpec extends AsyncFunSuite with Matchers {
     expireRecords[IO].run()
   }
 
+  test(s"expire created entries") {
+    `expire created entries`[IO].run()
+  }
+
   test("not expire used entries") {
     notExpireUsedRecords[IO].run()
   }
@@ -39,7 +43,7 @@ class ExpiringCacheSpec extends AsyncFunSuite with Matchers {
 
   private def expireRecords[F[_] : Concurrent : Timer : Parallel] = {
 
-    ExpiringCache.of[F, Int, Int](ExpiringCache.Config(expireAfter = 100.millis)).use { cache =>
+    ExpiringCache.of[F, Int, Int](ExpiringCache.Config(expireAfterRead = 100.millis)).use { cache =>
       for {
         release <- Deferred[F, Unit]
         value   <- cache.put(0, 0, release.complete(()))
@@ -50,6 +54,25 @@ class ExpiringCacheSpec extends AsyncFunSuite with Matchers {
         _       <- release.get
         value   <- cache.get(0)
         _       <- Sync[F].delay { value shouldEqual none }
+      } yield {}
+    }
+  }
+
+  private def `expire created entries`[F[_] : Concurrent : Timer : Parallel] = {
+    val  config = ExpiringCache.Config[F, Int, Int](
+      expireAfterRead = 1.minute,
+      expireAfterWrite = 150.millis.some)
+    ExpiringCache.of[F, Int, Int](config).use { cache =>
+      for {
+        release <- Deferred[F, Unit]
+        _       <- cache.put(0, 0, release.complete(()))
+        _       <- Timer[F].sleep(100.millis)
+        value   <- cache.get(0)
+        _       <- Sync[F].delay { value shouldEqual 0.some }
+        _       <- Timer[F].sleep(100.millis)
+        value   <- cache.get(0)
+        _       <- Sync[F].delay { value shouldEqual none }
+        _       <- release.get
       } yield {}
     }
   }
@@ -81,7 +104,11 @@ class ExpiringCacheSpec extends AsyncFunSuite with Matchers {
 
 
   private def notExceedMaxSize[F[_] : Concurrent : Timer : Parallel] = {
-    ExpiringCache.of[F, Int, Int](ExpiringCache.Config(expireAfter = 100.millis, maxSize = 10.some)).use { cache =>
+    val config = ExpiringCache.Config[F, Int, Int](
+      expireAfterRead = 100.millis,
+      expireAfterWrite = 100.millis.some,
+      maxSize = 10.some)
+    ExpiringCache.of(config).use { cache =>
       for {
         release <- Deferred[F, Unit]
         _       <- cache.put(0, 0, release.complete(()))
@@ -95,11 +122,12 @@ class ExpiringCacheSpec extends AsyncFunSuite with Matchers {
   }
 
   private def refreshPeriodically[F[_] : Concurrent : Timer : Parallel] = {
-
-    val value = (key: Int) => key.pure[F]
-    val refresh = ExpiringCache.Refresh(100.millis, value)
-
-    ExpiringCache.of[F, Int, Int](ExpiringCache.Config(1.minute, refresh = refresh.some)).use { cache =>
+    val refresh = ExpiringCache.Refresh[Int](100.millis) { _.pure[F] }
+    val config = ExpiringCache.Config(
+      expireAfterRead = 1.minute,
+      expireAfterWrite = 1.minute.some,
+      refresh = refresh.some)
+    ExpiringCache.of[F, Int, Int](config).use { cache =>
 
       def retryUntilRefreshed(key: Int, original: Int) = {
         Retry(10.millis, 100) {
@@ -124,10 +152,13 @@ class ExpiringCacheSpec extends AsyncFunSuite with Matchers {
   }
 
   private def refreshDoesNotTouch[F[_] : Concurrent : Timer : Parallel] = {
-    val value = (key: Int) => key.pure[F]
-    val refresh = ExpiringCache.Refresh(100.millis, value)
+    val refresh = ExpiringCache.Refresh[Int](100.millis) { _.pure[F] }
 
-    ExpiringCache.of[F, Int, Int](ExpiringCache.Config(100.millis, refresh = refresh.some)).use { cache =>
+    val config = ExpiringCache.Config(
+      expireAfterRead = 100.millis,
+      refresh = refresh.some)
+
+    ExpiringCache.of[F, Int, Int](config).use { cache =>
 
       def retryUntilRefreshed(key: Int, original: Int) = {
         Retry(10.millis, 100) {
@@ -171,7 +202,11 @@ class ExpiringCacheSpec extends AsyncFunSuite with Matchers {
       ref     <- Ref[F].of(0)
       value    = valueOf(ref)
       refresh  = ExpiringCache.Refresh(50.millis, value)
-      result  <- ExpiringCache.of[F, Int, Int](ExpiringCache.Config(1.minute, refresh = refresh.some)).use { cache =>
+      config   = ExpiringCache.Config(
+        expireAfterRead = 1.minute,
+        expireAfterWrite = 1.minute.some,
+        refresh = refresh.some)
+      result  <- ExpiringCache.of(config).use { cache =>
 
         def retryUntilRefreshed(key: Int, original: Int) = {
           Retry(10.millis, 100) {
