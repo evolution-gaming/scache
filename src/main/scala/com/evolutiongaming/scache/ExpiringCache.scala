@@ -94,14 +94,18 @@ object ExpiringCache {
     }
 
     def refreshEntries(
-      refresh: Refresh[K, F[V]],
-      ref: Ref[F, LoadingCache.EntryRefs[F, K, E]]
+      refresh: Refresh[K, F[Option[V]]],
+      ref: Ref[F, LoadingCache.EntryRefs[F, K, E]],
+      cache: Cache[F, K, E]
     ) = {
 
       def refreshEntry(key: K, entryRef: EntryRef[F, E]) = {
         val result = for {
           value  <- refresh.value(key)
-          result <- entryRef.updateLoaded(_.copy(value = value))
+          result <- value match {
+            case Some(value) => entryRef.updateLoaded(_.copy(value = value))
+            case None        => cache.remove(key).void
+          }
         } yield result
         result.handleError { _ => () }
       }
@@ -131,7 +135,7 @@ object ExpiringCache {
       ref   <- Resource.liftF(ref)
       cache <- LoadingCache.of(ref)
       _     <- schedule(expireInterval) { removeExpiredAndCheckSize(ref, cache) }
-      _     <- config.refresh.foldMapM { refresh => schedule(refresh.interval) { refreshEntries(refresh, ref) } }
+      _     <- config.refresh.foldMapM { refresh => schedule(refresh.interval) { refreshEntries(refresh, ref, cache) } }
     } yield {
       apply(ref, cache, cooldown)
     }
@@ -359,5 +363,5 @@ object ExpiringCache {
     expireAfterRead: FiniteDuration,
     expireAfterWrite: Option[FiniteDuration] = none,
     maxSize: Option[Int] = none,
-    refresh: Option[Refresh[K, F[V]]] = none)
+    refresh: Option[Refresh[K, F[Option[V]]]] = none)
 }

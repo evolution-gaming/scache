@@ -14,7 +14,9 @@ trait Cache[F[_], K, V] {
 
   def get(key: K): F[Option[V]]
 
-  def getOrElse(key: K, default: => F[V])(implicit F: Monad[F]): F[V] = get(key).flatMap(_.fold(default)(_.pure[F]))
+  def getOrElse(key: K, default: => F[V])(implicit F: Monad[F]): F[V] = {
+    get(key).flatMap(_.fold(default)(_.pure[F]))
+  }
 
   /**
     * Does not run `value` concurrently for the same key
@@ -143,7 +145,7 @@ object Cache {
       ExpiringCache.Config(
         expireAfterRead = expireAfter,
         maxSize = maxSize,
-        refresh = refresh),
+        refresh = refresh.map { refresh => refresh.copy(value = (k: K) => refresh.value(k).map { _.some }) }),
       none)
   }
 
@@ -159,7 +161,7 @@ object Cache {
       ExpiringCache.Config(
         expireAfterRead = expireAfter,
         maxSize = maxSize,
-        refresh = refresh),
+        refresh = refresh.map { refresh => refresh.copy(value = (k: K) => refresh.value(k).map { _.some }) }),
       partitions)
   }
 

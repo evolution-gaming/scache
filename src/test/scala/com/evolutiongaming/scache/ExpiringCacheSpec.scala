@@ -1,15 +1,15 @@
 package com.evolutiongaming.scache
 
-import cats.{Monad, Parallel}
 import cats.effect.concurrent.{Deferred, Ref}
 import cats.effect.{Concurrent, IO, Sync, Timer}
 import cats.implicits._
+import cats.{Monad, Parallel}
 import com.evolutiongaming.scache.IOSuite._
+import org.scalatest.funsuite.AsyncFunSuite
+import org.scalatest.matchers.should.Matchers
 
 import scala.concurrent.duration._
 import scala.util.control.NoStackTrace
-import org.scalatest.funsuite.AsyncFunSuite
-import org.scalatest.matchers.should.Matchers
 
 class ExpiringCacheSpec extends AsyncFunSuite with Matchers {
 
@@ -39,6 +39,10 @@ class ExpiringCacheSpec extends AsyncFunSuite with Matchers {
 
   test("refresh fails") {
     refreshFails[IO].run()
+  }
+
+  test("refresh removes entry") {
+    `refresh removes entry`[IO].run()
   }
 
   private def expireRecords[F[_] : Concurrent : Timer : Parallel] = {
@@ -122,7 +126,7 @@ class ExpiringCacheSpec extends AsyncFunSuite with Matchers {
   }
 
   private def refreshPeriodically[F[_] : Concurrent : Timer : Parallel] = {
-    val refresh = ExpiringCache.Refresh[Int](100.millis) { _.pure[F] }
+    val refresh = ExpiringCache.Refresh[Int](100.millis) { _.some.pure[F] }
     val config = ExpiringCache.Config(
       expireAfterRead = 1.minute,
       expireAfterWrite = 1.minute.some,
@@ -152,7 +156,7 @@ class ExpiringCacheSpec extends AsyncFunSuite with Matchers {
   }
 
   private def refreshDoesNotTouch[F[_] : Concurrent : Timer : Parallel] = {
-    val refresh = ExpiringCache.Refresh[Int](100.millis) { _.pure[F] }
+    val refresh = ExpiringCache.Refresh[Int](100.millis) { _.some.pure[F] }
 
     val config = ExpiringCache.Config(
       expireAfterRead = 100.millis,
@@ -194,7 +198,9 @@ class ExpiringCacheSpec extends AsyncFunSuite with Matchers {
         for {
           n <- ref.modify { n => (n + 1, n) }
           v <- if (n == 0) TestError.raiseError[F, Int] else 1.pure[F]
-        } yield v
+        } yield {
+          v.some
+        }
       }
     }
 
@@ -232,6 +238,54 @@ class ExpiringCacheSpec extends AsyncFunSuite with Matchers {
       }
     } yield result
   }
+
+  def `refresh removes entry`[F[_] : Concurrent : Timer : Parallel] = {
+    val refresh = ExpiringCache.Refresh[Int](100.millis) { _ => none[Int].pure[F] }
+
+    val config = ExpiringCache.Config(
+      expireAfterRead = 100.millis,
+      refresh = refresh.some)
+
+    ExpiringCache.of[F, Int, Int](config).use { cache =>
+
+      def retryUntilNone(key: Int) = {
+        0.tailRecM[F, Option[Int]] { round =>
+          for {
+            a <- cache.get(key)
+            r <- a match {
+              case Some(a) =>
+                if (round >= 100) {
+                  a.some.asRight[Int].pure[F]
+                } else {
+                  for {
+                    _ <- Timer[F].sleep(10.millis)
+                  } yield {
+                    (round + 1).asLeft[Option[Int]]
+                  }
+                }
+              case None => none.asRight[Int].pure[F]
+            }
+          } yield r
+        }
+      }
+
+      for {
+        released <- Ref[F].of(false)
+        release  <- Deferred[F, Unit]
+        value    <- cache.put(0, 1, released.set(true) *> release.complete(()))
+        value    <- value
+        _        <- Sync[F].delay { value shouldEqual none }
+        value    <- cache.get(0)
+        _        <- Sync[F].delay { value shouldEqual 1.some }
+        value    <- retryUntilNone(0)
+        released <- released.get
+        _        <- Sync[F].delay { released shouldEqual true}
+        _        <- Sync[F].delay { value shouldEqual none }
+        _        <- release.get
+      } yield {}
+    }
+  }
+
 
   object Retry {
 
