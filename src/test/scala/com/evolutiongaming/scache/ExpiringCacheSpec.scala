@@ -2,7 +2,7 @@ package com.evolutiongaming.scache
 
 import cats.effect.concurrent.{Deferred, Ref}
 import cats.effect.{Concurrent, IO, Sync, Timer}
-import cats.implicits._
+import cats.syntax.all._
 import cats.{Monad, Parallel}
 import com.evolutiongaming.scache.IOSuite._
 import org.scalatest.funsuite.AsyncFunSuite

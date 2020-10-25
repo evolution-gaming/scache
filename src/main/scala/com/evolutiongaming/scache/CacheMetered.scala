@@ -2,7 +2,7 @@ package com.evolutiongaming.scache
 
 import cats.effect.concurrent.Ref
 import cats.effect.{Concurrent, Resource, Timer}
-import cats.implicits._
+import cats.syntax.all._
 import com.evolutiongaming.catshelper.Schedule
 import com.evolutiongaming.smetrics.MeasureDuration
 

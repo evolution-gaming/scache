@@ -1,7 +1,7 @@
 package com.evolutiongaming.scache
 
 import cats.effect.{Concurrent, Resource, Timer}
-import cats.implicits._
+import cats.syntax.all._
 import cats.kernel.Hash
 import cats.{Functor, Monad, Parallel, ~>}
 import com.evolutiongaming.catshelper.CatsHelper._

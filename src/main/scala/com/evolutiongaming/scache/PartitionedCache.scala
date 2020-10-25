@@ -1,7 +1,7 @@
 package com.evolutiongaming.scache
 
 import cats.{Applicative, Monad}
-import cats.implicits._
+import cats.syntax.all._
 
 object PartitionedCache {
 

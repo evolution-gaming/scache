@@ -2,7 +2,7 @@ package com.evolutiongaming.scache
 
 import cats.effect.concurrent.Ref
 import cats.effect.{Clock, Concurrent, Resource, Timer}
-import cats.implicits._
+import cats.syntax.all._
 import cats.{Applicative, Monad, Parallel}
 import com.evolutiongaming.catshelper.ClockHelper._
 import com.evolutiongaming.catshelper.ParallelHelper._
