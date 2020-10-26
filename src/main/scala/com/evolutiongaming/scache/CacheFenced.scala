@@ -35,6 +35,10 @@ object CacheFenced {
 
       def get(key: K) = cache.get(key)
 
+      def getOrElse(key: K, default: => F[V]) = {
+        cache.getOrElse(key, default)
+      }
+
       def getOrUpdate(key: K)(value: => F[V]) = {
         cache.getOrUpdate(key)(value)
       }

@@ -18,6 +18,11 @@ object PartitionedCache {
         cache.get(key)
       }
 
+      def getOrElse(key: K, default: => F[V]) = {
+        val cache = partitions.get(key)
+        cache.getOrElse(key, default)
+      }
+
       def getOrUpdate(key: K)(value: => F[V]) = {
         val cache = partitions.get(key)
         cache.getOrUpdate(key)(value)

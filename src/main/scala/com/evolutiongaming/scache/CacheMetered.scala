@@ -44,6 +44,15 @@ object CacheMetered {
           } yield value
         }
 
+        def getOrElse(key: K, default: => F[V]) = {
+          for {
+            stored <- get(key)
+            result <- stored.fold(default)(_.pure[F])
+          } yield {
+            result
+          }
+        }
+
         def getOrUpdate(key: K)(value: => F[V]) = {
           getOrUpdateReleasable(key) { 
             for {

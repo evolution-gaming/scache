@@ -74,6 +74,11 @@ trait SerialMap[F[_], K, V] {
 
   def getOrElse(key: K, default: => F[V]): F[V]
 
+  /**
+    * Does not run `value` concurrently for the same key
+    */
+  def getOrUpdate(key: K, value: => F[V]): F[V]
+
   def put(key: K, value: V): F[Option[V]]
 
   /**
@@ -106,5 +111,5 @@ trait SerialMap[F[_], K, V] {
 ```scala
 resolvers += Resolver.bintrayRepo("evolutiongaming", "maven")
 
-libraryDependencies += "com.evolutiongaming" %% "scache" % "2.2.0"
+libraryDependencies += "com.evolutiongaming" %% "scache" % "3.1.0"
 ```
