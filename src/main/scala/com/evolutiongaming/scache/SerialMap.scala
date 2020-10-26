@@ -1,6 +1,6 @@
 package com.evolutiongaming.scache
 
-import cats.{Applicative, Monad}
+import cats.Applicative
 import cats.effect.Concurrent
 import cats.effect.concurrent.Ref
 import cats.effect.implicits._
@@ -15,7 +15,9 @@ trait SerialMap[F[_], K, V] {
 
   def get(key: K): F[Option[V]]
 
-  def getOrElse(key: K, default: => F[V])(implicit F: Monad[F]): F[V] = get(key).flatMap(_.fold(default)(_.pure[F]))
+  def getOrElse(key: K, default: => F[V]): F[V]
+
+  def getOrUpdate(key: K, value: => F[V]): F[V]
 
   def put(key: K, value: V): F[Option[V]]
 
@@ -48,6 +50,10 @@ object SerialMap { self =>
   def empty[F[_] : Applicative, K, V]: SerialMap[F, K, V] = new SerialMap[F, K, V] {
 
     def get(key: K) = none[V].pure[F]
+
+    def getOrElse(key: K, default: => F[V]): F[V] = default
+
+    def getOrUpdate(key: K, value: => F[V]): F[V] = value
 
     def put(key: K, value: V) = none[V].pure[F]
 
@@ -97,6 +103,24 @@ object SerialMap { self =>
           case State.Full(value) => value.some
           case State.Empty       => none[V]
           case State.Removed     => none[V]
+        }
+      }
+
+
+      def getOrElse(key: K, default: => F[V]) = {
+        for {
+          stored <- get(key)
+          result <- stored.fold(default)(_.pure[F])
+        } yield {
+          result
+        }
+      }
+
+
+      def getOrUpdate(key: K, value: => F[V]) = {
+        modify(key) {
+          case Some(stored) => (stored.some, stored).pure[F]
+          case None         => value.map { value => (value.some, value) }
         }
       }
 

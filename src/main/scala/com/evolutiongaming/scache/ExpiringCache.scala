@@ -196,6 +196,15 @@ object ExpiringCache {
         }
       }
 
+      def getOrElse(key: K, default: => F[V]) = {
+        for {
+          stored <- get(key)
+          result <- stored.fold(default)(_.pure[F])
+        } yield {
+          result
+        }
+      }
+
       def getOrUpdate(key: K)(value: => F[V]) = {
 
         def entry = {

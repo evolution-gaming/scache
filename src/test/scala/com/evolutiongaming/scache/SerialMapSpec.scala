@@ -22,6 +22,10 @@ class SerialMapSpec extends AsyncFunSuite with Matchers {
     getOrElse[IO].run()
   }
 
+  test("getOrUpdate") {
+    getOrUpdate[IO].run()
+  }
+
   test("put") {
     put[IO].run()
   }
@@ -89,6 +93,24 @@ class SerialMapSpec extends AsyncFunSuite with Matchers {
     } yield {
       value0 shouldEqual 1
       value1 shouldEqual 2
+    }
+  }
+
+  private def getOrUpdate[F[_] : Concurrent] = {
+    val key = "key"
+    for {
+      serialMap <- SerialMap.of[F, String, Int]
+      started   <- Deferred[F, Unit]
+      deferred  <- Deferred[F, Int]
+      value0    <- serialMap.getOrUpdate(key, started.complete(()) *> deferred.get).startEnsure
+      _         <- started.get
+      value1    <- serialMap.getOrUpdate(key, 1.pure[F]).startEnsure
+      _         <- deferred.complete(0)
+      value0    <- value0.join
+      value1    <- value1.join
+    } yield {
+      value0 shouldEqual 0
+      value1 shouldEqual 0
     }
   }
 
