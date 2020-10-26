@@ -100,8 +100,10 @@ class SerialMapSpec extends AsyncFunSuite with Matchers {
     val key = "key"
     for {
       serialMap <- SerialMap.of[F, String, Int]
+      started   <- Deferred[F, Unit]
       deferred  <- Deferred[F, Int]
-      value0    <- serialMap.getOrUpdate(key, deferred.get).startEnsure
+      value0    <- serialMap.getOrUpdate(key, started.complete(()) *> deferred.get).startEnsure
+      _         <- started.get
       value1    <- serialMap.getOrUpdate(key, 1.pure[F]).startEnsure
       _         <- deferred.complete(0)
       value0    <- value0.join
