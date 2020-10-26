@@ -1,6 +1,6 @@
 package com.evolutiongaming.scache
 
-import cats.{Applicative, Monad}
+import cats.Applicative
 import cats.effect.Concurrent
 import cats.effect.concurrent.Ref
 import cats.effect.implicits._
