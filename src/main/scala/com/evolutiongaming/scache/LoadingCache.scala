@@ -166,6 +166,12 @@ object LoadingCache {
         put1(key, loaded)
       }
 
+      def contains(key: K) = {
+        ref
+          .get
+          .map { _.contains(key) }
+      }
+
 
       val size = {
         ref

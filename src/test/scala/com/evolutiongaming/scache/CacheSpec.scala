@@ -150,6 +150,47 @@ class CacheSpec extends AsyncFunSuite with Matchers {
     }
 
 
+    test(s"contains: $name") {
+      val result = cache.use { cache =>
+        for {
+          a     <- cache.contains(0)
+          _     <- IO { a shouldBe false }
+          a     <- cache.contains(1)
+          _     <- IO { a shouldBe false }
+
+          _     <- cache.put(0, 0)
+
+          a     <- cache.contains(0)
+          _     <- IO { a shouldBe true }
+          a     <- cache.contains(1)
+          _     <- IO { a shouldBe false }
+
+          _     <- cache.put(1, 1)
+
+          a     <- cache.contains(0)
+          _     <- IO { a shouldBe true }
+          a     <- cache.contains(1)
+          _     <- IO { a shouldBe true }
+
+          _     <- cache.remove(0)
+
+          a     <- cache.contains(0)
+          _     <- IO { a shouldBe false }
+          a     <- cache.contains(1)
+          _     <- IO { a shouldBe true }
+
+          _     <- cache.clear
+
+          a     <- cache.contains(0)
+          _     <- IO { a shouldBe false }
+          a     <- cache.contains(1)
+          _     <- IO { a shouldBe false }
+        } yield {}
+      }
+      result.run()
+    }
+
+
     test(s"size: $name") {
       val result = cache.use { cache =>
         for {

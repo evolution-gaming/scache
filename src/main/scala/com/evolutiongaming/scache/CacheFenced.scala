@@ -59,6 +59,8 @@ object CacheFenced {
 
       def put(key: K, value: V, release: F[Unit]) = fence *> cache.put(key, value, release)
 
+      def contains(key: K) = cache.contains(key)
+
       def size = cache.size
 
       def keys = cache.keys

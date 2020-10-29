@@ -137,6 +137,8 @@ object CacheMetered {
           } yield value
         }
 
+        def contains(key: K) = cache.contains(key)
+
         def size = cache.size
 
         def keys = cache.keys

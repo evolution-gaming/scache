@@ -49,6 +49,9 @@ trait Cache[F[_], K, V] {
   def put(key: K, value: V, release: F[Unit]): F[F[Option[V]]]
 
 
+  def contains(key: K): F[Boolean]
+  
+
   def size: F[Int]
 
 
@@ -93,6 +96,8 @@ object Cache {
 
     def put(key: K, value: V, release: F[Unit]) = none[V].pure[F].pure[F]
 
+    def contains(key: K) = false.pure[F]
+    
     val size = 0.pure[F]
 
     val keys = Set.empty[K].pure[F]
@@ -226,6 +231,8 @@ object Cache {
       def put(key: K, value: V) = fg(self.put(key, value).map(fg.apply))
 
       def put(key: K, value: V, release: G[Unit]) = fg(self.put(key, value, gf(release)).map(fg.apply))
+
+      def contains(key: K) = fg(self.contains(key))
 
       def size = fg(self.size)
 

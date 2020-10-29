@@ -53,6 +53,11 @@ object PartitionedCache {
         cache.put(key, value, release)
       }
 
+      def contains(key: K) = {
+        val cache = partitions.get(key)
+        cache.contains(key)
+      }
+
       val size = {
         partitions.values.foldMapM(_.size)
       }
