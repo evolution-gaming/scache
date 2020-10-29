@@ -1,7 +1,7 @@
 package com.evolutiongaming.scache
 
-import cats.{Applicative, Monad}
 import cats.syntax.all._
+import cats.{Applicative, Monad}
 
 object PartitionedCache {
 
@@ -14,87 +14,95 @@ object PartitionedCache {
     new Cache[F, K, V] {
 
       def get(key: K) = {
-        val cache = partitions.get(key)
-        cache.get(key)
+        partitions
+          .get(key)
+          .get(key)
       }
 
       def getOrElse(key: K, default: => F[V]) = {
-        val cache = partitions.get(key)
-        cache.getOrElse(key, default)
+        partitions
+          .get(key)
+          .getOrElse(key, default)
       }
 
       def getOrUpdate(key: K)(value: => F[V]) = {
-        val cache = partitions.get(key)
-        cache.getOrUpdate(key)(value)
+        partitions
+          .get(key)
+          .getOrUpdate(key)(value)
       }
 
       def getOrUpdateOpt(key: K)(value: => F[Option[V]]) = {
-        val cache = partitions.get(key)
-        cache.getOrUpdateOpt(key)(value)
+        partitions
+          .get(key)
+          .getOrUpdateOpt(key)(value)
       }
 
       def getOrUpdateReleasable(key: K)(value: => F[Releasable[F, V]]) = {
-        val cache = partitions.get(key)
-        cache.getOrUpdateReleasable(key)(value)
+        partitions
+          .get(key)
+          .getOrUpdateReleasable(key)(value)
       }
 
       def getOrUpdateReleasableOpt(key: K)(value: => F[Option[Releasable[F, V]]]) = {
-        val cache = partitions.get(key)
-        cache.getOrUpdateReleasableOpt(key)(value)
+        partitions
+          .get(key)
+          .getOrUpdateReleasableOpt(key)(value)
       }
 
       def put(key: K, value: V) = {
-        val cache = partitions.get(key)
-        cache.put(key, value)
+        partitions
+          .get(key)
+          .put(key, value)
       }
 
       def put(key: K, value: V, release: F[Unit]) = {
-        val cache = partitions.get(key)
-        cache.put(key, value, release)
+        partitions
+          .get(key)
+          .put(key, value, release)
       }
 
       def contains(key: K) = {
-        val cache = partitions.get(key)
-        cache.contains(key)
+        partitions
+          .get(key)
+          .contains(key)
       }
 
       val size = {
-        partitions.values.foldMapM(_.size)
+        partitions
+          .values
+          .foldMapM(_.size)
       }
 
       val keys = {
-        val zero = Set.empty[K]
-        partitions.values.foldLeftM(zero) { (result, cache) =>
-          for {
-            keys <- cache.keys
-          } yield {
-            result ++ keys
+        partitions
+          .values
+          .foldLeftM(Set.empty[K]) { (keys, cache) =>
+            cache
+              .keys
+              .map { _ ++ keys }
           }
-        }
       }
 
       val values = {
-        val zero = Map.empty[K, F[V]]
-        partitions.values.foldLeftM(zero) { (result, cache) =>
-          for {
-            values <- cache.values
-          } yield {
-            result ++ values
+        partitions
+          .values
+          .foldLeftM(Map.empty[K, F[V]]) { (values, cache) =>
+            cache
+              .values
+              .map { _ ++ values }
           }
-        }
       }
 
       def remove(key: K) = {
-        val cache = partitions.get(key)
-        cache.remove(key)
+        partitions
+          .get(key)
+          .remove(key)
       }
 
       val clear = {
-        for {
-          clear <- partitions.values.traverse(_.clear)
-        } yield {
-          clear.combineAll
-        }
+        partitions
+          .values
+          .foldMapM { _.clear }
       }
     }
   }
