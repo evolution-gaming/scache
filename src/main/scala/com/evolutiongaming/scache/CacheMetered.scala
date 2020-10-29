@@ -139,15 +139,43 @@ object CacheMetered {
 
         def contains(key: K) = cache.contains(key)
 
-        def size = cache.size
+        def size = {
+          for {
+            d <- MeasureDuration[F].start
+            a <- cache.size
+            d <- d
+            _ <- metrics.size(d)
+          } yield a
+        }
 
-        def keys = cache.keys
+        def keys = {
+          for {
+            d <- MeasureDuration[F].start
+            a <- cache.keys
+            d <- d
+            _ <- metrics.keys(d)
+          } yield a
+        }
 
-        def values = cache.values
+        def values = {
+          for {
+            d <- MeasureDuration[F].start
+            a <- cache.values
+            d <- d
+            _ <- metrics.values(d)
+          } yield a
+        }
 
         def remove(key: K) = cache.remove(key)
 
-        def clear = cache.clear
+        def clear = {
+          for {
+            d <- MeasureDuration[F].start
+            a <- cache.clear
+            d <- d
+            _ <- metrics.clear(d)
+          } yield a
+        }
       }
     }
   }

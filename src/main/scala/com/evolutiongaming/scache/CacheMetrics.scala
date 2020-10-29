@@ -19,6 +19,14 @@ trait CacheMetrics[F[_]] {
   def put: F[Unit]
 
   def size(size: Int): F[Unit]
+
+  def size(latency: FiniteDuration): F[Unit]
+
+  def values(latency: FiniteDuration): F[Unit]
+
+  def keys(latency: FiniteDuration): F[Unit]
+
+  def clear(latency: FiniteDuration): F[Unit]
 }
 
 object CacheMetrics {
@@ -37,6 +45,14 @@ object CacheMetrics {
     val put = unit
 
     def size(size: Int) = unit
+
+    def size(latency: FiniteDuration) = unit
+
+    def values(latency: FiniteDuration) = unit
+
+    def keys(latency: FiniteDuration) = unit
+
+    def clear(latency: FiniteDuration) = unit
   }
 
 
@@ -69,12 +85,14 @@ object CacheMetrics {
       help = "Load result: success or failure",
       labels = LabelNames("name", "result"))
 
+    val quantiles = Quantiles(
+      Quantile(value = 0.9, error = 0.05),
+      Quantile(value = 0.99, error = 0.005))
+
     val loadTimeSummary = collectorRegistry.summary(
       name = s"${ prefix }_load_time",
       help = s"Load time in seconds",
-      quantiles = Quantiles(
-        Quantile(value = 0.9, error = 0.05),
-        Quantile(value = 0.99, error = 0.005)),
+      quantiles = quantiles,
       labels = LabelNames("name", "result"))
 
     val sizeGauge = collectorRegistry.gauge(
@@ -85,10 +103,14 @@ object CacheMetrics {
     val lifeTimeSummary = collectorRegistry.summary(
       name = s"${ prefix }_life_time",
       help = s"Life time in seconds",
-      quantiles = Quantiles(
-        Quantile(value = 0.9, error = 0.05),
-        Quantile(value = 0.99, error = 0.005)),
+      quantiles = quantiles,
       labels = LabelNames("name"))
+
+    val callSummary = collectorRegistry.summary(
+      name = s"${ prefix }_call_latency",
+      help = "Call latency in seconds",
+      quantiles = quantiles,
+      labels = LabelNames("name", "type"))
 
     for {
       getsCounter       <- getCounter
@@ -97,6 +119,7 @@ object CacheMetrics {
       loadTimeSummary   <- loadTimeSummary
       lifeTimeSummary   <- lifeTimeSummary
       sizeGauge         <- sizeGauge
+      callSummary       <- callSummary
     } yield {
       name: Name =>
 
@@ -116,12 +139,20 @@ object CacheMetrics {
 
         val lifeTimeSummary1 = lifeTimeSummary.labels(name)
 
+        val sizeSummary = callSummary.labels(name, "size")
+
+        val keysSummary = callSummary.labels(name, "keys")
+
+        val valuesSummary = callSummary.labels(name, "values")
+
+        val clearSummary = callSummary.labels(name, "clear")
+
         new CacheMetrics[F] {
 
           def get(hit: Boolean) = {
             val counter = if (hit) hitCounter else missCounter
             counter.inc()
-          }
+          }                               
 
           def load(time: FiniteDuration, success: Boolean) = {
             val resultCounter = if (success) successCounter else failureCounter
@@ -140,6 +171,22 @@ object CacheMetrics {
 
           def size(size: Int) = {
             sizeGauge.labels(name).set(size.toDouble)
+          }
+
+          def size(latency: FiniteDuration) = {
+            sizeSummary.observe(latency.toNanos.nanosToSeconds)
+          }
+
+          def values(latency: FiniteDuration) = {
+            valuesSummary.observe(latency.toNanos.nanosToSeconds)
+          }
+
+          def keys(latency: FiniteDuration) = {
+            keysSummary.observe(latency.toNanos.nanosToSeconds)
+          }
+
+          def clear(latency: FiniteDuration) = {
+            clearSummary.observe(latency.toNanos.nanosToSeconds)
           }
         }
     }
