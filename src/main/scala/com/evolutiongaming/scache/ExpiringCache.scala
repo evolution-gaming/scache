@@ -313,6 +313,8 @@ object ExpiringCache {
 
       def keys = cache.keys
 
+      def contains(key: K) = cache.contains(key)
+
       def values = {
         for {
           entries <- cache.values

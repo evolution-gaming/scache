@@ -63,6 +63,8 @@ object CacheFenced {
 
       def keys = cache.keys
 
+      def contains(key: K) = cache.contains(key)
+
       def values = cache.values
 
       def remove(key: K) = cache.remove(key)

@@ -181,6 +181,11 @@ object LoadingCache {
       }
 
 
+      def contains(key: K) = {
+        this.keys.map(_.contains(key))
+      }
+
+
       val values = {
         ref
           .get

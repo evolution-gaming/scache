@@ -54,6 +54,9 @@ trait Cache[F[_], K, V] {
 
   def keys: F[Set[K]]
 
+
+  def contains(key: K): F[Boolean]
+
   /**
     * Might be an expensive call
     */
@@ -96,6 +99,8 @@ object Cache {
     val size = 0.pure[F]
 
     val keys = Set.empty[K].pure[F]
+
+    def contains(key: K) = false.pure[F]
 
     val values = Map.empty[K, F[V]].pure[F]
 
@@ -230,6 +235,8 @@ object Cache {
       def size = fg(self.size)
 
       def keys = fg(self.keys)
+
+      def contains(key: K) = fg(self.contains(key))
 
       def values = fg(self.values.map(_.map { case (k, v) => (k, fg(v))} ) )
 

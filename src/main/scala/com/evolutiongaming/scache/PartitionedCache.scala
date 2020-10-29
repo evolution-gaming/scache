@@ -68,6 +68,10 @@ object PartitionedCache {
         }
       }
 
+      def contains(key: K) = {
+        this.keys.map(_.contains(key))
+      }
+
       val values = {
         val zero = Map.empty[K, F[V]]
         partitions.values.foldLeftM(zero) { (result, cache) =>
