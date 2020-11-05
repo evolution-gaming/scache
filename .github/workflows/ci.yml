@@ -14,35 +14,35 @@ jobs:
           - 2.12.12
 
     steps:
-    - uses: actions/checkout@v1
+      - uses: actions/checkout@v1
 
-    - uses: actions/cache@v1
-      with:
-        path: ~/.cache/coursier/v1
-        key: ${{ runner.os }}-coursier-${{ hashFiles('**/build.sbt') }}
+      - uses: actions/cache@v1
+        with:
+          path: ~/.cache/coursier/v1
+          key: ${{ runner.os }}-coursier-${{ hashFiles('**/build.sbt') }}
 
-    - uses: actions/cache@v1
-      with:
-        path: ~/.sbt
-        key: ${{ runner.os }}-sbt-${{ hashFiles('**/build.properties') }}
+      - uses: actions/cache@v1
+        with:
+          path: ~/.sbt
+          key: ${{ runner.os }}-sbt-${{ hashFiles('**/build.properties') }}
 
-    - uses: olafurpg/setup-scala@v5
-      with:
-        java-version: openjdk@1.11
+      - uses: olafurpg/setup-scala@v5
+        with:
+          java-version: openjdk@1.11
 
-    - name: Run tests ${{ matrix.scala }}
-      run: sbt ++${{ matrix.scala }} clean coverage test
+      - name: Run tests ${{ matrix.scala }}
+        run: sbt ++${{ matrix.scala }} clean coverage test
 
-    - name: Report test coverage
-      if: success()
-      env:
-        COVERALLS_REPO_TOKEN: ${{ secrets.COVERALLS_REPO_TOKEN }}
-      run: sbt ++${{ matrix.scala }} coverageReport coverageAggregate coveralls
+      - name: Report test coverage
+        if: success()
+        env:
+          COVERALLS_REPO_TOKEN: ${{ secrets.COVERALLS_REPO_TOKEN }}
+        run: sbt ++${{ matrix.scala }} coverageReport coverageAggregate coveralls
 
-    - name: Slack Notification
-      uses: homoluctus/slatify@master
-      if: failure() && github.ref == 'refs/heads/master'
-      with:
-        type: ${{ job.status }}
-        job_name: Build
-        url: ${{ secrets.SLACK_WEBHOOK }}
+      - name: Slack Notification
+        uses: homoluctus/slatify@master
+        if: failure() && github.ref == 'refs/heads/master'
+        with:
+          type: ${{ job.status }}
+          job_name: Build
+          url: ${{ secrets.SLACK_WEBHOOK }}
