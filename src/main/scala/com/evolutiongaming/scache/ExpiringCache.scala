@@ -370,7 +370,7 @@ object ExpiringCache {
   }
 
 
-  case class Config[F[_], -K, V](
+  final case class Config[F[_], -K, V](
     expireAfterRead: FiniteDuration,
     expireAfterWrite: Option[FiniteDuration] = none,
     maxSize: Option[Int] = none,
