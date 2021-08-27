@@ -14,6 +14,8 @@ object ExpiringCache {
 
   type Timestamp = Long
 
+  private sealed abstract class ExpiringCache
+
   private[scache] def of[F[_] : Concurrent : Timer : Parallel, K, V](
     config: Config[F, K, V]
   ): Resource[F, Cache[F, K, V]] = {
@@ -158,7 +160,7 @@ object ExpiringCache {
       }
     }
 
-    implicit val monoidUnit = Applicative.monoid[F, Unit]
+    implicit def monoidUnit = Applicative.monoid[F, Unit]
 
     def touch(key: K, entry: E) = {
 
@@ -183,7 +185,7 @@ object ExpiringCache {
       } yield result
     }
 
-    new Cache[F, K, V] {
+    new ExpiringCache with Cache[F, K, V] {
 
       def get(key: K) = {
         for {

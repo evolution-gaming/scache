@@ -76,7 +76,9 @@ trait Cache[F[_], K, V] {
 
 object Cache {
 
-  def empty[F[_]: Monad, K, V]: Cache[F, K, V] = new Cache[F, K, V] {
+  private sealed abstract class Empty
+
+  def empty[F[_]: Monad, K, V]: Cache[F, K, V] = new Empty with Cache[F, K, V] {
 
     def get(key: K) = none[V].pure[F]
 

@@ -11,6 +11,8 @@ import com.evolutiongaming.catshelper.CatsHelper._
   */
 object CacheFenced {
 
+  private sealed abstract class CacheFenced
+
   def of[F[_] : Concurrent, K, V](cache: Resource[F, Cache[F, K, V]]): Resource[F, Cache[F, K, V]] = {
 
     val fence = Resource.make {
@@ -31,7 +33,7 @@ object CacheFenced {
 
   def apply[F[_] : FlatMap, K, V](cache: Cache[F, K, V], fence: F[Unit]): Cache[F, K, V] = {
 
-    new Cache[F, K, V] {
+    new CacheFenced with Cache[F, K, V] {
 
       def get(key: K) = cache.get(key)
 

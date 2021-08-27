@@ -10,6 +10,8 @@ import scala.util.control.NoStackTrace
 
 object LoadingCache {
 
+  private sealed abstract class LoadingCache
+
   private[scache] def of[F[_] : Concurrent, K, V](
     map: EntryRefs[F, K, V],
   ): Resource[F, Cache[F, K, V]] = {
@@ -35,12 +37,14 @@ object LoadingCache {
     ref: Ref[F, EntryRefs[F, K, V]],
   ): Cache[F, K, V] = {
 
+    val ignoreThrowable = (_: Throwable) => ()
+
     case object NoneError extends RuntimeException with NoStackTrace
 
     def loadedOf(value: V, release: Option[F[Unit]]) = {
       EntryRef.Entry.Loaded(
         value,
-        release.map(_.handleError(_ => ())))
+        release.map { _.handleError(ignoreThrowable) })
     }
 
     def put1(key: K, loaded: EntryRef.Entry.Loaded[F, V]) = {
@@ -98,7 +102,7 @@ object LoadingCache {
         }
     }
 
-    new Cache[F, K, V] {
+    new LoadingCache with Cache[F, K, V] {
 
       def get(key: K) = {
         ref
