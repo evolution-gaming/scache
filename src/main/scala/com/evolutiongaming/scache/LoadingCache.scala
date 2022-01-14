@@ -229,7 +229,6 @@ object LoadingCache {
               .values
               .toList
               .parFoldMapA(_.release.uncancelable)
-              .void
               .start
           }
           .uncancelable
