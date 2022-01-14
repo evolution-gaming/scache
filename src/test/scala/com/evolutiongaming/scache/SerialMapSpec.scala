@@ -1,6 +1,6 @@
 package com.evolutiongaming.scache
 
-import cats.effect.{Async, Concurrent, Deferred, IO}
+import cats.effect.{Async, Concurrent, Deferred, IO, Outcome}
 import cats.syntax.all._
 import com.evolutiongaming.catshelper.CatsHelper._
 import com.evolutiongaming.catshelper.SerialRef
@@ -108,8 +108,8 @@ class SerialMapSpec extends AsyncFunSuite with Matchers {
       value0    <- value0.join
       value1    <- value1.join
     } yield {
-      value0 shouldEqual 0
-      value1 shouldEqual 0
+      value0 shouldEqual Outcome.succeeded(IO.pure(0))
+      value1 shouldEqual Outcome.succeeded(IO.pure(0))
     }
   }
 
@@ -313,8 +313,8 @@ class SerialMapSpec extends AsyncFunSuite with Matchers {
       value0    <- value0.join
       value1    <- value1.join
     } yield {
-      value0 shouldEqual 0
-      value1 shouldEqual 1
+      value0 shouldEqual Outcome.succeeded(IO.pure(0))
+      value1 shouldEqual Outcome.succeeded(IO.pure(1))
     }
   }
 
@@ -338,7 +338,7 @@ class SerialMapSpec extends AsyncFunSuite with Matchers {
       _         <- blocked.complete(())
       value0    <- value0.join
     } yield {
-      value0 shouldEqual 0
+      value0 shouldEqual Outcome.succeeded(IO.pure(0))
       value1 shouldEqual 0
     }
   }
