@@ -1,8 +1,6 @@
 package com.evolutiongaming.scache
 
-
-import cats.effect.concurrent.Deferred
-import cats.effect.{IO, Sync}
+import cats.effect.{Deferred, IO, Outcome, Sync}
 import cats.syntax.all._
 import com.evolutiongaming.scache.IOSuite._
 import com.evolutiongaming.catshelper.CatsHelper._
@@ -87,8 +85,8 @@ class CacheEmptySpec extends AsyncFunSuite with Matchers {
       value0   <- value0.join
       value1   <- value2.join
     } yield {
-      value0 shouldEqual 0
-      value1 shouldEqual 1
+      value0 shouldEqual Outcome.succeeded(IO.pure(0))
+      value1 shouldEqual Outcome.succeeded(IO.pure(1))
     }
     result.run()
   }

@@ -1,8 +1,6 @@
 package com.evolutiongaming.scache
 
-
-import cats.effect.concurrent.Ref
-import cats.effect.{IO, Resource}
+import cats.effect.{IO, Ref, Resource}
 import cats.syntax.all._
 import com.evolutiongaming.scache.IOSuite._
 import org.scalatest.funsuite.AsyncFunSuite

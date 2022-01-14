@@ -1,7 +1,6 @@
 package com.evolutiongaming.scache
 
-import cats.effect.concurrent.Ref
-import cats.effect.{Clock, Concurrent, Resource, Timer}
+import cats.effect.{Clock, Ref, Resource, Temporal}
 import cats.syntax.all._
 import cats.{Applicative, Monad, Parallel}
 import com.evolutiongaming.catshelper.ClockHelper._
@@ -16,9 +15,9 @@ object ExpiringCache {
 
   private sealed abstract class ExpiringCache
 
-  private[scache] def of[F[_] : Concurrent : Timer : Parallel, K, V](
+  private[scache] def of[F[_]: Parallel, K, V](
     config: Config[F, K, V]
-  ): Resource[F, Cache[F, K, V]] = {
+  )(implicit G: Temporal[F]): Resource[F, Cache[F, K, V]] = {
     
     type E = Entry[V]
 
@@ -134,7 +133,7 @@ object ExpiringCache {
     val ref = Ref[F].of(entryRefs)
 
     for {
-      ref   <- Resource.liftF(ref)
+      ref   <- Resource.eval(ref)
       cache <- LoadingCache.of(ref)
       _     <- schedule(expireInterval) { removeExpiredAndCheckSize(ref, cache) }
       _     <- config.refresh.foldMapM { refresh => schedule(refresh.interval) { refreshEntries(refresh, ref, cache) } }

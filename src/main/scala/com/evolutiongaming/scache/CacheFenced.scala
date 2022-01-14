@@ -1,8 +1,7 @@
 package com.evolutiongaming.scache
 
 import cats.FlatMap
-import cats.effect.concurrent.Ref
-import cats.effect.{Concurrent, Resource}
+import cats.effect.{Concurrent, Ref, Resource}
 import cats.syntax.all._
 import com.evolutiongaming.catshelper.CatsHelper._
 

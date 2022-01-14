@@ -1,8 +1,7 @@
 package com.evolutiongaming.scache
 
-import cats.effect.concurrent.Ref
 import cats.effect.implicits._
-import cats.effect.{Concurrent, Resource}
+import cats.effect.{Concurrent, Ref, Resource}
 import cats.syntax.all._
 
 import scala.util.control.NoStackTrace
@@ -16,7 +15,7 @@ object LoadingCache {
     map: EntryRefs[F, K, V],
   ): Resource[F, Cache[F, K, V]] = {
     for {
-      ref   <- Resource.liftF(Ref[F].of(map))
+      ref   <- Resource.eval(Ref[F].of(map))
       cache <- of(ref)
     } yield cache
   }
@@ -218,7 +217,7 @@ object LoadingCache {
               .start
           }
           .uncancelable
-          .map { _.join }
+          .map { _.joinWithNever }
       }
 
 
@@ -229,10 +228,11 @@ object LoadingCache {
             entryRefs
               .values
               .toList
-              .foldMapM { _.release.start }
+              .parFoldMapA(_.release.uncancelable)
+              .start
           }
           .uncancelable
-          .map { _.join }
+          .map { _.joinWithNever }
       }
     }
   }
