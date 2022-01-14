@@ -1,8 +1,7 @@
 package com.evolutiongaming.scache
 
 import cats.FlatMap
-import cats.effect.concurrent.Ref
-import cats.effect.{Concurrent, Resource}
+import cats.effect.{Concurrent, Ref, Resource}
 import cats.syntax.all._
 import com.evolutiongaming.catshelper.CatsHelper._
 
@@ -10,6 +9,8 @@ import com.evolutiongaming.catshelper.CatsHelper._
   * Prevents adding new resources to cache after it was released
   */
 object CacheFenced {
+
+  private sealed abstract class CacheFenced
 
   def of[F[_] : Concurrent, K, V](cache: Resource[F, Cache[F, K, V]]): Resource[F, Cache[F, K, V]] = {
 
@@ -31,7 +32,7 @@ object CacheFenced {
 
   def apply[F[_] : FlatMap, K, V](cache: Cache[F, K, V], fence: F[Unit]): Cache[F, K, V] = {
 
-    new Cache[F, K, V] {
+    new CacheFenced with Cache[F, K, V] {
 
       def get(key: K) = cache.get(key)
 

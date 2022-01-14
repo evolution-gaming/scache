@@ -2,18 +2,17 @@ package com.evolutiongaming.scache
 
 import cats.Monad
 import cats.arrow.FunctionK
-import cats.effect.concurrent.{Deferred, Ref}
-import cats.effect.{Async, Concurrent, Fiber, IO, Sync}
 import cats.effect.implicits._
+import cats.effect._
 import cats.syntax.all._
-import com.evolutiongaming.scache.IOSuite._
 import com.evolutiongaming.catshelper.CatsHelper._
+import com.evolutiongaming.scache.IOSuite._
 import com.evolutiongaming.smetrics.CollectorRegistry
+import org.scalatest.funsuite.AsyncFunSuite
+import org.scalatest.matchers.should.Matchers
 
 import scala.concurrent.duration._
 import scala.util.control.NoStackTrace
-import org.scalatest.funsuite.AsyncFunSuite
-import org.scalatest.matchers.should.Matchers
 
 class CacheSpec extends AsyncFunSuite with Matchers {
   import CacheSpec._
@@ -352,8 +351,8 @@ class CacheSpec extends AsyncFunSuite with Matchers {
           value0   <- value0.join
           value1   <- value2.join
         } yield {
-          value0 shouldEqual 0
-          value1 shouldEqual 0
+          value0 shouldEqual Outcome.succeeded(IO.pure(0))
+          value1 shouldEqual Outcome.succeeded(IO.pure(0))
         }
       }
       result.run()
@@ -379,8 +378,8 @@ class CacheSpec extends AsyncFunSuite with Matchers {
           _        <- deferred.complete(none)
           value0   <- value0.join
           value1   <- value1.join
-          _         = value0 shouldEqual none
-          _         = value1 shouldEqual none
+          _         = value0 shouldEqual Outcome.succeeded(IO.pure(none[Int]))
+          _         = value1 shouldEqual Outcome.succeeded(IO.pure(none[Int]))
           value    <- cache.getOrUpdateOpt(0)(0.some.pure[IO])
           _         = value shouldEqual 0.some
         } yield {}
@@ -398,9 +397,9 @@ class CacheSpec extends AsyncFunSuite with Matchers {
           released <- Deferred[IO, Unit]
           _        <- deferred.complete(Releasable(0, released.get))
           value    <- value0.join
-          _        <- Sync[IO].delay { value shouldEqual 0 }
+          _        <- Sync[IO].delay { value shouldEqual Outcome.succeeded(IO.pure(0)) }
           value    <- value2.join
-          _        <- Sync[IO].delay { value shouldEqual 0 }
+          _        <- Sync[IO].delay { value shouldEqual Outcome.succeeded(IO.pure(0)) }
           _        <- released.complete(())
         } yield {}
       }
@@ -417,9 +416,9 @@ class CacheSpec extends AsyncFunSuite with Matchers {
           released <- Deferred[IO, Unit]
           _        <- deferred.complete(none)
           value    <- value0.join
-          _        <- Sync[IO].delay { value shouldEqual none }
+          _        <- Sync[IO].delay { value shouldEqual Outcome.succeeded(IO.pure(none[Int])) }
           value    <- value1.join
-          _        <- Sync[IO].delay { value shouldEqual none }
+          _        <- Sync[IO].delay { value shouldEqual Outcome.succeeded(IO.pure(none[Int])) }
           _        <- released.complete(())
           value    <- cache.getOrUpdateReleasableOpt(0)(Releasable[IO].pure(1).some.pure[IO])
           _        <- Sync[IO].delay { value shouldEqual 1.some }
@@ -451,16 +450,18 @@ class CacheSpec extends AsyncFunSuite with Matchers {
     test(s"cancel getOrUpdateReleasable: $name") {
       val result = cache.use { cache =>
         for {
-          deferred0 <- Deferred[IO, Releasable[IO, Int]]
-          fiber0    <- cache.getOrUpdateReleasableEnsure(0) { deferred0.get }
-          fiber1    <- cache.getOrUpdateReleasable(0) { Async[IO].never }.startEnsure
-          release   <- Deferred[IO, Unit]
-          _         <- fiber0.cancel
-          _         <- deferred0.complete(Releasable(0, release.complete(())))
-          value     <- fiber1.join
-          _         <- Sync[IO].delay { value shouldEqual 0 }
-          _         <- cache.remove(0)
-          _         <- release.get
+          deferred0     <- Deferred[IO, Releasable[IO, Int]]
+          fiber0        <- cache.getOrUpdateReleasableEnsure(0) { deferred0.get }
+          fiber1        <- cache.getOrUpdateReleasable(0) { Async[IO].never }.startEnsure
+          release       <- Deferred[IO, Unit]
+          _             <- fiber0.cancel.start
+          _             <- deferred0.complete(Releasable(0, release.complete(()).void))
+          cancelOutcome <- fiber0.join
+          _             <- Sync[IO].delay { cancelOutcome shouldEqual Outcome.canceled }
+          value         <- fiber1.join
+          _             <- Sync[IO].delay { value shouldEqual Outcome.succeeded(IO.pure(0)) }
+          _             <- cache.remove(0)
+          _             <- release.get
         } yield {}
       }
       result.run()
@@ -477,7 +478,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
           value    <- value
           _        <- Sync[IO].delay { value shouldEqual none }
           value    <- fiber.join
-          _        <- Sync[IO].delay { value shouldEqual 1 }
+          _        <- Sync[IO].delay { value shouldEqual Outcome.succeeded(IO.pure(1)) }
           value    <- cache.get(0)
           _        <- Sync[IO].delay { value shouldEqual 1.some }
         } yield {}
@@ -493,12 +494,12 @@ class CacheSpec extends AsyncFunSuite with Matchers {
           fiber    <- cache.getOrUpdateReleasableEnsure(0) { deferred.get }
           value    <- cache.put(0, 1)
           release  <- Deferred[IO, Unit]
-          _        <- deferred.complete(Releasable(0, release.complete(())))
+          _        <- deferred.complete(Releasable(0, release.complete(()).void))
           _        <- release.get
           value    <- value
           _        <- Sync[IO].delay { value shouldEqual none }
           value    <- fiber.join
-          _        <- Sync[IO].delay { value shouldEqual 1 }
+          _        <- Sync[IO].delay { value shouldEqual Outcome.succeeded(IO.pure(1)) }
           value    <- cache.get(0)
           _        <- Sync[IO].delay { value shouldEqual 1.some }
         } yield {}
@@ -515,7 +516,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
           value    <- value
           _        <- Sync[IO].delay { value shouldEqual none }
           value    <- fiber.join
-          _        <- Sync[IO].delay { value shouldEqual 0 }
+          _        <- Sync[IO].delay { value shouldEqual Outcome.succeeded(IO.pure(0)) }
           value    <- cache.get(0)
           _        <- Sync[IO].delay { value shouldEqual 0.some }
         } yield {}
@@ -532,7 +533,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
           value    <- value
           _        <- Sync[IO].delay { value shouldEqual none }
           value    <- fiber.join
-          _        <- Sync[IO].delay { value shouldEqual 0 }
+          _        <- Sync[IO].delay { value shouldEqual Outcome.succeeded(IO.pure(0)) }
           value    <- cache.get(0)
           _        <- Sync[IO].delay { value shouldEqual 0.some }
         } yield {}
@@ -551,7 +552,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
           value    <- value
           _        <- Sync[IO].delay { value shouldEqual none }
           value    <- fiber.join
-          _        <- Sync[IO].delay { value shouldEqual 1 }
+          _        <- Sync[IO].delay { value shouldEqual Outcome.succeeded(IO.pure(1)) }
           value    <- cache.get(0)
           _        <- Sync[IO].delay { value shouldEqual 1.some }
         } yield {}
@@ -570,7 +571,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
           value    <- value
           _        <- Sync[IO].delay { value shouldEqual none }
           value    <- fiber.join
-          _        <- Sync[IO].delay { value shouldEqual 1 }
+          _        <- Sync[IO].delay { value shouldEqual Outcome.succeeded(IO.pure(1)) }
           value    <- cache.get(0)
           _        <- Sync[IO].delay { value shouldEqual 1.some }
         } yield {}
@@ -587,9 +588,9 @@ class CacheSpec extends AsyncFunSuite with Matchers {
           value1   <- cache.get(0).startEnsure
           _        <- deferred.complete(0)
           value    <- value0.join
-          _        <- Sync[IO].delay { value shouldEqual 0 }
+          _        <- Sync[IO].delay { value shouldEqual Outcome.succeeded(IO.pure(0)) }
           value    <- value1.join
-          _        <- Sync[IO].delay { value shouldEqual 0.some }
+          _        <- Sync[IO].delay { value shouldEqual Outcome.succeeded(IO.pure(0.some)) }
         } yield {}
       }
       result.run()
@@ -605,9 +606,9 @@ class CacheSpec extends AsyncFunSuite with Matchers {
           value1   <- cache.get(0).startEnsure
           _        <- deferred.complete(Releasable(0, released.get))
           value    <- value0.join
-          _        <- Sync[IO].delay { value shouldEqual 0 }
+          _        <- Sync[IO].delay { value shouldEqual Outcome.succeeded(IO.pure(0)) }
           value    <- value1.join
-          _        <- Sync[IO].delay { value shouldEqual 0.some }
+          _        <- Sync[IO].delay { value shouldEqual Outcome.succeeded(IO.pure(0.some)) }
           _        <- released.complete(())
         } yield {}
       }
@@ -623,9 +624,9 @@ class CacheSpec extends AsyncFunSuite with Matchers {
           value1   <- cache.get(0).startEnsure
           _        <- deferred.complete(TestError.raiseError[IO, Int])
           value    <- value0.join.attempt
-          _        <- Sync[IO].delay { value shouldEqual TestError.asLeft }
+          _        <- Sync[IO].delay { value shouldEqual Right(Outcome.errored(TestError)) }
           value    <- value1.join
-          _        <- Sync[IO].delay { value shouldEqual none }
+          _        <- Sync[IO].delay { value shouldEqual Outcome.succeeded(IO.pure(none[Int])) }
         } yield {}
       }
       result.run()
@@ -640,9 +641,9 @@ class CacheSpec extends AsyncFunSuite with Matchers {
           value1   <- cache.get(0).startEnsure
           _        <- deferred.complete(TestError.raiseError[IO, Releasable[IO, Int]])
           value    <- value0.join.attempt
-          _        <- Sync[IO].delay { value shouldEqual TestError.asLeft }
+          _        <- Sync[IO].delay { value shouldEqual Right(Outcome.errored(TestError)) }
           value    <- value1.join
-          _        <- Sync[IO].delay { value shouldEqual none }
+          _        <- Sync[IO].delay { value shouldEqual Outcome.succeeded(IO.pure(none[Int])) }
         } yield {}
       }
       result.run()
@@ -657,7 +658,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
           value1   <- cache.remove(0)
           _        <- deferred.complete(0)
           value    <- value0.join
-          _        <- Sync[IO].delay { value shouldEqual 0 }
+          _        <- Sync[IO].delay { value shouldEqual Outcome.succeeded(IO.pure(0)) }
           value    <- value1
           _        <- Sync[IO].delay { value shouldEqual 0.some }
         } yield {}
@@ -676,13 +677,13 @@ class CacheSpec extends AsyncFunSuite with Matchers {
           released <- Ref[IO].of(false)
           _        <- deferred.complete(Releasable(0, release.get *> released.set(true)))
           value    <- fiber.join
-          _        <- Sync[IO].delay { value shouldEqual 0 }
+          _        <- Sync[IO].delay { value shouldEqual Outcome.succeeded(IO.pure(0)) }
           value    <- value1.startEnsure
           _        <- release.complete(())
           value    <- value.join
           released <- released.get
           _        <- Sync[IO].delay { released shouldEqual true }
-          _        <- Sync[IO].delay { value shouldEqual 0.some }
+          _        <- Sync[IO].delay { value shouldEqual Outcome.succeeded(IO.pure(0.some)) }
         } yield {}
       }
       result.run()
@@ -699,7 +700,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
           value    <- value
           _        <- Sync[IO].delay { value shouldEqual none }
           value    <- fiber.join.attempt
-          _        <- Sync[IO].delay { value shouldEqual TestError.asLeft }
+          _        <- Sync[IO].delay { value shouldEqual Right(Outcome.errored(TestError)) }
           value    <- cache.get(0)
           _        <- Sync[IO].delay { value shouldEqual none }
         } yield {}
@@ -718,7 +719,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
           value    <- value
           _        <- Sync[IO].delay { value shouldEqual none }
           value    <- fiber.join.attempt
-          _        <- Sync[IO].delay { value shouldEqual TestError.asLeft }
+          _        <- Sync[IO].delay { value shouldEqual Right(Outcome.errored(TestError)) }
           value    <- cache.get(0)
           _        <- Sync[IO].delay { value shouldEqual none }
         } yield {}
@@ -740,7 +741,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
           keys2    <- cache.keys
         } yield {
           keys0 shouldEqual Set(0)
-          value0 shouldEqual 0
+          value0 shouldEqual Outcome.succeeded(IO.pure(0))
           keys1 shouldEqual Set.empty
           keys2 shouldEqual Set.empty
         }
@@ -787,7 +788,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
           released <- Ref[IO].of(false)
           _        <- deferred.complete(Releasable(0, release.get *> released.set(true)))
           value    <- value.join
-          _        <- Sync[IO].delay { value shouldEqual 0 }
+          _        <- Sync[IO].delay { value shouldEqual Outcome.succeeded(IO.pure(0)) }
           keys     <- cache.keys
           _        <- Sync[IO].delay { keys shouldEqual Set.empty }
           _        <- release.complete(())
@@ -850,11 +851,13 @@ class CacheSpec extends AsyncFunSuite with Matchers {
     test(s"cancellation: $name") {
       val result = cache.use { cache =>
         for {
-          deferred <- Deferred[IO, Int]
-          fiber    <- cache.getOrUpdateEnsure(0) { deferred.get }
-          _        <- fiber.cancel
-          _        <- deferred.complete(0)
-          value    <- cache.get(0)
+          deferred      <- Deferred[IO, Int]
+          fiber         <- cache.getOrUpdateEnsure(0) { deferred.get }
+          _             <- fiber.cancel.start
+          _             <- deferred.complete(0)
+          cancelOutcome <- fiber.join
+          _             <- Sync[IO].delay { cancelOutcome shouldEqual Outcome.canceled }
+          value         <- cache.get(0)
         } yield {
           value shouldEqual 0.some
         }
@@ -902,7 +905,7 @@ object CacheSpec {
     }
 
 
-    def getOrUpdateEnsure(key: K)(value: => F[V])(implicit F: Concurrent[F]): F[Fiber[F, V]] = {
+    def getOrUpdateEnsure(key: K)(value: => F[V])(implicit F: Concurrent[F]): F[Fiber[F, Throwable, V]] = {
 
       def getOrUpdate(deferred: Deferred[F, Unit]) = {
         self.getOrUpdate(key) {
@@ -920,7 +923,7 @@ object CacheSpec {
       } yield fiber
     }
 
-    def getOrUpdateOptEnsure(key: K)(value: => F[Option[V]])(implicit F: Concurrent[F]): F[Fiber[F, Option[V]]] = {
+    def getOrUpdateOptEnsure(key: K)(value: => F[Option[V]])(implicit F: Concurrent[F]): F[Fiber[F, Throwable, Option[V]]] = {
 
       def getOrUpdateOpt(deferred: Deferred[F, Unit]) = {
         self.getOrUpdateOpt(key) {
@@ -938,7 +941,7 @@ object CacheSpec {
       } yield fiber
     }
 
-    def getOrUpdateReleasableEnsure(key: K)(value: => F[Releasable[F, V]])(implicit F: Concurrent[F]): F[Fiber[F, V]] = {
+    def getOrUpdateReleasableEnsure(key: K)(value: => F[Releasable[F, V]])(implicit F: Concurrent[F]): F[Fiber[F, Throwable, V]] = {
       for {
         deferred <- Deferred[F, Unit]
         fiber    <- self.getOrUpdateReleasable(key) { deferred.complete(()) *> value }.start
@@ -950,7 +953,7 @@ object CacheSpec {
       key: K)(
       value: => F[Option[Releasable[F, V]]])(implicit
       F: Concurrent[F]
-    ): F[Fiber[F, Option[V]]] = {
+    ): F[Fiber[F, Throwable, Option[V]]] = {
       for {
         deferred <- Deferred[F, Unit]
         fiber    <- self.getOrUpdateReleasableOpt(key) { deferred.complete(()) *> value }.start

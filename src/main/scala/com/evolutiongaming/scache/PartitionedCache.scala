@@ -5,13 +5,15 @@ import cats.{Applicative, Monad}
 
 object PartitionedCache {
 
+  private sealed abstract class PartitionedCache
+
   def apply[F[_] : Monad, K, V](
     partitions: Partitions[K, Cache[F, K, V]]
   ): Cache[F, K, V] = {
 
-    implicit val monoidUnit = Applicative.monoid[F, Unit]
+    implicit def monoidUnit = Applicative.monoid[F, Unit]
 
-    new Cache[F, K, V] {
+    new PartitionedCache with Cache[F, K, V] {
 
       def get(key: K) = {
         partitions

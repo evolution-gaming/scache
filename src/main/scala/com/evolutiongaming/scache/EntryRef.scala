@@ -1,8 +1,7 @@
 package com.evolutiongaming.scache
 
 import cats.Applicative
-import cats.effect.Concurrent
-import cats.effect.concurrent.{Deferred, Ref}
+import cats.effect.{Concurrent, Deferred, Ref}
 import cats.effect.implicits._
 import cats.syntax.all._
 
@@ -22,21 +21,19 @@ trait EntryRef[F[_], A] {
 
 object EntryRef {
 
-  def loaded[F[_] : Concurrent, A](entry: Entry.Loaded[F, A]): F[EntryRef[F, A]] = {
-    for {
-      entryRef <- Ref.of[F, Entry[F, A]](entry)
-    } yield {
-      apply(entryRef)
-    }
+  def loaded[F[_]: Concurrent, A](entry: Entry.Loaded[F, A]): F[EntryRef[F, A]] = {
+    Ref
+      .of[F, Entry[F, A]](entry)
+      .map { entryRef => apply(entryRef) }
   }
 
 
-  def loading[F[_] : Concurrent, A](
+  def loading[F[_]: Concurrent, A](
     value: => F[Entry.Loaded[F, A]],
     cleanup: F[Unit]
   ): F[(EntryRef[F, A], F[A])] = {
 
-    implicit val monoidUnit = Applicative.monoid[F, Unit]
+    implicit def monoidUnit = Applicative.monoid[F, Unit]
 
     def load(ref: Ref[F, Entry[F, A]]) = {
       value
@@ -53,6 +50,7 @@ object EntryRef {
                   val update = entry
                     .deferred
                     .complete(value.asRight)
+                    .void
                     .handleErrorWith { _ => value.release.combineAll }
                   (value, update)
               }
@@ -68,6 +66,7 @@ object EntryRef {
                     entry
                       .deferred
                       .complete(error.asLeft)
+                      .void
                       .handleError { _ => () }
                   }
               }
@@ -92,25 +91,25 @@ object EntryRef {
   }
 
 
-  def apply[F[_] : Concurrent, A](self: Ref[F, Entry[F, A]]): EntryRef[F, A] = {
+  def apply[F[_]: Concurrent, A](self: Ref[F, Entry[F, A]]): EntryRef[F, A] = {
 
-    implicit val monoidUnit = Applicative.monoid[F, Unit]
+    implicit def monoidUnit = Applicative.monoid[F, Unit]
     
-    val loaded = self.get.flatMap {
+    def loaded = self.get.flatMap {
       case entry: Entry.Loaded[F, A]  => entry.pure[F]
       case entry: Entry.Loading[F, A] => entry.deferred.get.flatMap(_.liftTo[F])
     }
 
     new EntryRef[F, A] {
 
-      val get = loaded.map(_.value)
+      def get = loaded.map(_.value)
 
-      val getLoaded = self.get.map {
+      def getLoaded = self.get.map {
         case entry: Entry.Loaded[F, A]  => entry.value.some
         case _    : Entry.Loading[F, A] => none[A]
       }
 
-      val release = loaded.flatMap(_.release.combineAll)
+      def release = loaded.flatMap(_.release.combineAll)
 
       def updateLoaded(f: A => A): F[Unit] = {
         self.update {

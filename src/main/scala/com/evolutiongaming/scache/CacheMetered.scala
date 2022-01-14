@@ -1,7 +1,6 @@
 package com.evolutiongaming.scache
 
-import cats.effect.concurrent.Ref
-import cats.effect.{Concurrent, Resource, Timer}
+import cats.effect.{Ref, Resource, Temporal}
 import cats.syntax.all._
 import com.evolutiongaming.catshelper.Schedule
 import com.evolutiongaming.smetrics.MeasureDuration
@@ -10,7 +9,9 @@ import scala.concurrent.duration._
 
 object CacheMetered {
 
-  def apply[F[_] : Concurrent : Timer : MeasureDuration, K, V](
+  private sealed abstract class CacheMetered
+
+  def apply[F[_]: MeasureDuration: Temporal, K, V](
     cache: Cache[F, K, V],
     metrics: CacheMetrics[F],
     interval: FiniteDuration = 1.minute
@@ -27,15 +28,17 @@ object CacheMetered {
       for {
         d <- duration
         _ <- metrics.life(d)
-        _ <- release
-      } yield {}
+        a <- release
+      } yield a
     }
+
+    val unit = ().pure[F]
 
     for {
       _ <- Schedule(interval, interval)(measureSize)
     } yield {
 
-      new Cache[F, K, V] {
+      new CacheMetered with Cache[F, K, V] {
 
         def get(key: K) = {
           for {
@@ -58,7 +61,7 @@ object CacheMetered {
             for {
               value <- value
             } yield {
-              Releasable(value, ().pure[F])
+              Releasable(value, unit)
             }
           }
         }
@@ -70,7 +73,7 @@ object CacheMetered {
             } yield for {
               value <- value
             } yield {
-              Releasable(value, ().pure[F])
+              Releasable(value, unit)
             }
           }
         }
@@ -126,7 +129,7 @@ object CacheMetered {
         }
 
         def put(key: K, value: V) = {
-          put(key, value, ().pure[F])
+          put(key, value, unit)
         }
 
         def put(key: K, value: V, release: F[Unit]) = {

@@ -12,13 +12,11 @@ organizationName := "Evolution Gaming"
 
 organizationHomepage := Some(url("http://evolutiongaming.com"))
 
-bintrayOrganization := Some("evolutiongaming")
-
 scalaVersion := crossScalaVersions.value.head
 
 crossScalaVersions := Seq("2.13.3", "2.12.12")
 
-resolvers += Resolver.bintrayRepo("evolutiongaming", "maven")
+publishTo := Some(Resolver.evolutionReleases)
 
 libraryDependencies += compilerPlugin(`kind-projector` cross CrossVersion.full)
 
