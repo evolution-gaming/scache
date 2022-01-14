@@ -1,7 +1,6 @@
 package com.evolutiongaming.scache
 
-import cats.effect.concurrent.Ref
-import cats.effect.{Concurrent, Resource, Timer}
+import cats.effect.{Ref, Resource, Temporal}
 import cats.syntax.all._
 import com.evolutiongaming.catshelper.Schedule
 import com.evolutiongaming.smetrics.MeasureDuration
@@ -12,7 +11,7 @@ object CacheMetered {
 
   private sealed abstract class CacheMetered
 
-  def apply[F[_] : Concurrent : Timer : MeasureDuration, K, V](
+  def apply[F[_]: MeasureDuration: Temporal, K, V](
     cache: Cache[F, K, V],
     metrics: CacheMetrics[F],
     interval: FiniteDuration = 1.minute
