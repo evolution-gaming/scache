@@ -228,8 +228,7 @@ object LoadingCache {
             entryRefs
               .values
               .toList
-              .map(_.release)
-              .parUnorderedSequence
+              .parFoldMapA(_.release.uncancelable)
               .void
               .start
           }
