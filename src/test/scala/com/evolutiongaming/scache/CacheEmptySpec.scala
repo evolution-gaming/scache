@@ -1,8 +1,6 @@
 package com.evolutiongaming.scache
 
-
-import cats.effect.concurrent.Deferred
-import cats.effect.{IO, Sync}
+import cats.effect.{IO, Sync, Deferred}
 import cats.syntax.all._
 import com.evolutiongaming.scache.IOSuite._
 import com.evolutiongaming.catshelper.CatsHelper._

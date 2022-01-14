@@ -1,8 +1,7 @@
 package com.evolutiongaming.scache
 
 import cats.Applicative
-import cats.effect.Concurrent
-import cats.effect.concurrent.{Deferred, Ref}
+import cats.effect.{Concurrent, Deferred, Ref}
 import cats.effect.implicits._
 import cats.syntax.all._
 
@@ -51,6 +50,7 @@ object EntryRef {
                   val update = entry
                     .deferred
                     .complete(value.asRight)
+                    .void
                     .handleErrorWith { _ => value.release.combineAll }
                   (value, update)
               }
@@ -66,6 +66,7 @@ object EntryRef {
                     entry
                       .deferred
                       .complete(error.asLeft)
+                      .void
                       .handleError { _ => () }
                   }
               }

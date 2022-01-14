@@ -2,18 +2,17 @@ package com.evolutiongaming.scache
 
 import cats.Monad
 import cats.arrow.FunctionK
-import cats.effect.concurrent.{Deferred, Ref}
-import cats.effect.{Async, Concurrent, Fiber, IO, Sync}
 import cats.effect.implicits._
+import cats.effect._
 import cats.syntax.all._
-import com.evolutiongaming.scache.IOSuite._
 import com.evolutiongaming.catshelper.CatsHelper._
+import com.evolutiongaming.scache.IOSuite._
 import com.evolutiongaming.smetrics.CollectorRegistry
+import org.scalatest.funsuite.AsyncFunSuite
+import org.scalatest.matchers.should.Matchers
 
 import scala.concurrent.duration._
 import scala.util.control.NoStackTrace
-import org.scalatest.funsuite.AsyncFunSuite
-import org.scalatest.matchers.should.Matchers
 
 class CacheSpec extends AsyncFunSuite with Matchers {
   import CacheSpec._
@@ -352,8 +351,8 @@ class CacheSpec extends AsyncFunSuite with Matchers {
           value0   <- value0.join
           value1   <- value2.join
         } yield {
-          value0 shouldEqual 0
-          value1 shouldEqual 0
+          value0 shouldEqual Outcome.succeeded(IO.pure(0))
+          value1 shouldEqual Outcome.succeeded(IO.pure(0))
         }
       }
       result.run()
@@ -379,8 +378,8 @@ class CacheSpec extends AsyncFunSuite with Matchers {
           _        <- deferred.complete(none)
           value0   <- value0.join
           value1   <- value1.join
-          _         = value0 shouldEqual none
-          _         = value1 shouldEqual none
+          _         = value0 shouldEqual Outcome.succeeded(IO.pure(none[Int]))
+          _         = value1 shouldEqual Outcome.succeeded(IO.pure(none[Int]))
           value    <- cache.getOrUpdateOpt(0)(0.some.pure[IO])
           _         = value shouldEqual 0.some
         } yield {}
@@ -398,9 +397,9 @@ class CacheSpec extends AsyncFunSuite with Matchers {
           released <- Deferred[IO, Unit]
           _        <- deferred.complete(Releasable(0, released.get))
           value    <- value0.join
-          _        <- Sync[IO].delay { value shouldEqual 0 }
+          _        <- Sync[IO].delay { value shouldEqual Outcome.succeeded(IO.pure(0)) }
           value    <- value2.join
-          _        <- Sync[IO].delay { value shouldEqual 0 }
+          _        <- Sync[IO].delay { value shouldEqual Outcome.succeeded(IO.pure(0)) }
           _        <- released.complete(())
         } yield {}
       }
@@ -417,9 +416,9 @@ class CacheSpec extends AsyncFunSuite with Matchers {
           released <- Deferred[IO, Unit]
           _        <- deferred.complete(none)
           value    <- value0.join
-          _        <- Sync[IO].delay { value shouldEqual none }
+          _        <- Sync[IO].delay { value shouldEqual Outcome.succeeded(IO.pure(none[Int])) }
           value    <- value1.join
-          _        <- Sync[IO].delay { value shouldEqual none }
+          _        <- Sync[IO].delay { value shouldEqual Outcome.succeeded(IO.pure(none[Int])) }
           _        <- released.complete(())
           value    <- cache.getOrUpdateReleasableOpt(0)(Releasable[IO].pure(1).some.pure[IO])
           _        <- Sync[IO].delay { value shouldEqual 1.some }
@@ -456,9 +455,9 @@ class CacheSpec extends AsyncFunSuite with Matchers {
           fiber1    <- cache.getOrUpdateReleasable(0) { Async[IO].never }.startEnsure
           release   <- Deferred[IO, Unit]
           _         <- fiber0.cancel
-          _         <- deferred0.complete(Releasable(0, release.complete(())))
+          _         <- deferred0.complete(Releasable(0, release.complete(()).void))
           value     <- fiber1.join
-          _         <- Sync[IO].delay { value shouldEqual 0 }
+          _         <- Sync[IO].delay { value shouldEqual Outcome.succeeded(IO.pure(0)) }
           _         <- cache.remove(0)
           _         <- release.get
         } yield {}
@@ -493,7 +492,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
           fiber    <- cache.getOrUpdateReleasableEnsure(0) { deferred.get }
           value    <- cache.put(0, 1)
           release  <- Deferred[IO, Unit]
-          _        <- deferred.complete(Releasable(0, release.complete(())))
+          _        <- deferred.complete(Releasable(0, release.complete(()).void))
           _        <- release.get
           value    <- value
           _        <- Sync[IO].delay { value shouldEqual none }
@@ -902,7 +901,7 @@ object CacheSpec {
     }
 
 
-    def getOrUpdateEnsure(key: K)(value: => F[V])(implicit F: Concurrent[F]): F[Fiber[F, V]] = {
+    def getOrUpdateEnsure(key: K)(value: => F[V])(implicit F: Concurrent[F]): F[Fiber[F, Throwable, V]] = {
 
       def getOrUpdate(deferred: Deferred[F, Unit]) = {
         self.getOrUpdate(key) {
@@ -920,7 +919,7 @@ object CacheSpec {
       } yield fiber
     }
 
-    def getOrUpdateOptEnsure(key: K)(value: => F[Option[V]])(implicit F: Concurrent[F]): F[Fiber[F, Option[V]]] = {
+    def getOrUpdateOptEnsure(key: K)(value: => F[Option[V]])(implicit F: Concurrent[F]): F[Fiber[F, Throwable, Option[V]]] = {
 
       def getOrUpdateOpt(deferred: Deferred[F, Unit]) = {
         self.getOrUpdateOpt(key) {
@@ -938,7 +937,7 @@ object CacheSpec {
       } yield fiber
     }
 
-    def getOrUpdateReleasableEnsure(key: K)(value: => F[Releasable[F, V]])(implicit F: Concurrent[F]): F[Fiber[F, V]] = {
+    def getOrUpdateReleasableEnsure(key: K)(value: => F[Releasable[F, V]])(implicit F: Concurrent[F]): F[Fiber[F, Throwable, V]] = {
       for {
         deferred <- Deferred[F, Unit]
         fiber    <- self.getOrUpdateReleasable(key) { deferred.complete(()) *> value }.start
@@ -950,7 +949,7 @@ object CacheSpec {
       key: K)(
       value: => F[Option[Releasable[F, V]]])(implicit
       F: Concurrent[F]
-    ): F[Fiber[F, Option[V]]] = {
+    ): F[Fiber[F, Throwable, Option[V]]] = {
       for {
         deferred <- Deferred[F, Unit]
         fiber    <- self.getOrUpdateReleasableOpt(key) { deferred.complete(()) *> value }.start
