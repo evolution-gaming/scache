@@ -3,7 +3,7 @@ import sbt._
 object Dependencies {
 
   val scalatest        = "org.scalatest"       %% "scalatest"      % "3.2.3"
-  val `cats-helper`    = "com.evolutiongaming" %% "cats-helper"    % "3.0.1"
+  val `cats-helper`    = "com.evolutiongaming" %% "cats-helper"    % "3.0.2"
   val smetrics         = "com.evolutiongaming" %% "smetrics"       % "1.0.1"
   val `kind-projector` = "org.typelevel"        % "kind-projector" % "0.11.0"
 
