@@ -3,12 +3,12 @@ import sbt._
 object Dependencies {
 
   val scalatest        = "org.scalatest"       %% "scalatest"      % "3.2.3"
-  val `cats-helper`    = "com.evolutiongaming" %% "cats-helper"    % "2.1.3"
-  val smetrics         = "com.evolutiongaming" %% "smetrics"       % "0.1.2"
+  val `cats-helper`    = "com.evolutiongaming" %% "cats-helper"    % "2.7.6"
+  val smetrics         = "com.evolutiongaming" %% "smetrics"       % "0.3.4"
   val `kind-projector` = "org.typelevel"        % "kind-projector" % "0.11.0"
 
   object Cats {
-    val core   = "org.typelevel" %% "cats-core"   % "2.2.0"
-    val effect = "org.typelevel" %% "cats-effect" % "2.2.0"
+    val core   = "org.typelevel" %% "cats-core"   % "2.6.1"
+    val effect = "org.typelevel" %% "cats-effect" % "2.5.4"
   }
 }

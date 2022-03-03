@@ -16,7 +16,7 @@ object LoadingCache {
     map: EntryRefs[F, K, V],
   ): Resource[F, Cache[F, K, V]] = {
     for {
-      ref   <- Resource.liftF(Ref[F].of(map))
+      ref   <- Resource.eval(Ref[F].of(map))
       cache <- of(ref)
     } yield cache
   }
