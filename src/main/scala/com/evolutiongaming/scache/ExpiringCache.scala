@@ -134,7 +134,7 @@ object ExpiringCache {
     val ref = Ref[F].of(entryRefs)
 
     for {
-      ref   <- Resource.liftF(ref)
+      ref   <- Resource.eval(ref)
       cache <- LoadingCache.of(ref)
       _     <- schedule(expireInterval) { removeExpiredAndCheckSize(ref, cache) }
       _     <- config.refresh.foldMapM { refresh => schedule(refresh.interval) { refreshEntries(refresh, ref, cache) } }

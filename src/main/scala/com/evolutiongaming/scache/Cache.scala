@@ -123,7 +123,7 @@ object Cache {
     implicit val hash = Hash.fromUniversalHashCode[K]
 
     val result = for {
-      nrOfPartitions <- Resource.liftF(partitions.fold(NrOfPartitions[F]())(_.pure[F]))
+      nrOfPartitions <- Resource.eval(partitions.fold(NrOfPartitions[F]())(_.pure[F]))
       cache           = LoadingCache.of(LoadingCache.EntryRefs.empty[F, K, V])
       partitions     <- Partitions.of[Resource[F, *], K, Cache[F, K, V]](nrOfPartitions, _ => cache)
     } yield {
@@ -181,7 +181,7 @@ object Cache {
     implicit val hash = Hash.fromUniversalHashCode[K]
 
     val result = for {
-      nrOfPartitions <- Resource.liftF(partitions.fold(NrOfPartitions[F]())(_.pure[F]))
+      nrOfPartitions <- Resource.eval(partitions.fold(NrOfPartitions[F]())(_.pure[F]))
       config1         = config
         .maxSize
         .fold {
