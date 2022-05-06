@@ -113,3 +113,16 @@ addSbtPlugin("com.evolution" % "sbt-artifactory-plugin" % "0.0.2")
 
 libraryDependencies += "com.evolutiongaming" %% "scache" % "3.2.0"
 ```
+
+## ExpiringCache
+
+![Behaviour of Expiring Cache](ExpiringCache.png)
+
+### Recommendations
+
+* There is no use to make refresh.interval bigger than expireAfterWrite. It's just the waste of resources.
+* Touch, despite its name, is not called after refresh.
+* expireAfterWrite, despite its name, is calculated from date of creation, not time of update.
+
+
+
