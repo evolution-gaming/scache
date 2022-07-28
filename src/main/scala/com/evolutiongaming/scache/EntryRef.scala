@@ -50,8 +50,7 @@ object EntryRef {
                   val update = entry
                     .deferred
                     .complete(value.asRight)
-                    .void
-                    .handleErrorWith { _ => value.release.combineAll }
+                    .ifM(Applicative[F].unit, value.release.combineAll)
                   (value, update)
               }
               .flatten
@@ -67,7 +66,6 @@ object EntryRef {
                       .deferred
                       .complete(error.asLeft)
                       .void
-                      .handleError { _ => () }
                   }
               }
         }
