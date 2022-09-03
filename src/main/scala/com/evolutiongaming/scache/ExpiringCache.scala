@@ -2,7 +2,7 @@ package com.evolutiongaming.scache
 
 import cats.effect.{Clock, Ref, Resource, Temporal}
 import cats.syntax.all._
-import cats.{Applicative, Monad, Parallel}
+import cats.{Applicative, Monad, Monoid, Parallel}
 import com.evolutiongaming.catshelper.ClockHelper._
 import com.evolutiongaming.catshelper.ParallelHelper._
 import com.evolutiongaming.catshelper.Schedule
@@ -159,7 +159,7 @@ object ExpiringCache {
       }
     }
 
-    implicit def monoidUnit = Applicative.monoid[F, Unit]
+    implicit def monoidUnit: Monoid[F[Unit]] = Applicative.monoid[F, Unit]
 
     def touch(key: K, entry: E) = {
 
@@ -373,7 +373,7 @@ object ExpiringCache {
 
   final case class Config[F[_], -K, V](
     expireAfterRead: FiniteDuration,
-    expireAfterWrite: Option[FiniteDuration] = none,
-    maxSize: Option[Int] = none,
-    refresh: Option[Refresh[K, F[Option[V]]]] = none)
+    expireAfterWrite: Option[FiniteDuration] = None,
+    maxSize: Option[Int] = None,
+    refresh: Option[Refresh[K, F[Option[V]]]] = None)
 }

@@ -121,7 +121,7 @@ object CacheMetrics {
       sizeGauge         <- sizeGauge
       callSummary       <- callSummary
     } yield {
-      name: Name =>
+      (name: Name) =>
 
         val hitCounter = getsCounter.labels(name, "hit")
 

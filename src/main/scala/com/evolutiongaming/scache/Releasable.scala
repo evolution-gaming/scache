@@ -29,7 +29,7 @@ object Releasable {
   }
 
 
-  implicit def functorReleasable[F[_] : Applicative]: Functor[Releasable[F, *]] = new Functor[Releasable[F, *]] {
+  implicit def functorReleasable[F[_]]: Functor[Releasable[F, _]] = new Functor[Releasable[F, _]] {
 
     def map[A, B](fa: Releasable[F, A])(f: A => B) = fa.map(f)
   }

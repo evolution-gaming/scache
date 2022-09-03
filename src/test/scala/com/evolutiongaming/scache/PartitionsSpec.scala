@@ -9,7 +9,7 @@ class PartitionsSpec extends AnyWordSpec with Matchers {
 
   "apply" should {
 
-    implicit val hash = Hash.fromUniversalHashCode[Int]
+    implicit val hash: Hash[Int] = Hash.fromUniversalHashCode[Int]
 
     val partitions = Partitions.of[Id, Int, String](3, _.toString)
 
