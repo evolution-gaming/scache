@@ -30,14 +30,14 @@ object Releasable {
   }
 
 
-  @deprecated(message = "use releaseFromFunctor which doesn't require Applicative instance", since = "4.0.1")
+  @deprecated(message = "use functorFromReleasable which doesn't require Applicative instance", since = "4.0.1")
   @nowarn("msg=parameter value evidence$3 in method functorReleasable is never used")
   def functorReleasable[F[_]: Applicative]: Functor[Releasable[F, _]] = new Functor[Releasable[F, _]] {
 
     def map[A, B](fa: Releasable[F, A])(f: A => B) = fa.map(f)
   }
 
-  implicit def releaseFromFunctor[F[_]]: Functor[Releasable[F, _]] = new Functor[Releasable[F, _]] {
+  implicit def functorFromReleasable[F[_]]: Functor[Releasable[F, _]] = new Functor[Releasable[F, _]] {
 
     def map[A, B](fa: Releasable[F, A])(f: A => B) = fa.map(f)
   }
