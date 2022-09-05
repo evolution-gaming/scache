@@ -4,6 +4,7 @@ import cats.Applicative
 import cats.effect.{Concurrent, Deferred, Ref}
 import cats.effect.implicits._
 import cats.syntax.all._
+import cats.kernel.Monoid
 
 trait EntryRef[F[_], A] {
   import EntryRef.Entry
@@ -33,7 +34,7 @@ object EntryRef {
     cleanup: F[Unit]
   ): F[(EntryRef[F, A], F[A])] = {
 
-    implicit def monoidUnit = Applicative.monoid[F, Unit]
+    implicit def monoidUnit: Monoid[F[Unit]] = Applicative.monoid[F, Unit]
 
     def load(ref: Ref[F, Entry[F, A]]) = {
       value
@@ -50,8 +51,7 @@ object EntryRef {
                   val update = entry
                     .deferred
                     .complete(value.asRight)
-                    .void
-                    .handleErrorWith { _ => value.release.combineAll }
+                    .ifM(Applicative[F].unit, value.release.combineAll)
                   (value, update)
               }
               .flatten
@@ -67,7 +67,6 @@ object EntryRef {
                       .deferred
                       .complete(error.asLeft)
                       .void
-                      .handleError { _ => () }
                   }
               }
         }
@@ -93,7 +92,7 @@ object EntryRef {
 
   def apply[F[_]: Concurrent, A](self: Ref[F, Entry[F, A]]): EntryRef[F, A] = {
 
-    implicit def monoidUnit = Applicative.monoid[F, Unit]
+    implicit def monoidUnit: Monoid[F[Unit]] = Applicative.monoid[F, Unit]
     
     def loaded = self.get.flatMap {
       case entry: Entry.Loaded[F, A]  => entry.pure[F]

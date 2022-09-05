@@ -22,5 +22,11 @@ project/plugins/project/
 *.iml
 *.ipr
 
+# metals & bloop
+.bloop
+.metals
+metals.sbt
+.vscode
+
 # Mac
 .DS_Store

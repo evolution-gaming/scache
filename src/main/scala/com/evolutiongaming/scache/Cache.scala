@@ -120,12 +120,12 @@ object Cache {
 
   def loading[F[_]: Concurrent: Runtime, K, V](partitions: Option[Int] = None): Resource[F, Cache[F, K, V]] = {
 
-    implicit val hash = Hash.fromUniversalHashCode[K]
+    implicit val hash: Hash[K] = Hash.fromUniversalHashCode[K]
 
     val result = for {
       nrOfPartitions <- Resource.eval(partitions.fold(NrOfPartitions[F]())(_.pure[F]))
       cache           = LoadingCache.of(LoadingCache.EntryRefs.empty[F, K, V])
-      partitions     <- Partitions.of[Resource[F, *], K, Cache[F, K, V]](nrOfPartitions, _ => cache)
+      partitions     <- Partitions.of[Resource[F, _], K, Cache[F, K, V]](nrOfPartitions, _ => cache)
     } yield {
       PartitionedCache(partitions)
     }
@@ -173,12 +173,12 @@ object Cache {
   }
 
 
-  def expiring[F[_]: Concurrent: Temporal: Runtime: Parallel, K, V](
+  def expiring[F[_]: Temporal: Runtime: Parallel, K, V](
     config: ExpiringCache.Config[F, K, V],
     partitions: Option[Int] = None
   ): Resource[F, Cache[F, K, V]] = {
 
-    implicit val hash = Hash.fromUniversalHashCode[K]
+    implicit val hash: Hash[K] = Hash.fromUniversalHashCode[K]
 
     val result = for {
       nrOfPartitions <- Resource.eval(partitions.fold(NrOfPartitions[F]())(_.pure[F]))
@@ -190,7 +190,7 @@ object Cache {
           maxSize => config.copy(maxSize = (maxSize * 1.1 / nrOfPartitions).toInt.some)
         }
       cache           = ExpiringCache.of[F, K, V](config1)
-      partitions     <- Partitions.of[Resource[F, *], K, Cache[F, K, V]](nrOfPartitions, _ => cache)
+      partitions     <- Partitions.of[Resource[F, _], K, Cache[F, K, V]](nrOfPartitions, _ => cache)
     } yield {
       PartitionedCache(partitions)
     }

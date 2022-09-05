@@ -17,11 +17,16 @@ import scala.util.control.NoStackTrace
 class CacheSpec extends AsyncFunSuite with Matchers {
   import CacheSpec._
 
+  val expiringCache = Cache.expiring[IO, Int, Int](
+    config = ExpiringCache.Config[IO, Int, Int](expireAfterRead = 1.minute),
+    partitions = None,
+  )
+
   for {
     (name, cache0) <- List(
       ("default"               , Cache.loading[IO, Int, Int]),
       ("no partitions"         , LoadingCache.of(LoadingCache.EntryRefs.empty[IO, Int, Int])),
-      ("expiring"              , Cache.expiring[IO, Int, Int](ExpiringCache.Config[IO, Int, Int](expireAfterRead = 1.minute))),
+      ("expiring"              , expiringCache),
       ("expiring no partitions", ExpiringCache.of[IO, Int, Int](ExpiringCache.Config(expireAfterRead = 1.minute))))
   } yield {
 
