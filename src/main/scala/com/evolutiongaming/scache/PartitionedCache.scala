@@ -2,6 +2,7 @@ package com.evolutiongaming.scache
 
 import cats.syntax.all._
 import cats.{Applicative, Monad}
+import cats.kernel.Monoid
 
 object PartitionedCache {
 
@@ -11,7 +12,7 @@ object PartitionedCache {
     partitions: Partitions[K, Cache[F, K, V]]
   ): Cache[F, K, V] = {
 
-    implicit def monoidUnit = Applicative.monoid[F, Unit]
+    implicit def monoidUnit: Monoid[F[Unit]] = Applicative.monoid[F, Unit]
 
     new PartitionedCache with Cache[F, K, V] {
 
