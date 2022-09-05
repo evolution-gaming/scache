@@ -4,6 +4,7 @@ import cats.effect.Resource
 import cats.syntax.all._
 import cats.{Applicative, Functor, ~>}
 import com.evolutiongaming.catshelper.BracketThrowable
+import scala.annotation.nowarn
 
 final case class Releasable[F[_], A](value: A, release: F[Unit])
 
@@ -29,11 +30,17 @@ object Releasable {
   }
 
 
-  implicit def functorReleasable[F[_]]: Functor[Releasable[F, _]] = new Functor[Releasable[F, _]] {
+  @deprecated(message = "use releaseFromFunctor which doesn't require Applicative instance", since = "4.0.1")
+  @nowarn("msg=parameter value evidence$3 in method functorReleasable is never used")
+  def functorReleasable[F[_]: Applicative]: Functor[Releasable[F, _]] = new Functor[Releasable[F, _]] {
 
     def map[A, B](fa: Releasable[F, A])(f: A => B) = fa.map(f)
   }
 
+  implicit def releaseFromFunctor[F[_]]: Functor[Releasable[F, _]] = new Functor[Releasable[F, _]] {
+
+    def map[A, B](fa: Releasable[F, A])(f: A => B) = fa.map(f)
+  }
 
   implicit class ReleasableOps[F[_], A](val self: Releasable[F, A]) extends AnyVal {
 
