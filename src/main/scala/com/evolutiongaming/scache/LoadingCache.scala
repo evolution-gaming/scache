@@ -81,8 +81,9 @@ object LoadingCache {
           entryRefs
             .get(key)
             .fold {
+              val cleanup = ref.update { _ - key } // TODO delete only current EntryRef
               EntryRef
-                .loading(loaded, ref.update { _ - key })
+                .loading(loaded, cleanup)
                 .flatMap { case (entryRef, load) =>
                   ref
                     .modify { entryRefs =>
