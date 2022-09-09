@@ -285,11 +285,9 @@ class CacheSpec extends AsyncFunSuite with Matchers {
           release   <- Deferred[IO, Unit]
           released0 <- Ref[IO].of(false)
           _         <- cache.put(0, 0, release.get *> released0.set(true))
-          _         <- Deferred[IO, Unit]
           _         <- cache.put(1, 1, TestError.raiseError[IO, Unit])
           released1 <- Ref[IO].of(false)
           _         <- cache.getOrUpdateReleasable(2)(Releasable(2, release.get *> released1.set(true)).pure[IO])
-          _         <- Deferred[IO, Unit]
           _         <- cache.getOrUpdateReleasable(3)(Releasable(3, TestError.raiseError[IO, Unit]).pure[IO])
           keys      <- cache.keys
           _         <- Sync[IO].delay { keys shouldEqual Set(0, 1, 2, 3) }
@@ -860,6 +858,19 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         }
       }
       result.run()
+    }
+
+    ignore(s"cancellation proper: $name") {
+      cache
+        .use { cache =>
+          for {
+            fiber  <- cache.getOrUpdateOptEnsure(0)(IO.sleep(10.seconds).as(0.some))
+            _      <- fiber.cancel
+            result <- cache.get(0)
+            _      <- IO { result shouldEqual none }
+          } yield {}
+        }
+        .run()
     }
 
 

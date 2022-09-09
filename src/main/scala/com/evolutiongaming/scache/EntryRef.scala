@@ -1,9 +1,9 @@
 package com.evolutiongaming.scache
 
 import cats.Applicative
-import cats.effect.Concurrent
+import cats.effect.{Concurrent, ExitCase}
 import cats.effect.concurrent.{Deferred, Ref}
-import cats.effect.implicits._
+import cats.effect.syntax.all._
 import cats.syntax.all._
 
 trait EntryRef[F[_], A] {
@@ -36,56 +36,82 @@ object EntryRef {
 
     implicit def monoidUnit = Applicative.monoid[F, Unit]
 
-    def load(ref: Ref[F, Entry[F, A]]) = {
-      value
-        .attempt
-        .flatMap {
-          case Right(value) =>
-            ref
-              .modify {
-                case entry: Entry.Loaded[F, A] =>
-                  val release = value.release.combineAll
-                  (entry, release)
-
-                case entry: Entry.Loading[F, A] =>
-                  val update = entry
-                    .deferred
-                    .complete(value.asRight)
-                    .handleErrorWith { _ => value.release.combineAll }
-                  (value, update)
-              }
-              .flatten
-
-          case Left(error) =>
-            ref
-              .get
-              .flatMap {
-                case _    : Entry.Loaded[F, A]      => ().pure[F]
-                case entry: Entry.Loading[F, A] =>
-                  cleanup.flatMap { _ =>
-                    entry
-                      .deferred
-                      .complete(error.asLeft)
-                      .handleError { _ => () }
-                  }
-              }
-        }
-    }
-
     for {
       deferred <- Deferred[F, Either[Throwable, Entry.Loaded[F, A]]]
       ref      <- Ref.of[F, Entry[F, A]](Entry.Loading(deferred))
     } yield {
 
-      val value = for {
-        _      <- load(ref).start
-        loaded <- deferred.get
-        loaded <- loaded.liftTo[F]
-      } yield {
-        loaded.value
+      def fail(error: Throwable) = {
+        ref
+          .get
+          .flatMap {
+            case _: Entry.Loaded[F, A]  =>
+              ().pure[F]
+            case a: Entry.Loading[F, A] =>
+              if (a.deferred == deferred) {
+                cleanup
+              } else {
+                ().pure[F]
+              }
+          }
+          .flatMap { _ =>
+            deferred
+              .complete(error.asLeft)
+              .handleError { _ => () }
+          }
       }
 
-      (apply(ref), value)
+      val load = value
+        .guaranteeCase {
+          case ExitCase.Completed =>
+            ().pure[F]
+          case ExitCase.Error(a)  =>
+            fail(a)
+          case ExitCase.Canceled  =>
+            fail(CancelledError)
+        }
+        .flatMap { value =>
+          def release = value
+            .release
+            .combineAll
+
+          deferred
+            .complete(value.asRight)
+            .attempt
+            .flatMap {
+              case Right(()) =>
+                0.tailRecM { counter =>
+                  ref
+                    .access
+                    .flatMap { case (entry, set) =>
+                      entry match {
+                        case _: Entry.Loaded[F, A]  =>
+                          release.map { _.asRight[Int] }
+                        case a: Entry.Loading[F, A] =>
+                          if (a.deferred == deferred) {
+                            set(value).map {
+                              case true  => ().asRight[Int]
+                              case false => (counter + 1).asLeft[Unit]
+                            }
+                          } else {
+                            release.map { _.asRight[Int] }
+                          }
+                      }
+                    }
+                }
+              case Left(_)   =>
+                release
+            }
+        }
+        .start
+        .productR {
+          deferred
+            .get
+            .rethrow
+            .map { _.value }
+        }
+
+      (apply(ref), load)
     }
   }
 
