@@ -47,59 +47,56 @@ object LoadingCache {
     }
 
     def put1(key: K, loaded: EntryRef.Entry.Loaded[F, V]) = {
-      ref
-        .get
-        .flatMap { entryRefs =>
-          entryRefs
-            .get(key)
-            .fold {
-              EntryRef
-                .loaded(loaded)
-                .flatMap { entryRef =>
-                  ref
-                    .modify { entryRefs =>
-                      entryRefs
-                        .get(key)
-                        .fold {
-                          (entryRefs.updated(key, entryRef), none[V].pure[F].pure[F])
-                        } { entryRef =>
-                          (entryRefs, entryRef.put(loaded))
-                        }
+      0.tailRecM { counter =>
+        ref
+          .access
+          .flatMap { case (entries, set) =>
+            entries
+              .get(key)
+              .fold {
+                EntryRef
+                  .loaded(loaded)
+                  .flatMap { entry =>
+                    set(entries.updated(key, entry)).map {
+                      case true  => none[V].pure[F].asRight[Int]
+                      case false => (counter + 1).asLeft[F[Option[V]]]
                     }
-                    .flatten
-                }
-            } {
-              _.put(loaded)
-            }
-        }
+                  }
+              } { entry =>
+                entry
+                  .put(loaded)
+                  .map { _.asRight[Int] }
+              }
+          }
+      }
     }
 
     def getOrUpdateReleasable1(key: K)(loaded: => F[EntryRef.Entry.Loaded[F, V]]) = {
-      ref
-        .get
-        .flatMap { entryRefs =>
-          entryRefs
-            .get(key)
-            .fold {
-              val cleanup = ref.update { _ - key } // TODO delete only current EntryRef
-              EntryRef
-                .loading(loaded, cleanup)
-                .flatMap { case (entryRef, load) =>
-                  ref
-                    .modify { entryRefs =>
-                      entryRefs.get(key).fold {
-                        (entryRefs.updated(key, entryRef), load)
-                      } { entryRef =>
-                        (entryRefs, entryRef.get)
+      0.tailRecM { counter =>
+        ref
+          .access
+          .flatMap { case (entries, set) =>
+            entries
+              .get(key)
+              .fold {
+                val cleanup = ref.update { _ - key }
+                EntryRef
+                  .loading(loaded, cleanup)
+                  .flatMap { case (entry, load) =>
+                    set(entries.updated(key, entry))
+                      .flatMap {
+                        case true  => load.map { _.asRight[Int] }
+                        case false => (counter + 1).asLeft[V].pure[F]
                       }
-                    }
-                    .flatten
-                    .uncancelable
-                }
-            } {
-              _.get
-            }
-        }
+                      .uncancelable
+                  }
+              } { entry =>
+                entry
+                  .get
+                  .map { _.asRight[Int] }
+              }
+          }
+      }
     }
 
     new LoadingCache with Cache[F, K, V] {
@@ -199,26 +196,44 @@ object LoadingCache {
 
 
       def remove(key: K) = {
-        ref
-          .modify { entryRefs =>
-            val entryRef = entryRefs.get(key)
-            val entryRefs1 = entryRefs
-              .get(key)
-              .fold(entryRefs) { _ => entryRefs - key }
-            (entryRefs1, entryRef)
-          }
-          .flatMap { entryRef =>
-            entryRef
-              .flatTraverse { entryRef =>
-                entryRef
-                  .release
-                  .flatMap { _ => entryRef.get }
-                  .redeem((_: Throwable) => none[V], _.some)
-              }
-              .start
-          }
-          .uncancelable
-          .map { _.joinWithNever }
+        0.tailRecM { counter =>
+          ref
+            .access
+            .flatMap { case (entries, set) =>
+              entries
+                .get(key)
+                .fold {
+                  none[V]
+                    .pure[F]
+                    .asRight[Int]
+                    .pure[F]
+                } { entry =>
+                  set(entries - key)
+                    .flatMap {
+                      case true  =>
+                        entry
+                          .release
+                          .flatMap { _ =>
+                            entry
+                              .get
+                              .map { _.some }
+                          }
+                          .handleError { _ => none[V] }
+                          .start
+                          .map { fiber =>
+                            fiber
+                              .joinWithNever
+                              .asRight[Int]
+                          }
+                      case false =>
+                        (counter + 1)
+                          .asLeft[F[Option[V]]]
+                          .pure[F]
+                    }
+                    .uncancelable
+                }
+            }
+        }
       }
 
 
