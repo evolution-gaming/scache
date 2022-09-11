@@ -198,6 +198,7 @@ object Cache {
     result.breakFlatMapChain
   }
 
+  private sealed abstract class MapK
 
   implicit class CacheOps[F[_], K, V](val self: Cache[F, K, V]) extends AnyVal {
 
@@ -209,41 +210,43 @@ object Cache {
       CacheMetered(self, metrics)
     }
 
-    def mapK[G[_]](fg: F ~> G, gf: G ~> F)(implicit F: Functor[F]): Cache[G, K, V] = new Cache[G, K, V] {
+    def mapK[G[_]](fg: F ~> G, gf: G ~> F)(implicit F: Functor[F]): Cache[G, K, V] = {
+      new MapK with Cache[G, K, V] {
 
-      def get(key: K) = fg(self.get(key))
+        def get(key: K) = fg(self.get(key))
 
-      def getOrElse(key: K, default: => G[V]) = fg(self.getOrElse(key, gf(default)))
+        def getOrElse(key: K, default: => G[V]) = fg(self.getOrElse(key, gf(default)))
 
-      def getOrUpdate(key: K)(value: => G[V]) = fg(self.getOrUpdate(key)(gf(value)))
+        def getOrUpdate(key: K)(value: => G[V]) = fg(self.getOrUpdate(key)(gf(value)))
 
-      def getOrUpdateOpt(key: K)(value: => G[Option[V]]) = {
-        fg(self.getOrUpdateOpt(key)(gf(value)))
+        def getOrUpdateOpt(key: K)(value: => G[Option[V]]) = {
+          fg(self.getOrUpdateOpt(key)(gf(value)))
+        }
+
+        def getOrUpdateReleasable(key: K)(value: => G[Releasable[G, V]]) = {
+          fg(self.getOrUpdateReleasable(key)(gf(value).map(_.mapK(gf))))
+        }
+
+        def getOrUpdateReleasableOpt(key: K)(value: => G[Option[Releasable[G, V]]]) = {
+          fg(self.getOrUpdateReleasableOpt(key)(gf(value).map(_.map(_.mapK(gf)))))
+        }
+
+        def put(key: K, value: V) = fg(self.put(key, value).map(fg.apply))
+
+        def put(key: K, value: V, release: G[Unit]) = fg(self.put(key, value, gf(release)).map(fg.apply))
+
+        def contains(key: K) = fg(self.contains(key))
+
+        def size = fg(self.size)
+
+        def keys = fg(self.keys)
+
+        def values = fg(self.values.map(_.map { case (k, v) => (k, fg(v)) }))
+
+        def remove(key: K) = fg(self.remove(key).map(fg.apply))
+
+        def clear = fg(self.clear.map(fg.apply))
       }
-
-      def getOrUpdateReleasable(key: K)(value: => G[Releasable[G, V]]) = {
-        fg(self.getOrUpdateReleasable(key)(gf(value).map(_.mapK(gf))))
-      }
-
-      def getOrUpdateReleasableOpt(key: K)(value: => G[Option[Releasable[G, V]]]) = {
-        fg(self.getOrUpdateReleasableOpt(key)(gf(value).map(_.map(_.mapK(gf)))))
-      }
-
-      def put(key: K, value: V) = fg(self.put(key, value).map(fg.apply))
-
-      def put(key: K, value: V, release: G[Unit]) = fg(self.put(key, value, gf(release)).map(fg.apply))
-
-      def contains(key: K) = fg(self.contains(key))
-
-      def size = fg(self.size)
-
-      def keys = fg(self.keys)
-
-      def values = fg(self.values.map(_.map { case (k, v) => (k, fg(v))} ) )
-
-      def remove(key: K) = fg(self.remove(key).map(fg.apply))
-
-      def clear = fg(self.clear.map(fg.apply))
     }
   }
 
