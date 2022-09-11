@@ -70,13 +70,13 @@ object PartitionedCache {
           .contains(key)
       }
 
-      val size = {
+      def size = {
         partitions
           .values
           .foldMapM(_.size)
       }
 
-      val keys = {
+      def keys = {
         partitions
           .values
           .foldLeftM(Set.empty[K]) { (keys, cache) =>
@@ -86,12 +86,22 @@ object PartitionedCache {
           }
       }
 
-      val values = {
+      def values = {
         partitions
           .values
           .foldLeftM(Map.empty[K, F[V]]) { (values, cache) =>
             cache
               .values
+              .map { _ ++ values }
+          }
+      }
+
+      def values1 = {
+        partitions
+          .values
+          .foldLeftM(Map.empty[K, Either[F[V], V]]) { (values, cache) =>
+            cache
+              .values1
               .map { _ ++ values }
           }
       }
@@ -102,7 +112,7 @@ object PartitionedCache {
           .remove(key)
       }
 
-      val clear = {
+      def clear = {
         partitions
           .values
           .foldMapM { _.clear }

@@ -63,6 +63,12 @@ trait Cache[F[_], K, V] {
   def values: F[Map[K, F[V]]]
 
   /**
+    * @return either map of either loading pr loaded value
+    * Might be an expensive call
+    */
+  def values1: F[Map[K, Either[F[V], V]]]
+
+  /**
     * @return previous value if any, possibly not yet loaded
     */
   def remove(key: K): F[F[Option[V]]]
@@ -78,37 +84,41 @@ object Cache {
 
   private sealed abstract class Empty
 
-  def empty[F[_]: Monad, K, V]: Cache[F, K, V] = new Empty with Cache[F, K, V] {
+  def empty[F[_]: Monad, K, V]: Cache[F, K, V] = {
+    new Empty with Cache[F, K, V] {
 
-    def get(key: K) = none[V].pure[F]
+      def get(key: K) = none[V].pure[F]
 
-    def getOrElse(key: K, default: => F[V]): F[V] = default
+      def getOrElse(key: K, default: => F[V]): F[V] = default
 
-    def getOrUpdate(key: K)(value: => F[V]) = value
+      def getOrUpdate(key: K)(value: => F[V]) = value
 
-    def getOrUpdateOpt(key: K)(value: => F[Option[V]]) = value
+      def getOrUpdateOpt(key: K)(value: => F[Option[V]]) = value
 
-    def getOrUpdateReleasable(key: K)(value: => F[Releasable[F, V]]) = value.map(_.value)
+      def getOrUpdateReleasable(key: K)(value: => F[Releasable[F, V]]) = value.map(_.value)
 
-    def getOrUpdateReleasableOpt(key: K)(value: => F[Option[Releasable[F, V]]]) = {
-      value.map(_.map(_.value))
+      def getOrUpdateReleasableOpt(key: K)(value: => F[Option[Releasable[F, V]]]) = {
+        value.map { _.map(_.value) }
+      }
+
+      def put(key: K, value: V) = none[V].pure[F].pure[F]
+
+      def put(key: K, value: V, release: F[Unit]) = none[V].pure[F].pure[F]
+
+      def contains(key: K) = false.pure[F]
+
+      def size = 0.pure[F]
+
+      def keys = Set.empty[K].pure[F]
+
+      def values = Map.empty[K, F[V]].pure[F]
+
+      def values1 = Map.empty[K, Either[F[V], V]].pure[F]
+
+      def remove(key: K) = none[V].pure[F].pure[F]
+
+      def clear = ().pure[F].pure[F]
     }
-
-    def put(key: K, value: V) = none[V].pure[F].pure[F]
-
-    def put(key: K, value: V, release: F[Unit]) = none[V].pure[F].pure[F]
-
-    def contains(key: K) = false.pure[F]
-    
-    val size = 0.pure[F]
-
-    val keys = Set.empty[K].pure[F]
-
-    val values = Map.empty[K, F[V]].pure[F]
-
-    def remove(key: K) = none[V].pure[F].pure[F]
-
-    val clear = ().pure[F].pure[F]
   }
 
 
@@ -242,6 +252,12 @@ object Cache {
         def keys = fg(self.keys)
 
         def values = fg(self.values.map(_.map { case (k, v) => (k, fg(v)) }))
+
+        def values1 = fg {
+          self
+            .values1
+            .map { _.map { case (k, v) => (k, v.leftMap { v => fg(v) }) } }
+        }
 
         def remove(key: K) = fg(self.remove(key).map(fg.apply))
 

@@ -850,6 +850,32 @@ class CacheSpec extends AsyncFunSuite with Matchers {
       result.run()
     }
 
+    test(s"values1: $name") {
+      cache
+        .use { cache =>
+          for {
+            _ <- cache.put(0, 0)
+            a <- cache.values1
+            _ <- IO { a shouldEqual Map((0, 0.asRight)) }
+            _ <- cache.put(1, 1)
+            a <- cache.values1
+            _ <- IO { a shouldEqual Map((0, 0.asRight), (1, 1.asRight)) }
+            _ <- cache.put(2, 2)
+            d <- Deferred[IO, Int]
+            b <- cache.getOrUpdateEnsure(3) { d.get }
+            a <- cache.values1
+            _ <- IO { a.map { case (k, v) => (k, v.toOption) } shouldEqual Map((0, 0.some), (1, 1.some), (2, 2.some), (3, none)) }
+            _ <- d.complete(3)
+            _ <- b.join
+            a <- cache.values1
+            _ <- IO { a shouldEqual Map((0, 0.asRight), (1, 1.asRight), (2, 2.asRight), (3, 3.asRight)) }
+            _ <- cache.clear
+            a <- cache.values1
+            _ <- IO { a shouldEqual Map.empty }
+          } yield {}
+        }
+        .run()
+    }
 
     test(s"cancellation: $name") {
       val result = cache.use { cache =>

@@ -169,6 +169,15 @@ object CacheMetered {
           } yield a
         }
 
+        def values1 = {
+          for {
+            d <- MeasureDuration[F].start
+            a <- cache.values1
+            d <- d
+            _ <- metrics.values(d)
+          } yield a
+        }
+
         def remove(key: K) = cache.remove(key)
 
         def clear = {
