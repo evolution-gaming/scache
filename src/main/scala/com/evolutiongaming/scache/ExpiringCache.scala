@@ -332,6 +332,20 @@ object ExpiringCache {
         }
       }
 
+      def values1 = {
+        cache
+          .values1
+          .map { entries =>
+            entries.map { case (key, entry) =>
+              val value = entry match {
+                case Right(a) => a.value.asRight[F[V]]
+                case Left(a)  => a.map { _.value }.asLeft[V]
+              }
+              (key, value)
+            }
+          }
+      }
+
       def remove(key: K) = {
         for {
           entry <- cache.remove(key)

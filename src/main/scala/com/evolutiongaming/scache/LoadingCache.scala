@@ -175,24 +175,44 @@ object LoadingCache {
       }
 
 
-      val size = {
+      def size = {
         ref
           .get
           .map { _.size }
       }
 
 
-      val keys = {
+      def keys = {
         ref
           .get
           .map { _.keySet }
       }
 
 
-      val values = {
+      def values = {
         ref
           .get
-          .map { _.map { case (k, v) => k -> v.get } }
+          .map { entries =>
+            entries.map { case (k, v) => (k, v.get) }
+          }
+      }
+
+      def values1 = {
+        ref
+          .get
+          .flatMap { entries =>
+            entries
+              .toList
+              .traverse { case (k, v) =>
+                v
+                  .getLoaded
+                  .map {
+                    case Some(v) => (k, v.asRight[F[V]])
+                    case None    => (k, v.get.asLeft[V])
+                  }
+              }
+              .map { _.toMap }
+          }
       }
 
 
@@ -238,7 +258,7 @@ object LoadingCache {
       }
 
 
-      val clear = {
+      def clear = {
         ref
           .getAndSet(EntryRefs.empty)
           .flatMap { entryRefs =>
