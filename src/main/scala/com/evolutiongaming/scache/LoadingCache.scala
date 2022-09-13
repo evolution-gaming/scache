@@ -44,13 +44,13 @@ object LoadingCache {
 
     case object NoneError extends RuntimeException with NoStackTrace
 
-    def loadedOf(value: V, release: Option[F[Unit]]) = {
-      EntryRef.Entry.Loaded(
+    def entryOf(value: V, release: Option[F[Unit]]) = {
+      EntryRef.Entry(
         value,
         release.map { _.handleError(ignoreThrowable) })
     }
 
-    def put1(key: K, loaded: EntryRef.Entry.Loaded[F, V]) = {
+    def put1(key: K, entry: EntryRef.Entry[F, V]) = {
       0.tailRecM { counter =>
         ref
           .access
@@ -59,23 +59,23 @@ object LoadingCache {
               .get(key)
               .fold {
                 EntryRef
-                  .loaded(loaded)
+                  .loaded(entry)
                   .flatMap { entry =>
                     set(entries.updated(key, entry)).map {
                       case true  => none[V].pure[F].asRight[Int]
                       case false => (counter + 1).asLeft[F[Option[V]]]
                     }
                   }
-              } { entry =>
-                entry
-                  .put(loaded)
+              } { entryRef =>
+                entryRef
+                  .set(entry)
                   .map { _.asRight[Int] }
               }
           }
       }
     }
 
-    def getOrUpdateReleasable1(key: K)(loaded: => F[EntryRef.Entry.Loaded[F, V]]) = {
+    def getOrUpdateReleasable1(key: K)(loaded: => F[EntryRef.Entry[F, V]]) = {
       0.tailRecM { counter =>
         ref
           .access
@@ -108,8 +108,43 @@ object LoadingCache {
       def get(key: K) = {
         ref
           .get
-          .flatMap { _.get(key).traverse(_.get) }
-          .handleError { _ => none[V] }
+          .flatMap { entries =>
+            entries
+              .get(key)
+              .fold {
+                none[V].pure[F]
+              } { entry =>
+                entry
+                  .get1
+                  .flatMap {
+                    case Right(a) =>
+                      a
+                        .some
+                        .pure[F]
+                    case Left(a)  =>
+                      a
+                        .map { _.some }
+                        .handleError { _ => none }
+                  }
+
+              }
+          }
+      }
+
+      def get1(key: K) = {
+        ref
+          .get
+          .flatMap { entries =>
+            entries
+              .get(key)
+              .fold {
+                none[Either[F[V], V]].pure[F]
+              } { entry =>
+                entry
+                  .get1
+                  .map { _.some }
+              }
+          }
       }
 
       def getOrElse(key: K, default: => F[V]) = {
@@ -123,7 +158,7 @@ object LoadingCache {
 
       def getOrUpdate(key: K)(value: => F[V]) = {
         getOrUpdateReleasable1(key) {
-          value.map { loadedOf(_, none) }
+          value.map { entryOf(_, none) }
         }
       }
 
@@ -133,7 +168,7 @@ object LoadingCache {
             value <- value
             value <- value.fold { NoneError.raiseError[F, V] } { _.pure[F] }
           } yield {
-            loadedOf(value, none)
+            entryOf(value, none)
           }
         }
           .map { _.some }
@@ -142,7 +177,7 @@ object LoadingCache {
 
       def getOrUpdateReleasable(key: K)(value: => F[Releasable[F, V]]) = {
         getOrUpdateReleasable1(key) {
-          value.map { value => loadedOf(value.value, value.release.some) }
+          value.map { value => entryOf(value.value, value.release.some) }
         }
       }
 
@@ -152,7 +187,7 @@ object LoadingCache {
             value <- value
             value <- value.fold { NoneError.raiseError[F, Releasable[F, V]] } { _.pure[F] }
           } yield {
-            loadedOf(value.value, value.release.some)
+            entryOf(value.value, value.release.some)
           }
         }
           .map { _.some }
@@ -161,13 +196,13 @@ object LoadingCache {
 
 
       def put(key: K, value: V) = {
-        def loaded = loadedOf(value, none)
+        def loaded = entryOf(value, none)
         put1(key, loaded)
       }
 
 
       def put(key: K, value: V, release: F[Unit]) = {
-        def loaded = loadedOf(value, release.some)
+        def loaded = entryOf(value, release.some)
         put1(key, loaded)
       }
 
@@ -208,11 +243,8 @@ object LoadingCache {
               .toList
               .traverse { case (k, v) =>
                 v
-                  .getLoaded
-                  .map {
-                    case Some(v) => (k, v.asRight[F[V]])
-                    case None    => (k, v.get.asLeft[V])
-                  }
+                  .get1
+                  .map { v => (k, v) }
               }
               .map { _.toMap }
           }

@@ -48,6 +48,27 @@ class CacheSpec extends AsyncFunSuite with Matchers {
       result.run()
     }
 
+    test(s"get1: $name") {
+      cache
+        .use { cache =>
+          for {
+            a <- cache.get1(0)
+            _ <- IO { a shouldEqual none[Int] }
+            d <- Deferred[IO, Int]
+            f <- cache.getOrUpdateEnsure(1) { d.get }
+            a <- cache.get1(1)
+            _ <- IO { a.map { _.leftMap { _ => () } } shouldEqual ().asLeft.some }
+            _ <- d.complete(1)
+            _ <- f.join
+            a <- cache.get1(1)
+            _ <- IO { a shouldEqual 1.asRight.some }
+            _ <- cache.put(2, 2)
+            a <- cache.get1(2)
+            _ <- IO { a shouldEqual 2.asRight.some }
+          } yield {}
+        }
+        .run()
+    }
 
     test(s"get succeeds after cache is released: $name") {
       val result = for {

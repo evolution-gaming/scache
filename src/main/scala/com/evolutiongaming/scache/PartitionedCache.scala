@@ -30,6 +30,12 @@ object PartitionedCache {
           .get(key)
       }
 
+      def get1(key: K) = {
+        partitions
+          .get(key)
+          .get1(key)
+      }
+
       def getOrElse(key: K, default: => F[V]) = {
         partitions
           .get(key)

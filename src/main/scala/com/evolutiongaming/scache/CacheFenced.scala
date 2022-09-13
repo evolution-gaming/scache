@@ -38,6 +38,8 @@ object CacheFenced {
 
       def get(key: K) = cache.get(key)
 
+      def get1(key: K) = cache.get1(key)
+
       def getOrElse(key: K, default: => F[V]) = {
         cache.getOrElse(key, default)
       }

@@ -7,54 +7,46 @@ import cats.effect.syntax.all._
 import cats.syntax.all._
 
 trait EntryRef[F[_], A] {
-  import EntryRef.Entry
 
   def get: F[A]
 
   def get1: F[Either[F[A], A]]
 
-  def getLoaded: F[Option[A]]
-
   def release: F[Unit]
 
-  def updateLoaded(f: A => A): F[Unit]
+  def update(f: A => A): F[Unit]
 
-  def put(loaded: Entry.Loaded[F, A]): F[F[Option[A]]]
+  def set(entry: EntryRef.Entry[F, A]): F[F[Option[A]]]
 }
 
 object EntryRef {
 
-  def loaded[F[_]: Concurrent, A](entry: Entry.Loaded[F, A]): F[EntryRef[F, A]] = {
-    Ref
-      .of[F, Entry[F, A]](entry)
-      .map { entryRef => apply(entryRef) }
+  def loaded[F[_]: Concurrent, A](entry: Entry[F, A]): F[EntryRef[F, A]] = {
+    Ref[F]
+      .of(entry.asRight[Deferred[F, Either[Throwable, Entry[F, A]]]])
+      .map { ref => main(ref) }
   }
 
 
   def loading[F[_]: Concurrent, A](
-    value: => F[Entry.Loaded[F, A]],
+    value: => F[Entry[F, A]],
     cleanup: F[Unit]
   ): F[(EntryRef[F, A], F[A])] = {
 
     implicit def monoidUnit = Applicative.monoid[F, Unit]
 
     for {
-      deferred <- Deferred[F, Either[Throwable, Entry.Loaded[F, A]]]
-      ref      <- Ref.of[F, Entry[F, A]](Entry.Loading(deferred))
+      deferred <- Deferred[F, Either[Throwable, Entry[F, A]]]
+      ref      <- Ref[F].of(deferred.asLeft[Entry[F, A]])
     } yield {
 
       def fail(error: Throwable) = {
         ref
           .get
           .flatMap {
-            case _: Entry.Loaded[F, A]  =>
-              ().pure[F]
-            case a: Entry.Loading[F, A] =>
-              if (a.deferred == deferred) {
-                cleanup
-              } else {
-                ().pure[F]
-              }
+            case Right(_)         => ().pure[F]
+            case Left(`deferred`) => cleanup
+            case Left(_)          => ().pure[F]
           }
           .flatMap { _ =>
             deferred
@@ -81,27 +73,25 @@ object EntryRef {
             .complete(value.asRight)
             .attempt
             .flatMap {
-              case Right(()) =>
+              case Right(_)  =>
                 0.tailRecM { counter =>
                   ref
                     .access
                     .flatMap { case (entry, set) =>
                       entry match {
-                        case _: Entry.Loaded[F, A]  =>
+                        case Right(_)         =>
                           release.map { _.asRight[Int] }
-                        case a: Entry.Loading[F, A] =>
-                          if (a.deferred == deferred) {
-                            set(value).map {
-                              case true  => ().asRight[Int]
-                              case false => (counter + 1).asLeft[Unit]
-                            }
-                          } else {
-                            release.map { _.asRight[Int] }
+                        case Left(`deferred`) =>
+                          set(value.asRight).map {
+                            case true  => ().asRight[Int]
+                            case false => (counter + 1).asLeft[Unit]
                           }
+                        case Left(_)          =>
+                          release.map { _.asRight[Int] }
                       }
                     }
                 }
-              case Left(_)   =>
+              case Left(_) =>
                 release
             }
         }
@@ -113,28 +103,30 @@ object EntryRef {
             .map { _.value }
         }
 
-      (apply(ref), load)
+      (main(ref), load)
     }
   }
 
 
-  def apply[F[_]: Concurrent, A](self: Ref[F, Entry[F, A]]): EntryRef[F, A] = {
+  private def main[F[_]: Concurrent, A](
+    ref: Ref[F, Either[Deferred[F, Either[Throwable, Entry[F, A]]], Entry[F, A]]]
+  ): EntryRef[F, A] = {
 
     implicit def monoidUnit: Monoid[F[Unit]] = Applicative.monoid[F, Unit]
 
-    new EntryRef[F, A] {
+    class Main
+    new Main with EntryRef[F, A] {
 
       def get = {
-        self
+        ref
           .get
           .flatMap {
-            case a: Entry.Loaded[F, A]  =>
+            case Right(a) =>
               a
                 .value
                 .pure[F]
-            case a: Entry.Loading[F, A] =>
+            case Left(a)  =>
               a
-                .deferred
                 .get
                 .flatMap { _.liftTo[F] }
                 .map { _.value }
@@ -142,98 +134,104 @@ object EntryRef {
       }
 
       def get1 = {
-        self
+        ref
           .get
           .map {
-            case a: Entry.Loaded[F, A]  =>
+            case Right(a) =>
               a
                 .value
                 .asRight[F[A]]
-            case a: Entry.Loading[F, A] =>
+            case Left(a)  =>
               a
-                .deferred
                 .get
-                .flatMap { a =>
-                  a
-                    .liftTo[F]
-                    .map { _.value }
-                }
+                .flatMap { _.liftTo[F] }
+                .map { _.value }
                 .asLeft[A]
           }
       }
 
-      def getLoaded = {
-        self
-          .get
-          .map {
-            case entry: Entry.Loaded[F, A] => entry.value.some
-            case _: Entry.Loading[F, A]    => none[A]
-          }
-      }
-
       def release = {
-        self
+        ref
           .get
           .flatMap {
-            case a: Entry.Loaded[F, A]  =>
+            case Right(a) =>
               a
                 .release
                 .pure[F]
-            case a: Entry.Loading[F, A] =>
+            case Left(a)  =>
               a
-                .deferred
                 .get
-                .flatMap { _.liftTo[F] }
-                .map { _.release }
+                .map {
+                  case Right(a) => a.release
+                  case Left(_)  => none[F[Unit]]
+                }
           }
           .flatMap { _.combineAll }
       }
 
-      def updateLoaded(f: A => A): F[Unit] = {
-        self.update {
-          case a: Entry.Loaded[F, A]  => a.copy(value = f(a.value))
-          case a: Entry.Loading[F, A] => a
+      def update(f: A => A): F[Unit] = {
+        0.tailRecM { counter =>
+          ref
+            .access
+            .flatMap {
+              case (Right(state), set) =>
+                val state1 = state.copy(value = f(state.value))
+                set(state1.asRight).map {
+                  case true  => ().asRight[Int]
+                  case false => (counter + 1).asLeft[Unit]
+                }
+              case _                   =>
+                ()
+                  .asRight[Int]
+                  .pure[F]
+            }
         }
       }
 
-      def put(loaded: Entry.Loaded[F, A]) = {
+      def set(entry: EntryRef.Entry[F, A]) = {
 
-        def onLoaded(entry: Entry.Loaded[F, A]) = for {
-          fiber <- entry.release.traverse(_.start)
-        } yield {
-          fiber.traverse(_.join) as entry.value.some
+        def release1(entry: Entry[F, A]) = {
+          entry
+            .release
+            .traverse { _.start }
+            .map { fiber =>
+              fiber
+                .traverse { _.join }
+                .as { entry.value.some }
+            }
         }
 
-        def onLoading(deferred: Deferred[F, Either[Throwable, Entry.Loaded[F, A]]]) = {
-
-          def onConflict = for {
-            loaded <- deferred.get
-            value  <- loaded.fold((_: Throwable) => none[A].pure[F].pure[F], onLoaded)
-          } yield value
-
-          deferred
-            .complete(loaded.asRight)
-            .redeemWith((_: Throwable) => onConflict, _ => none[A].pure[F].pure[F])
-        }
-
-        self
-          .getAndSet(loaded)
+        ref
+          .getAndSet(entry.asRight)
           .flatMap {
-            case entry: Entry.Loaded[F, A]  => onLoaded(entry)
-            case entry: Entry.Loading[F, A] => onLoading(entry.deferred)
+            case Right(a)       =>
+              release1(a)
+            case Left(deferred) =>
+              deferred
+                .complete(entry.asRight)
+                .attempt
+                .flatMap {
+                  case Right(_)  =>
+                    none[A]
+                      .pure[F]
+                      .pure[F]
+                  case Left(_) =>
+                    deferred
+                      .get
+                      .flatMap {
+                        case Right(a) =>
+                          release1(a)
+                        case Left(_)  =>
+                          none[A]
+                            .pure[F]
+                            .pure[F]
+                      }
+                }
           }
           .uncancelable
       }
     }
   }
 
-
-  sealed trait Entry[F[_], A] extends Product
-
-  object Entry {
-
-    final case class Loaded[F[_], A](value: A, release: Option[F[Unit]]) extends Entry[F, A]
-
-    final case class Loading[F[_], A](deferred: Deferred[F, Either[Throwable, Loaded[F, A]]]) extends Entry[F, A]
-  }
+  final case class Entry[F[_], A](value: A, release: Option[F[Unit]])
 }
