@@ -67,7 +67,12 @@ class CacheSpec extends AsyncFunSuite with Matchers {
             a <- cache.get1(1)
             _ <- IO { a shouldEqual 1.asRight.some }
             _ <- cache.put(2, 2)
-            a <- cache.get1(2)
+            a <- 0.tailRecM { counter =>
+              cache.get1(2).map {
+                case Some(Left(_)) if counter <= 10 => (counter + 1).asLeft[Option[Either[IO[Int], Int]]]
+                case a                              => a.asRight[Int]
+              }
+            }
             _ <- IO { a shouldEqual 2.asRight.some }
           } yield {}
         }
