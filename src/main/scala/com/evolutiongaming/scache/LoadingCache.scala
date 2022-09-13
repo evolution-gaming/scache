@@ -1,8 +1,10 @@
 package com.evolutiongaming.scache
 
-import cats.effect.implicits._
+import cats.Parallel
+import cats.effect.implicits.*
 import cats.effect.{Concurrent, Ref, Resource}
-import cats.syntax.all._
+import cats.kernel.CommutativeMonoid
+import cats.syntax.all.*
 
 import scala.util.control.NoStackTrace
 
@@ -15,7 +17,7 @@ object LoadingCache {
     map: EntryRefs[F, K, V],
   ): Resource[F, Cache[F, K, V]] = {
     for {
-      ref   <- Resource.eval(Ref[F].of(map))
+      ref   <- Ref[F].of(map).toResource
       cache <- of(ref)
     } yield cache
   }
@@ -264,11 +266,54 @@ object LoadingCache {
             entryRefs
               .values
               .toList
-              .parFoldMapA(_.release.uncancelable)
+              .parFoldMapA { _.release.uncancelable }
               .start
           }
           .uncancelable
           .map { _.joinWithNever }
+      }
+
+      def foldMap[A: CommutativeMonoid](f: (K, Either[F[V], V]) => F[A]) = {
+        ref
+          .get
+          .flatMap { entries =>
+            val zero = CommutativeMonoid[A]
+              .empty
+              .pure[F]
+            entries.foldLeft(zero) { case (a, (k, v)) =>
+              for {
+                a <- a
+                v <- v.get1
+                b <- f(k, v)
+              } yield {
+                CommutativeMonoid[A].combine(a, b)
+              }
+            }
+          }
+      }
+
+      def foldMapPar[A: CommutativeMonoid](f: (K, Either[F[V], V]) => F[A]) = {
+        ref
+          .get
+          .flatMap { entries =>
+            Parallel[F].sequential {
+              val zero = Parallel[F]
+                .applicative
+                .pure(CommutativeMonoid[A].empty)
+              entries
+                .foldLeft(zero) { case (a, (k, v)) =>
+                  val b = Parallel[F].parallel {
+                    for {
+                      v <- v.get1
+                      b <- f(k, v)
+                    } yield b
+                  }
+                  Parallel[F]
+                    .applicative
+                    .map2(a, b)(CommutativeMonoid[A].combine)
+                }
+            }
+          }
       }
     }
   }

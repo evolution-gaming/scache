@@ -12,6 +12,8 @@ trait EntryRef[F[_], A] {
 
   def get: F[A]
 
+  def get1: F[Either[F[A], A]]
+
   def getLoaded: F[Option[A]]
 
   def release: F[Unit]
@@ -118,27 +120,78 @@ object EntryRef {
   def apply[F[_]: Concurrent, A](self: Ref[F, Entry[F, A]]): EntryRef[F, A] = {
 
     implicit def monoidUnit: Monoid[F[Unit]] = Applicative.monoid[F, Unit]
-    
-    def loaded = self.get.flatMap {
-      case entry: Entry.Loaded[F, A]  => entry.pure[F]
-      case entry: Entry.Loading[F, A] => entry.deferred.get.flatMap(_.liftTo[F])
-    }
 
     new EntryRef[F, A] {
 
-      def get = loaded.map(_.value)
-
-      def getLoaded = self.get.map {
-        case entry: Entry.Loaded[F, A]  => entry.value.some
-        case _    : Entry.Loading[F, A] => none[A]
+      def get = {
+        self
+          .get
+          .flatMap {
+            case a: Entry.Loaded[F, A]  =>
+              a
+                .value
+                .pure[F]
+            case a: Entry.Loading[F, A] =>
+              a
+                .deferred
+                .get
+                .flatMap { _.liftTo[F] }
+                .map { _.value }
+          }
       }
 
-      def release = loaded.flatMap(_.release.combineAll)
+      def get1 = {
+        self
+          .get
+          .map {
+            case a: Entry.Loaded[F, A]  =>
+              a
+                .value
+                .asRight[F[A]]
+            case a: Entry.Loading[F, A] =>
+              a
+                .deferred
+                .get
+                .flatMap { a =>
+                  a
+                    .liftTo[F]
+                    .map { _.value }
+                }
+                .asLeft[A]
+          }
+      }
+
+      def getLoaded = {
+        self
+          .get
+          .map {
+            case entry: Entry.Loaded[F, A] => entry.value.some
+            case _: Entry.Loading[F, A]    => none[A]
+          }
+      }
+
+      def release = {
+        self
+          .get
+          .flatMap {
+            case a: Entry.Loaded[F, A]  =>
+              a
+                .release
+                .pure[F]
+            case a: Entry.Loading[F, A] =>
+              a
+                .deferred
+                .get
+                .flatMap { _.liftTo[F] }
+                .map { _.release }
+          }
+          .flatMap { _.combineAll }
+      }
 
       def updateLoaded(f: A => A): F[Unit] = {
         self.update {
-          case entry: Entry.Loaded[F, A]  => entry.copy(value = f(entry.value))
-          case entry: Entry.Loading[F, A] => entry
+          case a: Entry.Loaded[F, A]  => a.copy(value = f(a.value))
+          case a: Entry.Loading[F, A] => a
         }
       }
 

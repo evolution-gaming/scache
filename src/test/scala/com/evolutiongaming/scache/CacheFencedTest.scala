@@ -2,6 +2,7 @@ package com.evolutiongaming.scache
 
 import cats.effect.{IO, Ref, Resource}
 import cats.syntax.all._
+import com.evolutiongaming.catshelper.CatsHelper._
 import com.evolutiongaming.scache.IOSuite._
 import org.scalatest.funsuite.AsyncFunSuite
 import org.scalatest.matchers.should.Matchers
@@ -9,7 +10,9 @@ import org.scalatest.matchers.should.Matchers
 
 class CacheFencedTest extends AsyncFunSuite with Matchers {
 
-  private val cache = Cache.loading[IO, Int, Int].withFence
+  private val cache = Cache
+    .loading1[IO, Int, Int]
+    .flatMap { _.withFence }
 
   test(s"get succeeds after cache is released") {
     val result = for {
@@ -95,10 +98,12 @@ class CacheFencedTest extends AsyncFunSuite with Matchers {
 
     def cache(ref: Ref[IO, Int]) = {
       val cache = for {
-        _     <- Resource.make(().pure[IO]) { _ => ref.update(_ + 1) }
-        cache <- Cache.loading[IO, Int, Int].withFence
+        _     <- Resource.release { ref.update(_ + 1) }
+        cache <- Cache
+          .loading1[IO, Int, Int]
+          .flatMap { _.withFence }
       } yield cache
-      cache.withFence
+      cache.fenced
     }
 
     val result = for {

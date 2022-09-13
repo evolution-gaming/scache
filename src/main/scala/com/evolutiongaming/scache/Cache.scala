@@ -1,14 +1,15 @@
 package com.evolutiongaming.scache
 
 import cats.effect.{Concurrent, Resource, Temporal}
-import cats.syntax.all._
-import cats.kernel.Hash
-import cats.{Functor, Monad, Parallel, ~>}
-import com.evolutiongaming.catshelper.CatsHelper._
+import cats.effect.syntax.all.*
+import cats.syntax.all.*
+import cats.{Functor, Hash, Monad, Monoid, Parallel, ~>}
+import cats.kernel.CommutativeMonoid
+import com.evolutiongaming.catshelper.CatsHelper.*
 import com.evolutiongaming.catshelper.Runtime
 import com.evolutiongaming.smetrics.MeasureDuration
 
-import scala.concurrent.duration._
+import scala.concurrent.duration.*
 
 trait Cache[F[_], K, V] {
 
@@ -78,13 +79,16 @@ trait Cache[F[_], K, V] {
     * Removes loading values from the cache, however does not cancel them
     */
   def clear: F[F[Unit]]
+
+  def foldMap[A: CommutativeMonoid](f: (K, Either[F[V], V]) => F[A]): F[A]
+
+  def foldMapPar[A: CommutativeMonoid](f: (K, Either[F[V], V]) => F[A]): F[A]
 }
 
 object Cache {
 
-  private sealed abstract class Empty
-
   def empty[F[_]: Monad, K, V]: Cache[F, K, V] = {
+    class Empty
     new Empty with Cache[F, K, V] {
 
       def get(key: K) = none[V].pure[F]
@@ -118,26 +122,52 @@ object Cache {
       def remove(key: K) = none[V].pure[F].pure[F]
 
       def clear = ().pure[F].pure[F]
+
+      def foldMap[A: CommutativeMonoid](f: (K, Either[F[V], V]) => F[A]) = Monoid[A].empty.pure[F]
+
+      def foldMapPar[A: CommutativeMonoid](f: (K, Either[F[V], V]) => F[A]) = Monoid[A].empty.pure[F]
     }
   }
 
+  @deprecated("use `loading1` instead", "4.1.1")
+  def loading[F[_]: Concurrent: Runtime, K, V]: Resource[F, Cache[F, K, V]] = {
+    implicit val parallel: Parallel[F] = Parallel.identity
+    loading1(none)
+  }
 
-  def loading[F[_]: Concurrent: Runtime, K, V]: Resource[F, Cache[F, K, V]] = loading(None)
+  @deprecated("use `loading1` instead", "4.1.1")
+  def loading[F[_]: Concurrent: Runtime, K, V](partitions: Int): Resource[F, Cache[F, K, V]] = {
+    implicit val parallel: Parallel[F] = Parallel.identity
+    loading1(partitions.some)
+  }
 
-
-  def loading[F[_]: Concurrent: Runtime, K, V](partitions: Int): Resource[F, Cache[F, K, V]] = loading(Some(partitions))
-
-
+  @deprecated("use `loading1` instead", "4.1.1")
   def loading[F[_]: Concurrent: Runtime, K, V](partitions: Option[Int] = None): Resource[F, Cache[F, K, V]] = {
+    implicit val parallel: Parallel[F] = Parallel.identity
+    loading1[F, K, V](partitions)
+  }
+
+  def loading1[F[_]: Concurrent: Parallel: Runtime, K, V]: Resource[F, Cache[F, K, V]] = {
+    loading1(none)
+  }
+
+  def loading1[F[_]: Concurrent: Parallel: Runtime, K, V](partitions: Int): Resource[F, Cache[F, K, V]] = {
+    loading1(partitions.some)
+  }
+
+  def loading1[F[_]: Concurrent: Parallel: Runtime, K, V](partitions: Option[Int] = None): Resource[F, Cache[F, K, V]] = {
 
     implicit val hash: Hash[K] = Hash.fromUniversalHashCode[K]
 
     val result = for {
-      nrOfPartitions <- Resource.eval(partitions.fold(NrOfPartitions[F]())(_.pure[F]))
+      nrOfPartitions <- partitions
+        .map { _.pure[F] }
+        .getOrElse { NrOfPartitions[F]() }
+        .toResource
       cache           = LoadingCache.of(LoadingCache.EntryRefs.empty[F, K, V])
       partitions     <- Partitions.of[Resource[F, _], K, Cache[F, K, V]](nrOfPartitions, _ => cache)
     } yield {
-      PartitionedCache(partitions)
+      fromPartitions(partitions)
     }
     result.breakFlatMapChain
   }
@@ -191,7 +221,10 @@ object Cache {
     implicit val hash: Hash[K] = Hash.fromUniversalHashCode[K]
 
     val result = for {
-      nrOfPartitions <- Resource.eval(partitions.fold(NrOfPartitions[F]())(_.pure[F]))
+      nrOfPartitions <- partitions
+        .map { _.pure[F] }
+        .getOrElse { NrOfPartitions[F]() }
+        .toResource
       config1         = config
         .maxSize
         .fold {
@@ -202,10 +235,14 @@ object Cache {
       cache           = ExpiringCache.of[F, K, V](config1)
       partitions     <- Partitions.of[Resource[F, _], K, Cache[F, K, V]](nrOfPartitions, _ => cache)
     } yield {
-      PartitionedCache(partitions)
+      fromPartitions(partitions)
     }
 
     result.breakFlatMapChain
+  }
+
+  def fromPartitions[F[_]: Monad: Parallel, K, V](partitions: Partitions[K, Cache[F, K, V]]): Cache[F, K, V] = {
+    PartitionedCache.apply1(partitions)
   }
 
   private sealed abstract class MapK
@@ -262,13 +299,24 @@ object Cache {
         def remove(key: K) = fg(self.remove(key).map(fg.apply))
 
         def clear = fg(self.clear.map(fg.apply))
+
+        def foldMap[A: CommutativeMonoid](f: (K, Either[G[V], V]) => G[A]) = {
+          fg(self.foldMap { case (k, v) => gf(f(k, v.leftMap { v => fg(v) })) })
+        }
+
+        def foldMapPar[A: CommutativeMonoid](f: (K, Either[G[V], V]) => G[A]) = {
+          fg(self.foldMap { case (k, v) => gf(f(k, v.leftMap { v => fg(v) })) })
+        }
       }
     }
+
+    def withFence(implicit F: Concurrent[F]): Resource[F, Cache[F, K, V]] = CacheFenced.of1(self)
   }
 
 
   implicit class CacheResourceOps[F[_], K, V](val self: Resource[F, Cache[F, K, V]]) extends AnyVal {
 
+    @deprecated("use `Cache[F, K, V].withFence`", "4.1.1")
     def withFence(implicit F: Concurrent[F]): Resource[F, Cache[F, K, V]] = CacheFenced.of(self)
   }
 }

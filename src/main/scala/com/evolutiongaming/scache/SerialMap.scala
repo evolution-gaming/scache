@@ -83,7 +83,7 @@ object SerialMap { self =>
 
   def of[F[_] : Concurrent : Runtime, K, V](partitions: Option[Int] = None): F[SerialMap[F, K, V]] = {
     for {
-      cache <- Cache.loading[F, K, SerialRef[F, State[V]]](partitions).allocated
+      cache <- Cache.loading1[F, K, SerialRef[F, State[V]]](partitions).allocated
     } yield {
       apply(cache._1)
     }

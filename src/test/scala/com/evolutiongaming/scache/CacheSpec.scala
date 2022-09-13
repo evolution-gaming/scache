@@ -24,21 +24,21 @@ class CacheSpec extends AsyncFunSuite with Matchers {
 
   for {
     (name, cache0) <- List(
-      ("default"               , Cache.loading[IO, Int, Int]),
+      ("default"               , Cache.loading1[IO, Int, Int]),
       ("no partitions"         , LoadingCache.of(LoadingCache.EntryRefs.empty[IO, Int, Int])),
       ("expiring"              , expiringCache),
       ("expiring no partitions", ExpiringCache.of[IO, Int, Int](ExpiringCache.Config(expireAfterRead = 1.minute))))
   } yield {
 
-    val cache = {
-      val cache = for {
-        cache   <- cache0
-        metrics <- CacheMetrics.of(CollectorRegistry.empty[IO])
-        cache   <- cache.withMetrics(metrics("name"))
-      } yield {
-        cache.mapK(FunctionK.id, FunctionK.id)
-      }
-      cache.withFence
+    val cache = for {
+      cache <- cache0
+      metrics <- CacheMetrics.of(CollectorRegistry.empty[IO])
+      cache <- cache.withMetrics(metrics("name"))
+      cache <- cache
+        .mapK(FunctionK.id, FunctionK.id)
+        .withFence
+    } yield {
+      cache.mapK(FunctionK.id, FunctionK.id)
     }
 
     test(s"get: $name") {
@@ -922,6 +922,53 @@ class CacheSpec extends AsyncFunSuite with Matchers {
       }
       result.run()
     }
+
+    test(s"foldMap: $name") {
+      cache
+        .use { cache =>
+          for {
+            _ <- cache.put(0, 1)
+            expect = (a: Int) => for {
+              b <- cache.foldMap { case (_, b) => b.map { _.pure[IO] }.merge }
+              _ <- IO { b shouldEqual a }
+            } yield {}
+            _ <- expect(1)
+            _ <- cache.put(1, 2)
+            _ <- expect(3)
+          } yield {}
+        }
+        .run()
+    }
+
+    test(s"foldMapPar: $name") {
+      cache
+        .use { cache =>
+          for {
+            d0 <- Deferred[IO, Unit]
+            d1 <- Deferred[IO, Int]
+            d2 <- Deferred[IO, Unit]
+            d3 <- Deferred[IO, Int]
+            d4 <- Deferred[IO, Unit]
+            d5 <- Deferred[IO, Int]
+            _ <- cache.getOrUpdateEnsure(0) { d0.complete(()).productR(d1.get) }
+            _ <- cache.getOrUpdateEnsure(1) { d2.complete(()).productR(d3.get) }
+            _ <- cache.getOrUpdateEnsure(2) { d4.complete(()).productR(d5.get) }
+            fiber <- cache
+              .foldMapPar { case (_, b) => b.map { _.pure[IO] }.merge }
+              .start
+            _ <- d0.get
+            _ <- d2.get
+            _ <- d4.get
+            _ <- d1.complete(1)
+            _ <- d3.complete(2)
+            _ <- d5.complete(3)
+            a <- fiber.join
+            _ <- IO { a shouldEqual 6.pure[Outcome[IO, Throwable, *]] }
+          } yield {}
+        }
+        .run()
+    }
+
   }
 }
 

@@ -2,8 +2,9 @@ package com.evolutiongaming.scache
 
 import cats.FlatMap
 import cats.effect.{Concurrent, Ref, Resource}
-import cats.syntax.all._
-import com.evolutiongaming.catshelper.CatsHelper._
+import cats.kernel.CommutativeMonoid
+import cats.syntax.all.*
+import com.evolutiongaming.catshelper.CatsHelper.*
 
 /**
   * Prevents adding new resources to cache after it was released
@@ -12,22 +13,22 @@ object CacheFenced {
 
   private sealed abstract class CacheFenced
 
+  @deprecated("use `Cache[F, K, V].withFence`", "4.1.1")
   def of[F[_] : Concurrent, K, V](cache: Resource[F, Cache[F, K, V]]): Resource[F, Cache[F, K, V]] = {
+    cache.flatMap { cache => of1(cache)}
+  }
 
-    val fence = Resource.make {
-      Ref[F].of(().pure[F])
-    } { fence =>
-      fence.set(CacheReleasedError.raiseError[F, Unit])
-    }
-
-    val result = for {
-      cache <- cache
-      fence <- fence
-    } yield {
-      apply(cache, fence.get.flatten)
-    }
-
-    result.fenced
+  def of1[F[_]: Concurrent, K, V](cache: Cache[F, K, V]): Resource[F, Cache[F, K, V]] = {
+    Resource
+      .make {
+        Ref[F].of(().pure[F])
+      } { fence =>
+        fence.set(CacheReleasedError.raiseError[F, Unit])
+      }
+      .map { ref =>
+        apply(cache, ref.get.flatten)
+      }
+      .fenced
   }
 
   def apply[F[_] : FlatMap, K, V](cache: Cache[F, K, V], fence: F[Unit]): Cache[F, K, V] = {
@@ -73,6 +74,10 @@ object CacheFenced {
       def remove(key: K) = cache.remove(key)
 
       def clear = cache.clear
+
+      def foldMap[A: CommutativeMonoid](f: (K, Either[F[V], V]) => F[A]) = cache.foldMap(f)
+
+      def foldMapPar[A: CommutativeMonoid](f: (K, Either[F[V], V]) => F[A]) = cache.foldMapPar(f)
     }
   }
 }

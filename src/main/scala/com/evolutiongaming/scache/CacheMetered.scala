@@ -1,11 +1,12 @@
 package com.evolutiongaming.scache
 
 import cats.effect.{Ref, Resource, Temporal}
-import cats.syntax.all._
+import cats.kernel.CommutativeMonoid
+import cats.syntax.all.*
 import com.evolutiongaming.catshelper.Schedule
 import com.evolutiongaming.smetrics.MeasureDuration
 
-import scala.concurrent.duration._
+import scala.concurrent.duration.*
 
 object CacheMetered {
 
@@ -186,6 +187,24 @@ object CacheMetered {
             a <- cache.clear
             d <- d
             _ <- metrics.clear(d)
+          } yield a
+        }
+
+        def foldMap[A: CommutativeMonoid](f: (K, Either[F[V], V]) => F[A]) = {
+          for {
+            d <- MeasureDuration[F].start
+            a <- cache.foldMap(f)
+            d <- d
+            _ <- metrics.foldMap(d)
+          } yield a
+        }
+
+        def foldMapPar[A: CommutativeMonoid](f: (K, Either[F[V], V]) => F[A]) = {
+          for {
+            d <- MeasureDuration[F].start
+            a <- cache.foldMapPar(f)
+            d <- d
+            _ <- metrics.foldMap(d)
           } yield a
         }
       }
