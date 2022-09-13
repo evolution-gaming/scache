@@ -1,5 +1,6 @@
 package com.evolutiongaming.scache
 
+import cats.Parallel
 import cats.effect.concurrent.Deferred
 import cats.effect.{Concurrent, IO}
 import cats.syntax.all._
@@ -234,7 +235,7 @@ class SerialMapSpec extends AsyncFunSuite with Matchers {
   }
 
 
-  private def remove[F[_] : Concurrent] = {
+  private def remove[F[_] : Concurrent: Parallel] = {
     val key = "key"
     val cache = LoadingCache.of(LoadingCache.EntryRefs.empty[F, String, SerialRef[F, SerialMap.State[Int]]])
     cache.use { cache =>
@@ -270,7 +271,7 @@ class SerialMapSpec extends AsyncFunSuite with Matchers {
   }
 
 
-  private def `not leak on failures`[F[_] : Concurrent] = {
+  private def `not leak on failures`[F[_] : Concurrent: Parallel] = {
     val key = "key"
     val cache = LoadingCache.of(LoadingCache.EntryRefs.empty[F, String, SerialRef[F, SerialMap.State[Int]]])
     cache.use { cache =>

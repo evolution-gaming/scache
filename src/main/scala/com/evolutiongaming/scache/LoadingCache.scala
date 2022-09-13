@@ -1,9 +1,12 @@
 package com.evolutiongaming.scache
 
+import cats.Parallel
 import cats.effect.concurrent.Ref
-import cats.effect.implicits._
+import cats.effect.syntax.all._
 import cats.effect.{Concurrent, Resource}
+import cats.kernel.CommutativeMonoid
 import cats.syntax.all._
+import com.evolutiongaming.catshelper.CatsHelper._
 
 import scala.util.control.NoStackTrace
 
@@ -12,17 +15,17 @@ object LoadingCache {
 
   private sealed abstract class LoadingCache
 
-  private[scache] def of[F[_] : Concurrent, K, V](
+  private[scache] def of[F[_] : Concurrent: Parallel, K, V](
     map: EntryRefs[F, K, V],
   ): Resource[F, Cache[F, K, V]] = {
     for {
-      ref   <- Resource.eval(Ref[F].of(map))
+      ref   <- Ref[F].of(map).toResource
       cache <- of(ref)
     } yield cache
   }
 
 
-  private[scache] def of[F[_] : Concurrent, K, V](
+  private[scache] def of[F[_] : Concurrent: Parallel, K, V](
     ref: Ref[F, EntryRefs[F, K, V]],
   ): Resource[F, Cache[F, K, V]] = {
     Resource.make {
@@ -33,7 +36,7 @@ object LoadingCache {
   }
 
 
-  private[scache] def apply[F[_] : Concurrent, K, V](
+  private[scache] def apply[F[_] : Concurrent: Parallel, K, V](
     ref: Ref[F, EntryRefs[F, K, V]],
   ): Cache[F, K, V] = {
 
@@ -265,10 +268,54 @@ object LoadingCache {
             entryRefs
               .values
               .toList
-              .foldMapM { _.release.start }
+              .parFoldMapA { _.release.uncancelable }
+              .start
           }
           .uncancelable
           .map { _.join }
+      }
+
+      def foldMap[A: CommutativeMonoid](f: (K, Either[F[V], V]) => F[A]) = {
+        ref
+          .get
+          .flatMap { entries =>
+            val zero = CommutativeMonoid[A]
+              .empty
+              .pure[F]
+            entries.foldLeft(zero) { case (a, (k, v)) =>
+              for {
+                a <- a
+                v <- v.get1
+                b <- f(k, v)
+              } yield {
+                CommutativeMonoid[A].combine(a, b)
+              }
+            }
+          }
+      }
+
+      def foldMapPar[A: CommutativeMonoid](f: (K, Either[F[V], V]) => F[A]) = {
+        ref
+          .get
+          .flatMap { entries =>
+            Parallel[F].sequential {
+              val zero = Parallel[F]
+                .applicative
+                .pure(CommutativeMonoid[A].empty)
+              entries
+                .foldLeft(zero) { case (a, (k, v)) =>
+                  val b = Parallel[F].parallel {
+                    for {
+                      v <- v.get1
+                      b <- f(k, v)
+                    } yield b
+                  }
+                  Parallel[F]
+                    .applicative
+                    .map2(a, b)(CommutativeMonoid[A].combine)
+                }
+            }
+          }
       }
     }
   }

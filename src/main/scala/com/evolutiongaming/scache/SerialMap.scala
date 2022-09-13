@@ -1,6 +1,6 @@
 package com.evolutiongaming.scache
 
-import cats.Applicative
+import cats.{Applicative, Parallel}
 import cats.effect.Concurrent
 import cats.effect.concurrent.Ref
 import cats.effect.implicits._
@@ -83,8 +83,9 @@ object SerialMap { self =>
 
 
   def of[F[_] : Concurrent : Runtime, K, V](partitions: Option[Int] = None): F[SerialMap[F, K, V]] = {
+    implicit val parallel: Parallel[F] = Parallel.identity[F]
     for {
-      cache <- Cache.loading[F, K, SerialRef[F, State[V]]](partitions).allocated
+      cache <- Cache.loading1[F, K, SerialRef[F, State[V]]](partitions).allocated
     } yield {
       apply(cache._1)
     }

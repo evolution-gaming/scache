@@ -27,6 +27,8 @@ trait CacheMetrics[F[_]] {
   def keys(latency: FiniteDuration): F[Unit]
 
   def clear(latency: FiniteDuration): F[Unit]
+
+  def foldMap(latency: FiniteDuration): F[Unit]
 }
 
 object CacheMetrics {
@@ -53,6 +55,8 @@ object CacheMetrics {
     def keys(latency: FiniteDuration) = unit
 
     def clear(latency: FiniteDuration) = unit
+
+    def foldMap(latency: FiniteDuration) = unit
   }
 
 
@@ -147,6 +151,8 @@ object CacheMetrics {
 
         val clearSummary = callSummary.labels(name, "clear")
 
+        val foldMapSummary = callSummary.labels(name, "foldMap")
+
         new CacheMetrics[F] {
 
           def get(hit: Boolean) = {
@@ -187,6 +193,10 @@ object CacheMetrics {
 
           def clear(latency: FiniteDuration) = {
             clearSummary.observe(latency.toNanos.nanosToSeconds)
+          }
+
+          def foldMap(latency: FiniteDuration) = {
+            foldMapSummary.observe(latency.toNanos.nanosToSeconds)
           }
         }
     }

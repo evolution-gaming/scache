@@ -7,11 +7,9 @@ import com.evolutiongaming.catshelper.Runtime
 
 object NrOfPartitions {
 
-  def apply[F[_] : FlatMap : Runtime](): F[Int] = {
-    for {
-      cpus <- Runtime[F].availableCores
-    } yield {
-      2 + cpus
-    }
+  def apply[F[_]: FlatMap: Runtime](): F[Int] = {
+    Runtime[F]
+      .availableCores
+      .map { _ + 1 }
   }
 }

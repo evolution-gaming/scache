@@ -1,13 +1,22 @@
 package com.evolutiongaming.scache
 
+import cats.kernel.CommutativeMonoid
 import cats.syntax.all._
-import cats.{Applicative, Monad}
+import cats.{Applicative, Monad, Parallel}
 
 object PartitionedCache {
 
   private sealed abstract class PartitionedCache
 
-  def apply[F[_] : Monad, K, V](
+  @deprecated("use `apply1` instead", "4.1.1")
+  def apply[F[_]: Monad, K, V](
+    partitions: Partitions[K, Cache[F, K, V]]
+  ): Cache[F, K, V] = {
+    implicit val parallel: Parallel[F] = Parallel.identity
+    apply1(partitions)
+  }
+
+  def apply1[F[_]: Monad: Parallel, K, V](
     partitions: Partitions[K, Cache[F, K, V]]
   ): Cache[F, K, V] = {
 
@@ -115,6 +124,18 @@ object PartitionedCache {
         partitions
           .values
           .foldMapM { _.clear }
+      }
+
+      def foldMap[A: CommutativeMonoid](f: (K, Either[F[V], V]) => F[A]) = {
+        partitions
+          .values
+          .foldMapM { _.foldMap(f) }
+      }
+
+      def foldMapPar[A: CommutativeMonoid](f: (K, Either[F[V], V]) => F[A]) = {
+        partitions
+          .values
+          .parFoldMapA { _.foldMap(f) }
       }
     }
   }

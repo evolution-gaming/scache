@@ -2,8 +2,10 @@ package com.evolutiongaming.scache
 
 import cats.effect.concurrent.Ref
 import cats.effect.{Clock, Concurrent, Resource, Timer}
+import cats.kernel.CommutativeMonoid
 import cats.syntax.all._
 import cats.{Applicative, Monad, Parallel}
+import com.evolutiongaming.catshelper.CatsHelper._
 import com.evolutiongaming.catshelper.ClockHelper._
 import com.evolutiongaming.catshelper.ParallelHelper._
 import com.evolutiongaming.catshelper.Schedule
@@ -131,10 +133,8 @@ object ExpiringCache {
     def schedule(interval: FiniteDuration)(fa: F[Unit]) = Schedule(interval, interval)(fa)
 
     val entryRefs = LoadingCache.EntryRefs.empty[F, K, E]
-    val ref = Ref[F].of(entryRefs)
-
     for {
-      ref   <- Resource.eval(ref)
+      ref   <- Ref[F].of(entryRefs).toResource
       cache <- LoadingCache.of(ref)
       _     <- schedule(expireInterval) { removeExpiredAndCheckSize(ref, cache) }
       _     <- config.refresh.foldMapM { refresh => schedule(refresh.interval) { refreshEntries(refresh, ref, cache) } }
@@ -359,6 +359,20 @@ object ExpiringCache {
       }
 
       def clear = cache.clear
+
+      def foldMap[A: CommutativeMonoid](f: (K, Either[F[V], V]) => F[A]) = {
+        cache.foldMap {
+          case (k, Right(v)) => f(k, v.value.asRight)
+          case (k, Left(v))  => f(k, v.map { _.value }.asLeft)
+        }
+      }
+
+      def foldMapPar[A: CommutativeMonoid](f: (K, Either[F[V], V]) => F[A]) = {
+        cache.foldMap {
+          case (k, Right(v)) => f(k, v.value.asRight)
+          case (k, Left(v))  => f(k, v.map { _.value }.asLeft)
+        }
+      }
     }
   }
 
