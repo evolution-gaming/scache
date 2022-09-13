@@ -15,6 +15,8 @@ trait Cache[F[_], K, V] {
 
   def get(key: K): F[Option[V]]
 
+  def get1(key: K): F[Option[Either[F[V], V]]]
+
   def getOrElse(key: K, default: => F[V]): F[V]
 
   /**
@@ -92,6 +94,8 @@ object Cache {
     new Empty with Cache[F, K, V] {
 
       def get(key: K) = none[V].pure[F]
+
+      def get1(key: K) = none[Either[F[V], V]].pure[F]
 
       def getOrElse(key: K, default: => F[V]): F[V] = default
 
@@ -261,6 +265,14 @@ object Cache {
       new MapK with Cache[G, K, V] {
 
         def get(key: K) = fg(self.get(key))
+
+        def get1(key: K) = {
+          fg {
+            self
+              .get1(key)
+              .map { _.map { _.leftMap { a => fg(a) } } }
+          }
+        }
 
         def getOrElse(key: K, default: => G[V]) = fg(self.getOrElse(key, gf(default)))
 

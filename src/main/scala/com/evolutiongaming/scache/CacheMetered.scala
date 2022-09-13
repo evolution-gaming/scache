@@ -43,9 +43,16 @@ object CacheMetered {
 
         def get(key: K) = {
           for {
-            value <- cache.get(key)
-            _     <- metrics.get(value.isDefined)
-          } yield value
+            a <- cache.get(key)
+            _     <- metrics.get(a.isDefined)
+          } yield a
+        }
+
+        def get1(key: K) = {
+          for {
+            a <- cache.get1(key)
+            _ <- metrics.get(a.isDefined)
+          } yield a
         }
 
         def getOrElse(key: K, default: => F[V]) = {
