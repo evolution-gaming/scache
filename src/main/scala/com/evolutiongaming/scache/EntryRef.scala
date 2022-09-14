@@ -65,34 +65,29 @@ object EntryRef {
             fail(CancelledError)
         }
         .flatMap { value =>
-          def release = value
-            .release
-            .combineAll
-
-          deferred
-            .complete(value.asRight)
-            .attempt
-            .flatMap {
-              case Right(_)  =>
-                0.tailRecM { counter =>
-                  ref
-                    .access
-                    .flatMap { case (entry, set) =>
-                      entry match {
-                        case Right(_)         =>
-                          release.map { _.asRight[Int] }
-                        case Left(`deferred`) =>
-                          set(value.asRight).map {
-                            case true  => ().asRight[Int]
-                            case false => (counter + 1).asLeft[Unit]
-                          }
-                        case Left(_)          =>
-                          release.map { _.asRight[Int] }
+          0
+            .tailRecM { counter =>
+              ref
+                .access
+                .flatMap { case (entry, set) =>
+                  entry match {
+                    case Left(`deferred`) =>
+                      set(value.asRight).map {
+                        case true  => ().asRight[Int]
+                        case false => (counter + 1).asLeft[Unit]
                       }
-                    }
+                    case _                =>
+                      value
+                        .release
+                        .combineAll
+                        .map { _.asRight[Int] }
+                  }
                 }
-              case Left(_) =>
-                release
+            }
+            .productL {
+              deferred
+                .complete(value.asRight)
+                .handleError { _ => () }
             }
         }
         .start
