@@ -450,14 +450,9 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         for {
           deferred <- Deferred[IO, Option[Releasable[IO, Int]]]
           value0   <- cache.getOrUpdateReleasableOptEnsure(0) { deferred.get }
-          value1   <- cache.getOrUpdateReleasableOpt(0)(Releasable[IO].pure(1).some.pure[IO]).startEnsure
-          released <- Deferred[IO, Unit]
           _        <- deferred.complete(none)
           value    <- value0.join
           _        <- Sync[IO].delay { value shouldEqual Outcome.succeeded(IO.pure(none[Int])) }
-          value    <- value1.join
-          _        <- Sync[IO].delay { value shouldEqual Outcome.succeeded(IO.pure(none[Int])) }
-          _        <- released.complete(())
           value    <- cache.getOrUpdateReleasableOpt(0)(Releasable[IO].pure(1).some.pure[IO])
           _        <- Sync[IO].delay { value shouldEqual 1.some }
         } yield {}

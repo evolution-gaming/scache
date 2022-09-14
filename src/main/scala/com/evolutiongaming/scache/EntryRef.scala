@@ -2,7 +2,7 @@ package com.evolutiongaming.scache
 
 import cats.Applicative
 import cats.effect.{Concurrent, Deferred, Ref}
-import cats.effect.implicits.*
+import cats.effect.syntax.all.*
 import cats.effect.kernel.Outcome
 import cats.syntax.all.*
 import cats.kernel.Monoid
