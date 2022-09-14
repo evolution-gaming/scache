@@ -69,13 +69,12 @@ class ExpiringCacheSpec extends AsyncFunSuite with Matchers {
       for {
         release <- Deferred[F, Unit]
         _       <- cache.put(0, 0, release.complete(()).void)
-        _       <- Temporal[F].sleep(100.millis)
+        _       <- Temporal[F].sleep(50.millis)
         value   <- cache.get(0)
         _       <- Sync[F].delay { value shouldEqual 0.some }
-        _       <- Temporal[F].sleep(100.millis)
+        _       <- release.get
         value   <- cache.get(0)
         _       <- Sync[F].delay { value shouldEqual none }
-        _       <- release.get
       } yield {}
     }
   }
