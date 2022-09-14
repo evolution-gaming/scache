@@ -59,37 +59,30 @@ object EntryRef {
       val load = value
         .guaranteeCase {
           case Outcome.Succeeded(a) =>
-            a.flatMap { value =>
-
-              def release = value
-                .release
-                .combineAll
-
-              deferred
-                .complete(value.asRight)
-                .flatMap {
-                  case true  =>
-                    0.tailRecM { counter =>
-                      ref
-                        .access
-                        .flatMap { case (entry, set) =>
-                          entry match {
-                            case Right(_)         =>
-                              release.map { _.asRight[Int] }
-                            case Left(`deferred`) =>
-                              set(value.asRight).map {
-                                case true  => ().asRight[Int]
-                                case false => (counter + 1).asLeft[Unit]
-                              }
-                            case Left(_)          =>
-                              release.map { _.asRight[Int] }
-                          }
+            for {
+              value  <- a
+              result <- 0.tailRecM { counter =>
+                ref
+                  .access
+                  .flatMap { case (entry, set) =>
+                    entry match {
+                      case Left(`deferred`) =>
+                        set(value.asRight).map {
+                          case true  => ().asRight[Int]
+                          case false => (counter + 1).asLeft[Unit]
                         }
+                      case _                =>
+                        value
+                          .release
+                          .combineAll
+                          .map { _.asRight[Int] }
                     }
-                  case false =>
-                    release
-                }
-            }
+                  }
+              }
+              _ <- deferred
+                .complete(value.asRight)
+                .handleError { _ => false }
+            } yield result
 
           case Outcome.Errored(a) =>
             fail(a)

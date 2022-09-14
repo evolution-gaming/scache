@@ -608,8 +608,8 @@ class CacheSpec extends AsyncFunSuite with Matchers {
           _        <- deferred.complete(TestError.raiseError[IO, Releasable[IO, Int]])
           value    <- value
           _        <- Sync[IO].delay { value shouldEqual none }
-          value    <- fiber.join
-          _        <- Sync[IO].delay { value shouldEqual Outcome.succeeded(IO.pure(1)) }
+          value    <- fiber.joinWithNever
+          _        <- Sync[IO].delay { value shouldEqual 1 }
           value    <- cache.get(0)
           _        <- Sync[IO].delay { value shouldEqual 1.some }
         } yield {}
