@@ -7,6 +7,7 @@ import cats.effect.{Concurrent, Resource}
 import cats.kernel.CommutativeMonoid
 import cats.syntax.all._
 import com.evolutiongaming.catshelper.CatsHelper._
+import com.evolutiongaming.catshelper.ParallelHelper._
 
 import scala.util.control.NoStackTrace
 
@@ -299,8 +300,7 @@ object LoadingCache {
           .flatMap { entryRefs =>
             entryRefs
               .values
-              .toList
-              .parFoldMapA { _.release.uncancelable }
+              .parFoldMapTraversable { _.release.uncancelable }
               .start
           }
           .uncancelable
