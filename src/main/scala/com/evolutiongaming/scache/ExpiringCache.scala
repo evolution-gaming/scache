@@ -35,23 +35,19 @@ object ExpiringCache {
 
       def remove(key: K) = cache.remove(key).flatten.void
 
-      def removeExpired(key: K, entryRefs: LoadingCache.EntryRefs[F, K, E]) = {
-        entryRefs
-          .get(key)
-          .foldMapM { entry =>
-            entry
-              .get1
-              .flatMap { value =>
-                value.foldMapM { entry =>
-                  for {
-                    now               <- Clock[F].millis
-                    expiredAfterRead   = expireAfterReadMs + entry.touched < now
-                    expiredAfterWrite  = () => expireAfterWriteMs.exists { _ + entry.created < now }
-                    expired            = expiredAfterRead || expiredAfterWrite()
-                    result            <- if (expired) remove(key) else ().pure[F]
-                  } yield result
-                }
-              }
+      def removeExpired(key: K, entryRef: EntryRef[F, Entry[V]]) = {
+        entryRef
+          .get1
+          .flatMap { value =>
+            value.foldMapM { entry =>
+              for {
+                now               <- Clock[F].millis
+                expiredAfterRead   = expireAfterReadMs + entry.touched < now
+                expiredAfterWrite  = () => expireAfterWriteMs.exists { _ + entry.created < now }
+                expired            = expiredAfterRead || expiredAfterWrite()
+                result            <- if (expired) remove(key) else ().pure[F]
+              } yield result
+            }
           }
       }
 
@@ -89,10 +85,7 @@ object ExpiringCache {
 
       for {
         entryRefs <- ref.get
-        result    <- entryRefs
-          .keys
-          .toList
-          .parFoldMapA { key => removeExpired(key, entryRefs) }
+        result    <- entryRefs.parFoldMapTraversable { case (key, entryRef) => removeExpired(key, entryRef) }
         _         <- config
           .maxSize
           .foldMapM { maxSize => notExceedMaxSize(maxSize) }
@@ -107,28 +100,21 @@ object ExpiringCache {
       ref
         .get
         .flatMap { entryRefs =>
-          entryRefs
-            .keys
-            .toList
-            .parFoldMapA { key =>
-              entryRefs
-                .get(key)
-                .foldMapM { entryRef =>
-                  entryRef
-                    .get1
-                    .flatMap { value =>
-                      value.foldMapM { _ =>
-                        refresh
-                          .value(key)
-                          .flatMap {
-                            case Some(value) => entryRef.update { _.copy(value = value) }
-                            case None        => cache.remove(key).void
-                          }
-                          .handleError { _ => () }
-                      }
+          entryRefs.parFoldMapTraversable { case (key, entryRef) =>
+            entryRef
+              .get1
+              .flatMap { value =>
+                value.foldMapM { _ =>
+                  refresh
+                    .value(key)
+                    .flatMap {
+                      case Some(value) => entryRef.update { _.copy(value = value) }
+                      case None        => cache.remove(key).void
                     }
+                    .handleError { _ => () }
                 }
-            }
+              }
+          }
         }
     }
 

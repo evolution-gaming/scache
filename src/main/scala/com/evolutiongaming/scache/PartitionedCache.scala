@@ -2,6 +2,7 @@ package com.evolutiongaming.scache
 
 import cats.syntax.all.*
 import cats.{Applicative, Monad, Parallel}
+import com.evolutiongaming.catshelper.ParallelHelper.*
 import cats.kernel.{CommutativeMonoid, Monoid}
 
 object PartitionedCache {
@@ -141,7 +142,7 @@ object PartitionedCache {
       def foldMapPar[A: CommutativeMonoid](f: (K, Either[F[V], V]) => F[A]) = {
         partitions
           .values
-          .parFoldMapA { _.foldMap(f) }
+          .parFoldMapTraversable { _.foldMap(f) }
       }
     }
   }
