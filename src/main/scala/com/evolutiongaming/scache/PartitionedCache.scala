@@ -142,7 +142,7 @@ object PartitionedCache {
       def foldMapPar[A: CommutativeMonoid](f: (K, Either[F[V], V]) => F[A]) = {
         partitions
           .values
-          .parFoldMapTraversable { _.foldMap(f) }
+          .parFoldMap1 { _.foldMap(f) }
       }
     }
   }

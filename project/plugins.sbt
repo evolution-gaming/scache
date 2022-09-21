@@ -1,8 +1,8 @@
-addSbtPlugin("org.scoverage" % "sbt-scoverage" % "1.7.0")
+addSbtPlugin("org.scoverage" % "sbt-scoverage" % "2.0.4")
 
-addSbtPlugin("org.scoverage" % "sbt-coveralls" % "1.2.7")
+addSbtPlugin("org.scoverage" % "sbt-coveralls" % "1.3.2")
 
-addSbtPlugin("com.github.gseitz" % "sbt-release" % "1.0.13")
+addSbtPlugin("com.github.sbt" % "sbt-release" % "1.1.0")
 
 addSbtPlugin("com.evolution" % "sbt-scalac-opts-plugin" % "0.0.9")
 

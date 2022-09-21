@@ -299,8 +299,7 @@ object LoadingCache {
           .getAndSet(EntryRefs.empty)
           .flatMap { entryRefs =>
             entryRefs
-              .values
-              .parFoldMapTraversable { _.release.uncancelable }
+              .parFoldMap1 { case (_, a) => a.release.uncancelable }
               .start
           }
           .uncancelable
