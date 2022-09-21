@@ -73,7 +73,7 @@ object ExpiringCache {
               entries
                 .sortBy(_.timestamp)
                 .take(maxSize / 10)
-                .parFoldMap { elem => remove(elem.key) }
+                .parFoldMap1 { elem => remove(elem.key) }
             }
         }
 
@@ -85,7 +85,7 @@ object ExpiringCache {
 
       for {
         entryRefs <- ref.get
-        result    <- entryRefs.parFoldMapTraversable { case (key, entryRef) => removeExpired(key, entryRef) }
+        result    <- entryRefs.parFoldMap1 { case (key, entryRef) => removeExpired(key, entryRef) }
         _         <- config
           .maxSize
           .foldMapM { maxSize => notExceedMaxSize(maxSize) }
@@ -100,7 +100,7 @@ object ExpiringCache {
       ref
         .get
         .flatMap { entryRefs =>
-          entryRefs.parFoldMapTraversable { case (key, entryRef) =>
+          entryRefs.parFoldMap1 { case (key, entryRef) =>
             entryRef
               .get1
               .flatMap { value =>
