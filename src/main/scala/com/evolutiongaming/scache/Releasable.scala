@@ -5,8 +5,10 @@ import cats.syntax.all._
 import cats.{Applicative, Functor, ~>}
 import com.evolutiongaming.catshelper.BracketThrowable
 
+@deprecated("do not use `Releasable` as well as relevant methods", "3.6.0")
 final case class Releasable[F[_], A](value: A, release: F[Unit])
 
+@deprecated("do not use `Releasable` as well as relevant methods", "3.6.0")
 object Releasable {
 
   def pure[F[_] : Applicative, A](value: A): Releasable[F, A] = Releasable(value, ().pure[F])
