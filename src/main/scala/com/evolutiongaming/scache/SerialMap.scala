@@ -107,11 +107,9 @@ object SerialMap { self =>
 
 
       def getOrElse(key: K, default: => F[V]) = {
-        for {
-          stored <- get(key)
-          result <- stored.fold(default)(_.pure[F])
-        } yield {
-          result
+        get(key).flatMap {
+          case Some(a) => a.pure[F]
+          case None    => default
         }
       }
 

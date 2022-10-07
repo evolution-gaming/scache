@@ -1,6 +1,6 @@
 package com.evolutiongaming.scache
 
-import cats.effect.{Ref, Resource, Temporal}
+import cats.effect.{Resource, Temporal}
 import cats.kernel.CommutativeMonoid
 import cats.syntax.all.*
 import com.evolutiongaming.catshelper.Schedule
@@ -9,8 +9,6 @@ import com.evolutiongaming.smetrics.MeasureDuration
 import scala.concurrent.duration.*
 
 object CacheMetered {
-
-  private sealed abstract class CacheMetered
 
   def apply[F[_]: MeasureDuration: Temporal, K, V](
     cache: Cache[F, K, V],
@@ -33,18 +31,16 @@ object CacheMetered {
       } yield a
     }
 
-    val unit = ().pure[F]
-
     for {
       _ <- Schedule(interval, interval)(measureSize)
     } yield {
-
-      new CacheMetered with Cache[F, K, V] {
+      abstract class CacheMetered extends Cache.Abstract1[F, K, V]
+      new CacheMetered {
 
         def get(key: K) = {
           for {
             a <- cache.get(key)
-            _     <- metrics.get(a.isDefined)
+            _ <- metrics.get(a.isDefined)
           } yield a
         }
 
@@ -55,96 +51,40 @@ object CacheMetered {
           } yield a
         }
 
-        def getOrElse(key: K, default: => F[V]) = {
-          for {
-            stored <- get(key)
-            result <- stored.fold(default)(_.pure[F])
-          } yield {
-            result
-          }
-        }
-
         def getOrUpdate(key: K)(value: => F[V]) = {
-          getOrUpdateReleasable(key) { 
-            for {
-              value <- value
-            } yield {
-              Releasable(value, unit)
+          getOrUpdate1(key) { value.map { a => (a, a, none[Release]) } }
+            .flatMap {
+              case Right(Right(a)) => a.pure[F]
+              case Right(Left(a))  => a
+              case Left(a)         => a.pure[F]
             }
-          }
         }
 
-        def getOrUpdateOpt(key: K)(value: => F[Option[V]]) = {
-          getOrUpdateReleasableOpt(key) {
-            for {
-              value <- value
-            } yield for {
-              value <- value
-            } yield {
-              Releasable(value, unit)
-            }
-          }
-        }
-
-        def getOrUpdateReleasable(key: K)(value: => F[Releasable[F, V]]) = {
-
-          def valueMetered(ref: Ref[F, Boolean]) = {
-            for {
-              _        <- ref.set(false)
-              start    <- MeasureDuration[F].start
-              value    <- value.attempt
-              duration <- start
-              _        <- metrics.load(duration, value.isRight)
-              value    <- value.liftTo[F]
-            } yield {
-              val release = releaseMetered(start, value.release)
-              value.copy(release = release)
-            }
-          }
-
+        def getOrUpdate1[A](key: K)(value: => F[(A, V, Option[Release])]) = {
           for {
-            ref   <- Ref[F].of(true)
-            value <- cache.getOrUpdateReleasable(key)(valueMetered(ref))
-            hit   <- ref.get
-            _     <- metrics.get(hit)
-          } yield value
-        }
-
-        def getOrUpdateReleasableOpt(key: K)(value: => F[Option[Releasable[F, V]]]) = {
-
-          def valueMetered(ref: Ref[F, Boolean]) = {
-            for {
-              _        <- ref.set(false)
-              start    <- MeasureDuration[F].start
-              value    <- value.attempt
-              duration <- start
-              _        <- metrics.load(duration, value.isRight)
-              value    <- value.liftTo[F]
-            } yield for {
-              value    <- value
-            } yield {
-              val release = releaseMetered(start, value.release)
-              value.copy(release = release)
+            result <- cache.getOrUpdate1(key) {
+              for {
+                start    <- MeasureDuration[F].start
+                value    <- value.attempt
+                duration <- start
+                _        <- metrics.load(duration, value.isRight)
+                value    <- value.liftTo[F]
+              } yield {
+                val (a, v, release) = value
+                val release1 = releaseMetered(start, release.getOrElse { ().pure[F] })
+                (a, v, release1.some) // TODO is this a good idea to convert option to always some?
+              }
             }
-          }
-
-          for {
-            ref   <- Ref[F].of(true)
-            value <- cache.getOrUpdateReleasableOpt(key)(valueMetered(ref))
-            hit   <- ref.get
-            _     <- metrics.get(hit)
-          } yield value
+            _     <- metrics.get(result.isRight)
+          } yield result
         }
 
-        def put(key: K, value: V) = {
-          put(key, value, unit)
-        }
-
-        def put(key: K, value: V, release: F[Unit]) = {
+        def put(key: K, value: V, release: Option[Release]) = {
           for {
             duration <- MeasureDuration[F].start
             _        <- metrics.put
-            value    <- cache.put(key, value, releaseMetered(duration, release))
+            release1  = releaseMetered(duration, release.getOrElse { ().pure[F] })
+            value    <- cache.put(key, value, release1.some)
           } yield value
         }
 

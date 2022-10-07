@@ -4,7 +4,7 @@ import cats.effect.{Clock, Ref, Resource, Temporal}
 import cats.effect.syntax.all.*
 import cats.kernel.CommutativeMonoid
 import cats.syntax.all.*
-import cats.{Applicative, Monad, Monoid, Parallel}
+import cats.{Applicative, MonadThrow, Monoid, Parallel}
 import com.evolutiongaming.catshelper.ClockHelper.*
 import com.evolutiongaming.catshelper.ParallelHelper.*
 import com.evolutiongaming.catshelper.Schedule
@@ -14,8 +14,6 @@ import scala.concurrent.duration.*
 object ExpiringCache {
 
   type Timestamp = Long
-
-  private sealed abstract class ExpiringCache
 
   private[scache] def of[F[_]: Parallel, K, V](
     config: Config[F, K, V]
@@ -33,17 +31,22 @@ object ExpiringCache {
 
     def removeExpiredAndCheckSize(ref: Ref[F, LoadingCache.EntryRefs[F, K, E]], cache: Cache[F, K, E]) = {
 
-      def remove(key: K) = cache.remove(key).flatten.void
+      def remove(key: K) = {
+        cache
+          .remove(key)
+          .flatten
+          .void
+      }
 
-      def removeExpired(key: K, entryRef: EntryRef[F, Entry[V]]) = {
+      def removeExpired(key: K, entryRef: LoadingCache.EntryRef[F, Entry[V]]) = {
         entryRef
-          .get1
-          .flatMap { value =>
-            value.foldMapM { entry =>
+          .get
+          .flatMap { entry =>
+            entry.foldMapM { entry =>
               for {
                 now               <- Clock[F].millis
-                expiredAfterRead   = expireAfterReadMs + entry.touched < now
-                expiredAfterWrite  = () => expireAfterWriteMs.exists { _ + entry.created < now }
+                expiredAfterRead   = expireAfterReadMs + entry.value.touched < now
+                expiredAfterWrite  = () => expireAfterWriteMs.exists { _ + entry.value.created < now }
                 expired            = expiredAfterRead || expiredAfterWrite()
                 result            <- if (expired) remove(key) else ().pure[F]
               } yield result
@@ -62,9 +65,9 @@ object ExpiringCache {
             .foldLeft(zero.pure[F]) { case (result, (key, entryRef)) =>
               result.flatMap { result =>
                 entryRef
-                  .get1
+                  .get
                   .map {
-                    case Right(a) => Elem(key, a.touched) :: result
+                    case Right(a) => Elem(key, a.value.touched) :: result
                     case Left(_)  => result
                   }
               }
@@ -102,13 +105,13 @@ object ExpiringCache {
         .flatMap { entryRefs =>
           entryRefs.parFoldMap1 { case (key, entryRef) =>
             entryRef
-              .get1
+              .get
               .flatMap { value =>
                 value.foldMapM { _ =>
                   refresh
                     .value(key)
                     .flatMap {
-                      case Some(value) => entryRef.update { _.copy(value = value) }
+                      case Some(value) => entryRef.update1 { _.copy(value = value) }
                       case None        => cache.remove(key).void
                     }
                     .handleError { _ => () }
@@ -136,7 +139,7 @@ object ExpiringCache {
   }
 
 
-  def apply[F[_] : Monad : Clock, K, V](
+  def apply[F[_] : MonadThrow : Clock, K, V](
     ref: Ref[F, LoadingCache.EntryRefs[F, K, Entry[V]]],
     cache: Cache[F, K, Entry[V]],
     cooldown: Long,
@@ -145,11 +148,11 @@ object ExpiringCache {
     type E = Entry[V]
 
     def entryOf(value: V) = {
-      for {
-        timestamp <- Clock[F].millis
-      } yield {
-        Entry(value,  created = timestamp, read = none)
-      }
+      Clock[F]
+        .millis
+        .map { timestamp =>
+          Entry(value, created = timestamp, read = none)
+        }
     }
 
     implicit def monoidUnit: Monoid[F[Unit]] = Applicative.monoid[F, Unit]
@@ -163,7 +166,7 @@ object ExpiringCache {
             .flatMap { entries =>
               entries
                 .get(key)
-                .foldMap { _.update { _.touch(now) } }
+                .foldMap { _.update1 { _.touch(now) } }
             }
         } else {
           ().pure[F]
@@ -171,142 +174,96 @@ object ExpiringCache {
       } yield result
     }
 
-    new ExpiringCache with Cache[F, K, V] {
+    abstract class ExpiringCache extends Cache.Abstract1[F, K, V]
+
+    new ExpiringCache { self =>
 
       def get(key: K) = {
         cache
-          .get(key)
-          .flatMap { entry =>
-            entry
-              .traverse { entry =>
-                touch(key, entry).as(entry.value)
+          .get1(key)
+          .flatMap {
+            case Some(Right(entry)) =>
+              touch(key, entry).as {
+                entry
+                  .value
+                  .some
               }
+            case Some(Left(entry))  =>
+              entry
+                .map { _.value.some }
+                .handleError { _ => none[V] }
+            case None              =>
+              none[V].pure[F]
           }
       }
 
       def get1(key: K) = {
         cache
           .get1(key)
-          .flatMap { entry =>
-            entry
-              .traverse {
-                case Right(entry) => touch(key, entry).as(entry.value.asRight[F[V]])
-                case Left(entry)  => entry.map { _.value }.asLeft[V].pure[F]
+          .flatMap {
+            case Some(Right(entry)) =>
+              touch(key, entry).as {
+                entry
+                  .value
+                  .asRight[F[V]]
+                  .some
               }
+            case Some(Left(entry))  =>
+              entry
+                .map { _.value }
+                .asLeft[V]
+                .some
+                .pure[F]
+            case None               =>
+              none[Either[F[V], V]].pure[F]
           }
-      }
-
-      def getOrElse(key: K, default: => F[V]) = {
-        for {
-          stored <- get(key)
-          result <- stored.fold(default)(_.pure[F])
-        } yield {
-          result
-        }
       }
 
       def getOrUpdate(key: K)(value: => F[V]) = {
-
-        def entry = {
-          for {
-            value <- value
-            entry <- entryOf(value)
-          } yield entry
-        }
-
-        for {
-          entry <- cache.getOrUpdate(key)(entry)
-          _     <- touch(key, entry)
-        } yield {
-          entry.value
-        }
-      }
-
-      def getOrUpdateOpt(key: K)(value: => F[Option[V]]) = {
-        def entry = {
-          for {
-            value <- value
-            value <- value.traverse { value => entryOf(value) }
-          } yield value
-        }
-
-        for {
-          entry <- cache.getOrUpdateOpt(key)(entry)
-          _     <- entry.traverse { entry => touch(key, entry) }
-        } yield for {
-          entry <- entry
-        } yield {
-          entry.value
-        }
-      }
-
-      def getOrUpdateReleasable(key: K)(value: => F[Releasable[F, V]]) = {
-
-        def entry = {
-          for {
-            value <- value
-            entry <- entryOf(value.value)
-          } yield {
-            value.copy(value = entry)
+        getOrUpdate1(key) { value.map { a => (a, a, none[Release]) } }
+          .flatMap {
+            case Right(Right(a)) => a.pure[F]
+            case Right(Left(a))  => a
+            case Left(a)         => a.pure[F]
           }
-        }
-
-        for {
-          entry <- cache.getOrUpdateReleasable(key)(entry)
-          _     <- touch(key, entry)
-        } yield {
-          entry.value
-        }
       }
 
-      def getOrUpdateReleasableOpt(key: K)(value: => F[Option[Releasable[F, V]]]) = {
-        def entry = {
-          for {
-            value <- value
-            value <- value.traverse { value =>
-              for {
-                entry <- entryOf(value.value)
-              } yield {
-                value.copy(value = entry)
-              }
+      def getOrUpdate1[A](key: K)(value: => F[(A, V, Option[Release])]) = {
+        cache
+          .getOrUpdate1(key) {
+            value.flatMap { case (a, value, release) =>
+              entryOf(value).map { value => (a, value, release) }
             }
-          } yield value
-        }
+          }
+          .flatMap {
+            case Right(Right(entry)) =>
+              touch(key, entry).as {
+                entry
+                  .value
+                  .asRight[F[V]]
+                  .asRight[A]
+              }
+            case Right(Left(entry))  =>
+              entry
+                .map { _.value }
+                .asLeft[V]
+                .asRight[A]
+                .pure[F]
 
-        for {
-          entry <- cache.getOrUpdateReleasableOpt(key)(entry)
-          _     <- entry.traverse { entry => touch(key, entry) }
-        } yield for {
-          entry <- entry
-        } yield {
-          entry.value
-        }
+            case Left(a) =>
+              a
+                .asLeft[Either[F[V], V]]
+                .pure[F]
+          }
       }
 
-      def put(key: K, value: V) = {
-        for {
-          entry <- entryOf(value)
-          entry <- cache.put(key, entry)
-        } yield for {
-          entry <- entry
-        } yield for {
-          entry <- entry
-        } yield {
-          entry.value
-        }
-      }
-
-      def put(key: K, value: V, release: F[Unit]) = {
-        for {
-          entry <- entryOf(value)
-          entry <- cache.put(key, entry, release)
-        } yield for {
-          entry <- entry
-        } yield for {
-          entry <- entry
-        } yield {
-          entry.value
-        }
+      def put(key: K, value: V, release: Option[Release]) = {
+        entryOf(value)
+          .flatMap { entry =>
+            cache
+              .put(key, entry, release)
+              .map { _.map { _.map { _.value } } }
+          }
       }
 
       def contains(key: K) = cache.contains(key)
@@ -316,18 +273,13 @@ object ExpiringCache {
       def keys = cache.keys
 
       def values = {
-        for {
-          entries <- cache.values
-        } yield {
-          entries.map { case (key, entry) =>
-            val value = for {
-              entry <- entry
-            } yield {
-              entry.value
+        cache
+          .values
+          .map { values =>
+            values.map { case (key, entry) =>
+              (key, entry.map { _.value })
             }
-            key -> value
           }
-        }
       }
 
       def values1 = {
@@ -345,15 +297,9 @@ object ExpiringCache {
       }
 
       def remove(key: K) = {
-        for {
-          entry <- cache.remove(key)
-        } yield for {
-          entry <- entry
-        } yield for {
-          entry <- entry
-        } yield {
-          entry.value
-        }
+        cache
+          .remove(key)
+          .map { _.map { _.map { _.value } } }
       }
 
       def clear = cache.clear

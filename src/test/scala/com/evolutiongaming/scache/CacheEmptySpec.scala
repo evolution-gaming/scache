@@ -1,6 +1,6 @@
 package com.evolutiongaming.scache
 
-import cats.effect.{Deferred, IO, Outcome, Sync}
+import cats.effect.{Deferred, IO, Sync}
 import cats.syntax.all._
 import com.evolutiongaming.scache.IOSuite._
 import com.evolutiongaming.catshelper.CatsHelper._
@@ -20,12 +20,12 @@ class CacheEmptySpec extends AsyncFunSuite with Matchers {
     result.run()
   }
 
-  test("getOrElse") {
+  test("getOrElse1") {
     val result = for {
-      value <- cache.getOrElse(0, 1.pure[IO])
+      value <- cache.getOrElse1(0, 1.pure[IO])
       _     <- Sync[IO].delay { value shouldEqual 1 }
       _     <- cache.put(0, 2)
-      value <- cache.getOrElse(0, 1.pure[IO])
+      value <- cache.getOrElse1(0, 1.pure[IO])
       _     <- Sync[IO].delay { value shouldEqual 1 }
     } yield {}
     result.run()
@@ -82,12 +82,11 @@ class CacheEmptySpec extends AsyncFunSuite with Matchers {
       value0   <- cache.getOrUpdateEnsure(0) { deferred.get }
       value2   <- cache.getOrUpdate(0)(1.pure[IO]).startEnsure
       _        <- deferred.complete(0)
-      value0   <- value0.join
-      value1   <- value2.join
-    } yield {
-      value0 shouldEqual Outcome.succeeded(IO.pure(0))
-      value1 shouldEqual Outcome.succeeded(IO.pure(1))
-    }
+      value0   <- value0.joinWithNever
+      value1   <- value2.joinWithNever
+      _        <- IO { value0 shouldEqual 0.asRight }
+      _        <- IO { value1 shouldEqual 1 }
+    } yield {}
     result.run()
   }
 
