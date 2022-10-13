@@ -2,20 +2,20 @@ package com.evolutiongaming.scache
 
 import cats.Monad
 import cats.arrow.FunctionK
-import cats.effect.implicits._
-import cats.effect._
-import cats.syntax.all._
-import com.evolutiongaming.catshelper.CatsHelper._
-import com.evolutiongaming.scache.IOSuite._
+import cats.effect.implicits.*
+import cats.effect.*
+import cats.syntax.all.*
+import com.evolutiongaming.catshelper.CatsHelper.*
+import com.evolutiongaming.scache.IOSuite.*
 import com.evolutiongaming.smetrics.CollectorRegistry
 import org.scalatest.funsuite.AsyncFunSuite
 import org.scalatest.matchers.should.Matchers
 
-import scala.concurrent.duration._
+import scala.concurrent.duration.*
 import scala.util.control.NoStackTrace
 
 class CacheSpec extends AsyncFunSuite with Matchers {
-  import CacheSpec._
+  import CacheSpec.*
 
   private val expiringCache = Cache.expiring[IO, Int, Int](
     config = ExpiringCache.Config[IO, Int, Int](expireAfterRead = 1.minute),

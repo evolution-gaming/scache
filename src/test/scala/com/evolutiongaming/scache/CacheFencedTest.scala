@@ -1,9 +1,9 @@
 package com.evolutiongaming.scache
 
 import cats.effect.{IO, Ref, Resource}
-import cats.syntax.all._
-import com.evolutiongaming.catshelper.CatsHelper._
-import com.evolutiongaming.scache.IOSuite._
+import cats.syntax.all.*
+import com.evolutiongaming.catshelper.CatsHelper.*
+import com.evolutiongaming.scache.IOSuite.*
 import org.scalatest.funsuite.AsyncFunSuite
 import org.scalatest.matchers.should.Matchers
 

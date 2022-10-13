@@ -1,17 +1,17 @@
 package com.evolutiongaming.scache
 
 import cats.effect.{Async, Concurrent, Deferred, IO, Outcome}
-import cats.syntax.all._
-import com.evolutiongaming.catshelper.CatsHelper._
+import cats.syntax.all.*
+import com.evolutiongaming.catshelper.CatsHelper.*
 import com.evolutiongaming.catshelper.SerialRef
-import com.evolutiongaming.scache.IOSuite._
+import com.evolutiongaming.scache.IOSuite.*
 
 import scala.util.control.NoStackTrace
 import org.scalatest.funsuite.AsyncFunSuite
 import org.scalatest.matchers.should.Matchers
 
 class SerialMapSpec extends AsyncFunSuite with Matchers {
-  import SerialMapSpec._
+  import SerialMapSpec.*
 
   test("get") {
     get[IO].run()

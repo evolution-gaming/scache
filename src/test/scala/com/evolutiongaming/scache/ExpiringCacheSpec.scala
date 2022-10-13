@@ -1,13 +1,13 @@
 package com.evolutiongaming.scache
 
 import cats.Parallel
-import cats.effect._
-import cats.syntax.all._
-import com.evolutiongaming.scache.IOSuite._
+import cats.effect.*
+import cats.syntax.all.*
+import com.evolutiongaming.scache.IOSuite.*
 import org.scalatest.funsuite.AsyncFunSuite
 import org.scalatest.matchers.should.Matchers
 
-import scala.concurrent.duration._
+import scala.concurrent.duration.*
 import scala.util.control.NoStackTrace
 
 class ExpiringCacheSpec extends AsyncFunSuite with Matchers {

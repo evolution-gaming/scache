@@ -1,14 +1,14 @@
 package com.evolutiongaming.scache
 
 import cats.effect.{Deferred, IO, Sync}
-import cats.syntax.all._
-import com.evolutiongaming.scache.IOSuite._
-import com.evolutiongaming.catshelper.CatsHelper._
+import cats.syntax.all.*
+import com.evolutiongaming.scache.IOSuite.*
+import com.evolutiongaming.catshelper.CatsHelper.*
 import org.scalatest.funsuite.AsyncFunSuite
 import org.scalatest.matchers.should.Matchers
 
 class CacheEmptySpec extends AsyncFunSuite with Matchers {
-  import CacheSpec._
+  import CacheSpec.*
 
   private val cache = Cache.empty[IO, Int, Int]
 

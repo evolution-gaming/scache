@@ -1,7 +1,7 @@
 package com.evolutiongaming.scache
 
 import cats.effect.Resource
-import cats.syntax.all._
+import cats.syntax.all.*
 import cats.{Applicative, Functor, ~>}
 import com.evolutiongaming.catshelper.BracketThrowable
 import scala.annotation.nowarn

@@ -1,7 +1,7 @@
 package com.evolutiongaming.scache
 
 import cats.Monad
-import cats.syntax.all._
+import cats.syntax.all.*
 import cats.kernel.Hash
 
 trait Partitions[-K, +V] {

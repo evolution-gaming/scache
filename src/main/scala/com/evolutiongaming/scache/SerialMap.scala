@@ -2,8 +2,8 @@ package com.evolutiongaming.scache
 
 import cats.Applicative
 import cats.effect.{Concurrent, Ref}
-import cats.effect.implicits._
-import cats.syntax.all._
+import cats.effect.implicits.*
+import cats.syntax.all.*
 import com.evolutiongaming.catshelper.{Runtime, SerialRef}
 
 
@@ -81,12 +81,11 @@ object SerialMap { self =>
   def of[F[_] : Concurrent : Runtime, K, V](partitions: Int): F[SerialMap[F, K, V]] = of(Some(partitions))
 
 
-  def of[F[_] : Concurrent : Runtime, K, V](partitions: Option[Int] = None): F[SerialMap[F, K, V]] = {
-    for {
-      cache <- Cache.loading1[F, K, SerialRef[F, State[V]]](partitions).allocated
-    } yield {
-      apply(cache._1)
-    }
+  def of[F[_]: Concurrent: Runtime, K, V](partitions: Option[Int] = None): F[SerialMap[F, K, V]] = {
+    Cache
+      .loading1[F, K, SerialRef[F, State[V]]](partitions)
+      .allocated
+      .map { case (a, _) => apply(a) }
   }
 
 
