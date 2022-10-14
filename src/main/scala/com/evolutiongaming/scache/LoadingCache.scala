@@ -1,6 +1,6 @@
 package com.evolutiongaming.scache
 
-import cats.{Monad, MonadThrow, Parallel}
+import cats.{Functor, Monad, MonadThrow, Parallel}
 import cats.effect.implicits.*
 import cats.effect.{Concurrent, Deferred, Fiber, GenConcurrent, Outcome, Ref, Resource}
 import cats.kernel.CommutativeMonoid
@@ -72,7 +72,6 @@ private[scache] object LoadingCache {
                             .map { _.value }
                         }
                   }
-
               }
           }
       }
@@ -83,13 +82,7 @@ private[scache] object LoadingCache {
           .flatMap { entryRefs =>
             entryRefs
               .get(key)
-              .fold {
-                none[Either[F[V], V]].pure[F]
-              } { entryRef =>
-                entryRef
-                  .either
-                  .map { _.some }
-              }
+              .traverse { _.either }
           }
       }
 
@@ -418,31 +411,14 @@ private[scache] object LoadingCache {
                   set(entryRefs - key)
                     .flatMap {
                       case true  =>
-
-                        def release(entry: Entry[F, V]) = {
-                          entry
-                            .release1
-                            .as {
-                              entry
-                                .value
-                                .some
-                            }
-                        }
-
                         entryRef
-                          .get
-                          .flatMap {
-                            case Right(entry)   =>
-                              release(entry)
-                            case Left(deferred) =>
-                              deferred
-                                .get
-                                .flatMap {
-                                  case Right(entry) =>
-                                    release(entry)
-                                  case Left(_)      =>
-                                    none[V].pure[F]
-                                }
+                          .getOption
+                          .flatMap { entry =>
+                            entry.traverse { entry =>
+                              entry
+                                .release1
+                                .as { entry.value }
+                            }
                           }
                           .start
                           .map { fiber =>
@@ -469,19 +445,8 @@ private[scache] object LoadingCache {
             entryRefs
               .parFoldMap1 { case (_, entryRef) =>
                 entryRef
-                  .get
-                  .flatMap {
-                    case Right(entry)   =>
-                      entry.release.pure[F]
-                    case Left(deferred) =>
-                      deferred
-                        .get
-                        .map {
-                          case Right(entry) => entry.release
-                          case Left(_)      => none[Release]
-                        }
-                  }
-                  .flatMap { _.foldA }
+                  .getOption
+                  .flatMap { _.foldMapM { _.release1 } }
                   .uncancelable
               }
               .start
@@ -562,9 +527,25 @@ private[scache] object LoadingCache {
           case Left(a)  => a.raiseError[F, A]
         }
     }
+
+    def getOption(implicit F: Functor[F]): F[Option[A]] = {
+      self
+        .get
+        .map { _.toOption }
+    }
   }
 
   implicit class EntryRefOps[F[_], A](val self: EntryRef[F, A]) extends AnyVal {
+
+    def getOption(implicit F: Monad[F]): F[Option[Entry[F, A]]] = {
+      self
+        .get
+        .flatMap {
+          case Right(a) => a.some.pure[F]
+          case Left(a)  => a.getOption
+        }
+    }
+
     def either(implicit F: MonadThrow[F]): F[Either[F[A], A]] = {
       self
         .get
