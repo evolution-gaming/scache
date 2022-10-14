@@ -1,6 +1,6 @@
 package com.evolutiongaming.scache
 
-import cats.effect.kernel.Sync
+import cats.effect.kernel.MonadCancel
 import cats.effect.{Concurrent, Resource, Temporal}
 import cats.effect.syntax.all.*
 import cats.syntax.all.*
@@ -499,7 +499,7 @@ object Cache {
       * Does not run `value` concurrently for the same key
       * Resource will be release upon key removal from the cache
       */
-    def getOrUpdateResource(key: K)(value: => Resource[F, V])(implicit F: Sync[F]): F[V] = {
+    def getOrUpdateResource(key: K)(value: => Resource[F, V])(implicit F: MonadCancel[F, Throwable]): F[V] = {
       self
         .getOrUpdate1(key) {
           value
@@ -518,7 +518,7 @@ object Cache {
       * Resource will be release upon key removal from the cache
       * In case of none returned, value will be ignored by cache
       */
-    def getOrUpdateResourceOpt(key: K)(value: => Resource[F, Option[V]])(implicit F: Sync[F]): F[Option[V]] = {
+    def getOrUpdateResourceOpt(key: K)(value: => Resource[F, Option[V]])(implicit F: MonadCancel[F, Throwable]): F[Option[V]] = {
       self
         .getOrUpdateOpt1(key) {
           value
