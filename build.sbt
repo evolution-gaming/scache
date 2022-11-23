@@ -2,7 +2,7 @@ import Dependencies._
 
 name := "scache"
 
-organization := "com.evolutiongaming"
+organization := "com.evolution"
 
 homepage := Some(new URL("http://github.com/evolution-gaming/scache"))
 
