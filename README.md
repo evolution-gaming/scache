@@ -109,7 +109,7 @@ trait SerialMap[F[_], K, V] {
 ## Setup
 
 ```scala
-libraryDependencies += "com.evolution" %% "scache" % "3.2.0"
+libraryDependencies += "com.evolution" %% "scache" % "4.3.1.1"
 ```
 
 ## ExpiringCache
