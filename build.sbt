@@ -11,7 +11,7 @@ def crossSettings[T](scalaVersion: String, if3: Seq[T], if2: Seq[T]) = {
 
 name := "scache"
 
-organization := "com.evolutiongaming"
+organization := "com.evolution"
 
 homepage := Some(new URL("http://github.com/evolution-gaming/scache"))
 
