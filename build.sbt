@@ -25,8 +25,6 @@ scalaVersion := crossScalaVersions.value.head
 
 crossScalaVersions := Seq("2.13.8", /*"3.2.0", */"2.12.17")
 
-publishTo := Some(Resolver.evolutionReleases)
-
 libraryDependencies ++= crossSettings(
   scalaVersion.value,
   if3 = Nil,
@@ -49,4 +47,19 @@ libraryDependencies ++= Seq(
 
 licenses := Seq(("MIT", url("https://opensource.org/licenses/MIT")))
 
-releaseCrossBuild := true
+description             := "Cache in Scala with cats-effect"
+
+sonatypeCredentialHost := "s01.oss.sonatype.org"
+
+sonatypeRepository := "https://s01.oss.sonatype.org/service/local"
+
+Test / publishArtifact  := false
+
+scmInfo                 := Some(
+  ScmInfo(
+    url("https://github.com/evolution-gaming/scache"),
+    "git@github.com:evolution-gaming/scache.git",
+  ),
+)
+
+enablePlugins(GitVersioning)
