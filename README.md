@@ -2,7 +2,7 @@
 [![Build Status](https://github.com/evolution-gaming/scache/workflows/CI/badge.svg)](https://github.com/evolution-gaming/scache/actions?query=workflow%3ACI)
 [![Coverage Status](https://coveralls.io/repos/evolution-gaming/scache/badge.svg)](https://coveralls.io/r/evolution-gaming/scache)
 [![Codacy Badge](https://api.codacy.com/project/badge/Grade/d6da847f1228485e91525112112fb86b)](https://www.codacy.com/app/evolution-gaming/scache?utm_source=github.com&amp;utm_medium=referral&amp;utm_content=evolution-gaming/scache&amp;utm_campaign=Badge_Grade)
-[![Version](https://img.shields.io/badge/version-click-blue)](https://evolution.jfrog.io/artifactory/api/search/latestVersion?g=com.evolutiongaming&a=scache_2.13&repos=public)
+ [![Maven Central](https://maven-badges.herokuapp.com/maven-central/com.evolution/scache_2.13/badge.svg)](https://maven-badges.herokuapp.com/maven-central/com.evolution/scache_2.13)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellowgreen.svg)](https://opensource.org/licenses/MIT)
 
 ## Key features
@@ -109,9 +109,7 @@ trait SerialMap[F[_], K, V] {
 ## Setup
 
 ```scala
-addSbtPlugin("com.evolution" % "sbt-artifactory-plugin" % "0.0.2")
-
-libraryDependencies += "com.evolutiongaming" %% "scache" % "3.2.0"
+libraryDependencies += "com.evolution" %% "scache" % "4.3.1.1"
 ```
 
 ## ExpiringCache
