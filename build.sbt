@@ -62,4 +62,13 @@ scmInfo                 := Some(
   ),
 )
 
+developers              := List(
+    Developer(
+      "t3hnar",
+      "Yaroslav Klymko",
+      "yklymko@evolution.com",
+      url("https://github.com/t3hnar"),
+    )
+  )
+
 enablePlugins(GitVersioning)
