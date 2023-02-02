@@ -84,6 +84,8 @@ object CacheFenced {
 
       def values1 = cache.values1
 
+      def readyValues = cache.readyValues
+
       def remove(key: K) = cache.remove(key)
 
       def clear = cache.clear
@@ -131,6 +133,8 @@ object CacheFenced {
       def values = cache.values
 
       def values1 = cache.values1
+
+      def readyValues = cache.readyValues
 
       def remove(key: K) = cache.remove(key)
 

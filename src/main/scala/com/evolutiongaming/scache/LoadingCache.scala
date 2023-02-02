@@ -394,6 +394,19 @@ private[scache] object LoadingCache {
           .map { _.toMap }
       }
 
+      def readyValues: F[Map[K, V]] =
+        ref
+          .get
+          .flatMap { entryRefs =>
+            entryRefs.toVector.traverseFilter { case (key, entryRef) =>
+              entryRef.get.map {
+                case Left(_) => none // value is not loaded yet
+                case Right(entry) => (key -> entry.value).some
+              }
+            }
+          }
+          .map(_.toMap)
+
 
       def remove(key: K) = {
         0.tailRecM { counter =>

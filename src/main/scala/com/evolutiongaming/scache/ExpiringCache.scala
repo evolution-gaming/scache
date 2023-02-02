@@ -296,6 +296,16 @@ object ExpiringCache {
           }
       }
 
+      override def readyValues: F[Map[K, V]] = {
+        cache
+          .readyValues
+          .map { values =>
+            values.map { case (key, entry) =>
+              key -> entry.value
+            }
+          }
+      }
+
       def remove(key: K) = {
         cache
           .remove(key)

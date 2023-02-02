@@ -97,6 +97,11 @@ trait Cache[F[_], K, V] {
   def values1: F[Map[K, Either[F[V], V]]]
 
   /**
+    * @return a map of already loaded values
+    */
+  def readyValues: F[Map[K, V]]
+
+  /**
     * @return previous value if any, possibly not yet loaded
     */
   def remove(key: K): F[F[Option[V]]]
@@ -147,6 +152,8 @@ object Cache {
       def values = Map.empty[K, F[V]].pure[F]
 
       def values1 = Map.empty[K, Either[F[V], V]].pure[F]
+
+      def readyValues = Map.empty[K, V].pure[F]
 
       def remove(key: K) = none[V].pure[F].pure[F]
 
@@ -435,6 +442,8 @@ object Cache {
             .values1
             .map { _.map { case (k, v) => (k, v.leftMap { v => fg(v) }) } }
         }
+
+        def readyValues = fg(self.readyValues)
 
         def remove(key: K) = fg(self.remove(key).map(fg.apply))
 

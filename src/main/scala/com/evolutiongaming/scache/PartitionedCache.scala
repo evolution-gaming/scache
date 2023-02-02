@@ -113,6 +113,16 @@ object PartitionedCache {
           }
       }
 
+      def readyValues: F[Map[K, V]] = {
+        partitions
+          .values
+          .foldLeftM(Map.empty[K, V]) { (values, cache) =>
+            cache
+              .readyValues
+              .map { _ ++ values}
+          }
+      }
+
       def remove(key: K) = {
         partitions
           .get(key)
@@ -217,6 +227,16 @@ object PartitionedCache {
           .foldLeftM(Map.empty[K, Either[F[V], V]]) { (values, cache) =>
             cache
               .values1
+              .map { _ ++ values }
+          }
+      }
+
+      def readyValues = {
+        partitions
+          .values
+          .foldLeftM(Map.empty[K, V]) { (values, cache) =>
+            cache
+              .readyValues
               .map { _ ++ values }
           }
       }
