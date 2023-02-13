@@ -8,8 +8,6 @@ import com.evolutiongaming.catshelper.CatsHelper._
 import com.evolutiongaming.catshelper.Runtime
 import com.evolutiongaming.smetrics.MeasureDuration
 
-import scala.annotation.nowarn
-import scala.concurrent.duration._
 import scala.util.control.NoStackTrace
 
 trait Cache[F[_], K, V] {
@@ -21,9 +19,6 @@ trait Cache[F[_], K, V] {
   def get(key: K): F[Option[V]]
 
   def get1(key: K): F[Option[Either[F[V], V]]]
-
-  @deprecated("use `getOrElse1` instead", "3.6.0")
-  def getOrElse(key: K, default: => F[V]): F[V]
 
   /**
     * Does not run `value` concurrently for the same key
@@ -43,21 +38,6 @@ trait Cache[F[_], K, V] {
     * In case of none returned, value will be ignored by cache
     */
   def getOrUpdateOpt(key: K)(value: => F[Option[V]]): F[Option[V]]
-
-  /**
-    * Does not run `value` concurrently for the same key
-    * Releasable.release will be called upon key removal from the cache
-    */
-  @deprecated("use `getOrUpdateResource` instead", "3.6.0")
-  def getOrUpdateReleasable(key: K)(value: => F[Releasable[F, V]]): F[V]
-
-  /**
-    * Does not run `value` concurrently for the same key
-    * Releasable.release will be called upon key removal from the cache
-    * In case of none returned, value will be ignored by cache
-    */
-  @deprecated("use `getOrUpdateResourceOpt` instead", "3.6.0")
-  def getOrUpdateReleasableOpt(key: K)(value: => F[Option[Releasable[F, V]]]): F[Option[V]]
 
   /**
     * @return previous value if any, possibly not yet loaded
@@ -129,11 +109,6 @@ object Cache {
 
       def getOrUpdateOpt(key: K)(value: => F[Option[V]]) = value
 
-      @nowarn("msg=deprecated")
-      def getOrUpdateReleasableOpt(key: K)(value: => F[Option[Releasable[F, V]]]) = {
-        value.map { _.map { _.value } }
-      }
-
       def put(key: K, value: V, release: Option[F[Unit]]) = none[V].pure[F].pure[F]
 
       def contains(key: K) = false.pure[F]
@@ -156,33 +131,15 @@ object Cache {
     }
   }
 
-  @deprecated("use `loading1` instead", "3.4.0")
-  def loading[F[_]: Concurrent: Runtime, K, V]: Resource[F, Cache[F, K, V]] = {
-    implicit val parallel: Parallel[F] = Parallel.identity
-    loading1(none)
+  def loading[F[_]: Concurrent: Parallel: Runtime, K, V]: Resource[F, Cache[F, K, V]] = {
+    loading(none)
   }
 
-  @deprecated("use `loading1` instead", "3.4.0")
-  def loading[F[_]: Concurrent: Runtime, K, V](partitions: Int): Resource[F, Cache[F, K, V]] = {
-    implicit val parallel: Parallel[F] = Parallel.identity
-    loading1(partitions.some)
+  def loading[F[_]: Concurrent: Parallel: Runtime, K, V](partitions: Int): Resource[F, Cache[F, K, V]] = {
+    loading(partitions.some)
   }
 
-  @deprecated("use `loading1` instead", "3.4.0")
-  def loading[F[_]: Concurrent: Runtime, K, V](partitions: Option[Int] = None): Resource[F, Cache[F, K, V]] = {
-    implicit val parallel: Parallel[F] = Parallel.identity
-    loading1[F, K, V](partitions)
-  }
-
-  def loading1[F[_]: Concurrent: Parallel: Runtime, K, V]: Resource[F, Cache[F, K, V]] = {
-    loading1(none)
-  }
-
-  def loading1[F[_]: Concurrent: Parallel: Runtime, K, V](partitions: Int): Resource[F, Cache[F, K, V]] = {
-    loading1(partitions.some)
-  }
-
-  def loading1[F[_]: Concurrent: Parallel: Runtime, K, V](partitions: Option[Int] = None): Resource[F, Cache[F, K, V]] = {
+  def loading[F[_]: Concurrent: Parallel: Runtime, K, V](partitions: Option[Int] = None): Resource[F, Cache[F, K, V]] = {
 
     implicit val hash = Hash.fromUniversalHashCode[K]
 
@@ -194,51 +151,10 @@ object Cache {
       cache           = LoadingCache.of(LoadingCache.EntryRefs.empty[F, K, V])
       partitions     <- Partitions.of[Resource[F, *], K, Cache[F, K, V]](nrOfPartitions, _ => cache)
     } yield {
-      fromPartitions1(partitions)
+      fromPartitions(partitions)
     }
     result.breakFlatMapChain
   }
-
-
-  @deprecated("use `expiring` with `config` argument", "2.3.0")
-  def expiring[F[_]: Concurrent: Timer: Runtime: Parallel, K, V](
-    expireAfter: FiniteDuration,
-  ): Resource[F, Cache[F, K, V]] = {
-    expiring(
-      ExpiringCache.Config(expireAfterRead = expireAfter),
-      none)
-  }
-
-  @deprecated("use `expiring` with `config` argument", "2.3.0")
-  def expiring[F[_]: Concurrent: Timer: Runtime: Parallel, K, V](
-    expireAfter: FiniteDuration,
-    maxSize: Option[Int],
-    refresh: Option[ExpiringCache.Refresh[K, F[V]]]
-  ): Resource[F, Cache[F, K, V]] = {
-    expiring(
-      ExpiringCache.Config(
-        expireAfterRead = expireAfter,
-        maxSize = maxSize,
-        refresh = refresh.map { refresh => refresh.copy(value = (k: K) => refresh.value(k).map { _.some }) }),
-      none)
-  }
-
-
-  @deprecated("use `expiring` with `config` argument", "2.3.0")
-  def expiring[F[_]: Concurrent: Timer: Runtime: Parallel, K, V](
-    expireAfter: FiniteDuration,
-    maxSize: Option[Int],
-    refresh: Option[ExpiringCache.Refresh[K, F[V]]],
-    partitions: Option[Int]
-  ): Resource[F, Cache[F, K, V]] = {
-    expiring(
-      ExpiringCache.Config(
-        expireAfterRead = expireAfter,
-        maxSize = maxSize,
-        refresh = refresh.map { refresh => refresh.copy(value = (k: K) => refresh.value(k).map { _.some }) }),
-      partitions)
-  }
-
 
   def expiring[F[_]: Concurrent: Timer: Runtime: Parallel, K, V](
     config: ExpiringCache.Config[F, K, V],
@@ -262,42 +178,17 @@ object Cache {
       cache           = ExpiringCache.of[F, K, V](config1)
       partitions     <- Partitions.of[Resource[F, *], K, Cache[F, K, V]](nrOfPartitions, _ => cache)
     } yield {
-      fromPartitions1(partitions)
+      fromPartitions(partitions)
     }
 
     result.breakFlatMapChain
   }
 
-  @deprecated("use `fromPartitions1` instead", "3.6.0")
-  def fromPartitions[F[_]: Monad: Parallel, K, V](partitions: Partitions[K, Cache[F, K, V]]): Cache[F, K, V] = {
-    PartitionedCache.apply1(partitions)
+  def fromPartitions[F[_]: MonadThrow: Parallel, K, V](partitions: Partitions[K, Cache[F, K, V]]): Cache[F, K, V] = {
+    PartitionedCache(partitions)
   }
 
-  def fromPartitions1[F[_]: MonadThrow: Parallel, K, V](partitions: Partitions[K, Cache[F, K, V]]): Cache[F, K, V] = {
-    PartitionedCache.apply2(partitions)
-  }
-
-  private[scache] abstract class Abstract0[F[_]: Monad, K, V] extends Cache[F, K, V] { self =>
-
-    def getOrElse(key: K, default: => F[V]) = {
-      self
-        .get(key)
-        .flatMap {
-          case Some(a) => a.pure[F]
-          case None    => default
-        }
-    }
-
-    @nowarn("msg=deprecated")
-    def getOrUpdateReleasable(key: K)(value: => F[Releasable[F, V]]) = {
-      self
-        .getOrUpdate1(key) { value.map { a => (a.value, a.value, a.release.some) } }
-        .flatMap {
-          case Right(Right(a)) => a.pure[F]
-          case Right(Left(a))  => a
-          case Left(a)         => a.pure[F]
-        }
-    }
+  private[scache] abstract class Abstract0[F[_], K, V] extends Cache[F, K, V] { self =>
 
     def put(key: K, value: V) = self.put(key, value, none)
 
@@ -321,24 +212,6 @@ object Cache {
         }
         .map { _.some }
         .recover { case NoneError => none }
-    }
-
-    @nowarn("msg=deprecated")
-    def getOrUpdateReleasableOpt(key: K)(value: => F[Option[Releasable[F, V]]]) = {
-      self
-        .getOrUpdateOpt1(key) {
-          value.map { releasable =>
-            releasable.map { releasable =>
-              (releasable.value, releasable.value, releasable.release.some)
-            }
-          }
-        }
-        .flatMap {
-          case Some(Right(Right(a))) => a.some.pure[F]
-          case Some(Right(Left(a)))  => a.map { _.some }
-          case Some(Left(a))         => a.some.pure[F]
-          case None                  => none[V].pure[F]
-        }
     }
   }
 
@@ -370,9 +243,6 @@ object Cache {
           }
         }
 
-        @nowarn("msg=method getOrElse in trait Cache is deprecated")
-        def getOrElse(key: K, default: => G[V]) = fg(self.getOrElse(key, gf(default)))
-
         def getOrUpdate(key: K)(value: => G[V]) = fg(self.getOrUpdate(key)(gf(value)))
 
         def getOrUpdate1[A](key: K)(value: => G[(A, V, Option[Release])]) = {
@@ -385,16 +255,6 @@ object Cache {
 
         def getOrUpdateOpt(key: K)(value: => G[Option[V]]) = {
           fg(self.getOrUpdateOpt(key)(gf(value)))
-        }
-
-        @nowarn("msg=deprecated")
-        def getOrUpdateReleasable(key: K)(value: => G[Releasable[G, V]]) = {
-          fg(self.getOrUpdateReleasable(key)(gf(value).map(_.mapK(gf))))
-        }
-
-        @nowarn("msg=deprecated")
-        def getOrUpdateReleasableOpt(key: K)(value: => G[Option[Releasable[G, V]]]) = {
-          fg(self.getOrUpdateReleasableOpt(key)(gf(value).map(_.map(_.mapK(gf)))))
         }
 
         def put(key: K, value: V) = {
@@ -449,9 +309,9 @@ object Cache {
       }
     }
 
-    def withFence(implicit F: Concurrent[F]): Resource[F, Cache[F, K, V]] = CacheFenced.of1(self)
+    def withFence(implicit F: Concurrent[F]): Resource[F, Cache[F, K, V]] = CacheFenced.of(self)
 
-    def getOrElse1(key: K, value: => F[V])(implicit F: Monad[F]): F[V] = {
+    def getOrElse(key: K, value: => F[V])(implicit F: Monad[F]): F[V] = {
       self
         .get(key)
         .flatMap {
@@ -538,11 +398,5 @@ object Cache {
           case None                  => none[V].pure[F]
         }
     }
-  }
-
-  implicit class CacheResourceOps[F[_], K, V](val self: Resource[F, Cache[F, K, V]]) extends AnyVal {
-
-    @deprecated("use `Cache[F, K, V].withFence`", "3.4.0")
-    def withFence(implicit F: Concurrent[F]): Resource[F, Cache[F, K, V]] = CacheFenced.of(self)
   }
 }
