@@ -4,9 +4,8 @@ import cats.effect.{Clock, Ref, Resource, Temporal}
 import cats.effect.syntax.all.*
 import cats.kernel.CommutativeMonoid
 import cats.syntax.all.*
-import cats.{Applicative, MonadThrow, Monoid, Parallel}
+import cats.{Applicative, Monad, MonadThrow, Monoid}
 import com.evolutiongaming.catshelper.ClockHelper.*
-import com.evolutiongaming.catshelper.ParallelHelper.*
 import com.evolutiongaming.catshelper.Schedule
 
 import scala.concurrent.duration.*
@@ -15,7 +14,7 @@ object ExpiringCache {
 
   type Timestamp = Long
 
-  private[scache] def of[F[_]: Parallel, K, V](
+  private[scache] def of[F[_], K, V](
     config: Config[F, K, V]
   )(implicit G: Temporal[F]): Resource[F, Cache[F, K, V]] = {
     
@@ -76,7 +75,7 @@ object ExpiringCache {
               entries
                 .sortBy(_.timestamp)
                 .take(maxSize / 10)
-                .parFoldMap1 { elem => remove(elem.key) }
+                .foldMapM { elem => remove(elem.key) }
             }
         }
 
@@ -88,7 +87,7 @@ object ExpiringCache {
 
       for {
         entryRefs <- ref.get
-        result    <- entryRefs.parFoldMap1 { case (key, entryRef) => removeExpired(key, entryRef) }
+        result    <- entryRefs.foldMapM { case (key, entryRef) => removeExpired(key, entryRef) }
         _         <- config
           .maxSize
           .foldMapM { maxSize => notExceedMaxSize(maxSize) }
@@ -103,7 +102,7 @@ object ExpiringCache {
       ref
         .get
         .flatMap { entryRefs =>
-          entryRefs.parFoldMap1 { case (key, entryRef) =>
+          entryRefs.foldMapM { case (key, entryRef) =>
             entryRef
               .get
               .flatMap { value =>
@@ -349,4 +348,18 @@ object ExpiringCache {
     expireAfterWrite: Option[FiniteDuration] = None,
     maxSize: Option[Int] = None,
     refresh: Option[Refresh[K, F[Option[V]]]] = None)
+
+
+  private implicit class MapOps[K, V](val self: Map[K, V]) extends AnyVal {
+    def foldMapM[F[_]: Monad, A: Monoid](f: (K, V) => F[A]): F[A] = {
+      self.foldLeft(Monoid[A].empty.pure[F]) { case (a, (k, v)) =>
+        for {
+          a <- a
+          b <- f(k, v)
+        } yield {
+          a.combine(b)
+        }
+      }
+    }
+  }
 }
