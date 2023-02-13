@@ -1,4 +1,4 @@
-package com.evolutiongaming.scache
+package com.evolution.scache
 
 import cats.kernel.CommutativeMonoid
 import cats.syntax.all._

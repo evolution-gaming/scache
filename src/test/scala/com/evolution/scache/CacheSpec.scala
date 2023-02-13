@@ -1,4 +1,4 @@
-package com.evolutiongaming.scache
+package com.evolution.scache
 
 import cats.Monad
 import cats.arrow.FunctionK
@@ -6,7 +6,7 @@ import cats.effect.concurrent.{Deferred, Ref}
 import cats.effect.{Concurrent, Fiber, IO, Resource}
 import cats.effect.implicits._
 import cats.syntax.all._
-import com.evolutiongaming.scache.IOSuite._
+import com.evolution.scache.IOSuite._
 import com.evolutiongaming.catshelper.CatsHelper._
 import com.evolutiongaming.smetrics.CollectorRegistry
 

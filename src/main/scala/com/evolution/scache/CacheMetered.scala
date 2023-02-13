@@ -1,4 +1,4 @@
-package com.evolutiongaming.scache
+package com.evolution.scache
 
 import cats.effect.{Concurrent, Resource, Timer}
 import cats.kernel.CommutativeMonoid

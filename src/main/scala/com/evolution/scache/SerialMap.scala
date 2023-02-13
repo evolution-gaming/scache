@@ -1,4 +1,4 @@
-package com.evolutiongaming.scache
+package com.evolution.scache
 
 import cats.{Applicative, Parallel}
 import cats.effect.Concurrent

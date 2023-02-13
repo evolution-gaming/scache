@@ -1,10 +1,10 @@
-package com.evolutiongaming.scache
+package com.evolution.scache
 
 import cats.effect.concurrent.{Deferred, Ref}
 import cats.effect.{Concurrent, IO, Sync, Timer}
 import cats.syntax.all._
 import cats.{Monad, Parallel}
-import com.evolutiongaming.scache.IOSuite._
+import com.evolution.scache.IOSuite._
 import org.scalatest.funsuite.AsyncFunSuite
 import org.scalatest.matchers.should.Matchers
 

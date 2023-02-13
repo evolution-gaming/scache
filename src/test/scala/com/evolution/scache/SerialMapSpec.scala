@@ -1,4 +1,4 @@
-package com.evolutiongaming.scache
+package com.evolution.scache
 
 import cats.Parallel
 import cats.effect.concurrent.Deferred
@@ -6,7 +6,7 @@ import cats.effect.{Concurrent, IO}
 import cats.syntax.all._
 import com.evolutiongaming.catshelper.CatsHelper._
 import com.evolutiongaming.catshelper.SerialRef
-import com.evolutiongaming.scache.IOSuite._
+import com.evolution.scache.IOSuite._
 
 import scala.util.control.NoStackTrace
 import org.scalatest.funsuite.AsyncFunSuite

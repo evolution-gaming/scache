@@ -1,4 +1,4 @@
-package com.evolutiongaming.scache
+package com.evolution.scache
 
 import cats.{Applicative, Monad}
 import cats.effect.Resource

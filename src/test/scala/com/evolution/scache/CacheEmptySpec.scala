@@ -1,9 +1,9 @@
-package com.evolutiongaming.scache
+package com.evolution.scache
 
 import cats.effect.concurrent.Deferred
 import cats.effect.{IO, Sync}
 import cats.syntax.all._
-import com.evolutiongaming.scache.IOSuite._
+import com.evolution.scache.IOSuite._
 import com.evolutiongaming.catshelper.CatsHelper._
 import org.scalatest.funsuite.AsyncFunSuite
 import org.scalatest.matchers.should.Matchers

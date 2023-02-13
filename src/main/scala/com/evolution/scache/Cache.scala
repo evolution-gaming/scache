@@ -1,4 +1,4 @@
-package com.evolutiongaming.scache
+package com.evolution.scache
 
 import cats.effect.{BracketThrow, Concurrent, Resource, Timer}
 import cats.syntax.all._

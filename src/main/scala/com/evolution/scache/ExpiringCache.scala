@@ -1,4 +1,4 @@
-package com.evolutiongaming.scache
+package com.evolution.scache
 
 import cats.effect.concurrent.Ref
 import cats.effect.{Clock, Concurrent, Resource, Timer}
