@@ -45,7 +45,7 @@ class ExpiringCacheSpec extends AsyncFunSuite with Matchers {
     `refresh removes entry`[IO].run()
   }
 
-  private def expireRecords[F[_] : Concurrent : Timer] = {
+  private def expireRecords[F[_] : Concurrent : Timer : Parallel] = {
 
     ExpiringCache.of[F, Int, Int](ExpiringCache.Config(expireAfterRead = 100.millis)).use { cache =>
       for {
@@ -62,7 +62,7 @@ class ExpiringCacheSpec extends AsyncFunSuite with Matchers {
     }
   }
 
-  private def `expire created entries`[F[_] : Concurrent : Timer] = {
+  private def `expire created entries`[F[_] : Concurrent : Timer : Parallel] = {
     val  config = ExpiringCache.Config[F, Int, Int](
       expireAfterRead = 1.minute,
       expireAfterWrite = 150.millis.some)
@@ -80,7 +80,7 @@ class ExpiringCacheSpec extends AsyncFunSuite with Matchers {
     }
   }
 
-  private def notExpireUsedRecords[F[_] : Concurrent : Timer] = {
+  private def notExpireUsedRecords[F[_] : Concurrent : Timer : Parallel] = {
     ExpiringCache.of[F, Int, Int](ExpiringCache.Config(50.millis)).use { cache =>
       val touch = for {
         _ <- Timer[F].sleep(10.millis)
@@ -106,7 +106,7 @@ class ExpiringCacheSpec extends AsyncFunSuite with Matchers {
   }
 
 
-  private def notExceedMaxSize[F[_] : Concurrent : Timer] = {
+  private def notExceedMaxSize[F[_] : Concurrent : Timer : Parallel] = {
     val config = ExpiringCache.Config[F, Int, Int](
       expireAfterRead = 100.millis,
       expireAfterWrite = 100.millis.some,
@@ -124,7 +124,7 @@ class ExpiringCacheSpec extends AsyncFunSuite with Matchers {
     }
   }
 
-  private def refreshPeriodically[F[_] : Concurrent : Timer] = {
+  private def refreshPeriodically[F[_] : Concurrent : Timer : Parallel] = {
     val refresh = ExpiringCache.Refresh[Int](100.millis) { _.some.pure[F] }
     val config = ExpiringCache.Config(
       expireAfterRead = 1.minute,
@@ -154,7 +154,7 @@ class ExpiringCacheSpec extends AsyncFunSuite with Matchers {
     }
   }
 
-  private def refreshDoesNotTouch[F[_] : Concurrent : Timer] = {
+  private def refreshDoesNotTouch[F[_] : Concurrent : Timer : Parallel] = {
     val refresh = ExpiringCache.Refresh[Int](100.millis) { _.some.pure[F] }
 
     val config = ExpiringCache.Config(
@@ -190,7 +190,7 @@ class ExpiringCacheSpec extends AsyncFunSuite with Matchers {
     }
   }
 
-  private def refreshFails[F[_] : Concurrent : Timer] = {
+  private def refreshFails[F[_] : Concurrent : Timer : Parallel] = {
 
     def valueOf(ref: Ref[F, Int]) = {
       (_: Int) => {
@@ -238,7 +238,7 @@ class ExpiringCacheSpec extends AsyncFunSuite with Matchers {
     } yield result
   }
 
-  def `refresh removes entry`[F[_] : Concurrent : Timer] = {
+  def `refresh removes entry`[F[_] : Concurrent : Timer : Parallel] = {
     val refresh = ExpiringCache.Refresh[Int](100.millis) { _ => none[Int].pure[F] }
 
     val config = ExpiringCache.Config(

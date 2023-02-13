@@ -16,17 +16,7 @@ scalaVersion := crossScalaVersions.value.head
 
 crossScalaVersions := Seq("2.13.8", "2.12.17")
 
-libraryDependencies ++= crossSettings(
-  scalaVersion.value,
-  if3 = Nil,
-  if2 = Seq(compilerPlugin(`kind-projector` cross CrossVersion.full)),
-)
-
-scalacOptions ++= crossSettings(
-  scalaVersion.value,
-  if3 = Seq("-Ykind-projector:underscores", "-language:implicitConversions"),
-  if2 = Seq("-Xsource:3", "-P:kind-projector:underscore-placeholders"),
-)
+libraryDependencies += compilerPlugin(`kind-projector` cross CrossVersion.full)
 
 libraryDependencies ++= Seq(
   Cats.core,

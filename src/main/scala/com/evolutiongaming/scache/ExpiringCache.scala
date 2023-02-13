@@ -4,10 +4,9 @@ import cats.effect.concurrent.Ref
 import cats.effect.{Clock, Concurrent, Resource, Timer}
 import cats.kernel.CommutativeMonoid
 import cats.syntax.all._
-import cats.{Applicative, MonadThrow, Parallel}
+import cats.{Applicative, Monad, MonadThrow, Monoid, Parallel}
 import com.evolutiongaming.catshelper.CatsHelper._
 import com.evolutiongaming.catshelper.ClockHelper._
-import com.evolutiongaming.catshelper.ParallelHelper._
 import com.evolutiongaming.catshelper.Schedule
 
 import scala.concurrent.duration._
