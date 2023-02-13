@@ -1,8 +1,8 @@
-package com.evolutiongaming.scache
+package com.evolution.scache
 
 import cats.effect.*
 import cats.syntax.all.*
-import com.evolutiongaming.scache.IOSuite.*
+import com.evolution.scache.IOSuite.*
 import org.scalatest.funsuite.AsyncFunSuite
 import org.scalatest.matchers.should.Matchers
 

@@ -1,4 +1,4 @@
-package com.evolutiongaming.scache
+package com.evolution.scache
 
 import cats.effect.{Clock, Ref, Resource, Temporal}
 import cats.effect.syntax.all.*

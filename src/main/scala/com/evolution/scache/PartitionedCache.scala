@@ -1,4 +1,4 @@
-package com.evolutiongaming.scache
+package com.evolution.scache
 
 import cats.syntax.all.*
 import cats.{Applicative, Monad, MonadThrow, Parallel}

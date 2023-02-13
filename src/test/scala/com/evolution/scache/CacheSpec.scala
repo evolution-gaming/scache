@@ -1,4 +1,4 @@
-package com.evolutiongaming.scache
+package com.evolution.scache
 
 import cats.Monad
 import cats.arrow.FunctionK
@@ -6,7 +6,7 @@ import cats.effect.implicits.*
 import cats.effect.*
 import cats.syntax.all.*
 import com.evolutiongaming.catshelper.CatsHelper.*
-import com.evolutiongaming.scache.IOSuite.*
+import com.evolution.scache.IOSuite.*
 import com.evolutiongaming.smetrics.CollectorRegistry
 import org.scalatest.funsuite.AsyncFunSuite
 import org.scalatest.matchers.should.Matchers

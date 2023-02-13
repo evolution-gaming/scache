@@ -1,4 +1,4 @@
-package com.evolutiongaming.scache
+package com.evolution.scache
 
 import cats.{Functor, Monad, MonadThrow, Parallel}
 import cats.effect.implicits.*

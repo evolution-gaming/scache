@@ -1,4 +1,4 @@
-package com.evolutiongaming.scache
+package com.evolution.scache
 
 import cats.effect.unsafe.implicits.global
 import cats.effect.{Clock, IO}

@@ -1,4 +1,4 @@
-package com.evolutiongaming.scache
+package com.evolution.scache
 
 import cats.effect.kernel.MonadCancel
 import cats.effect.{Concurrent, Resource, Temporal}

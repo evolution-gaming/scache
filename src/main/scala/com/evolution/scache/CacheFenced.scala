@@ -1,4 +1,4 @@
-package com.evolutiongaming.scache
+package com.evolution.scache
 
 import cats.{FlatMap, MonadThrow}
 import cats.effect.{Concurrent, Ref, Resource}

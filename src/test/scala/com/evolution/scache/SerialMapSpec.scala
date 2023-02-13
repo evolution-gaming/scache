@@ -1,10 +1,10 @@
-package com.evolutiongaming.scache
+package com.evolution.scache
 
 import cats.effect.{Async, Concurrent, Deferred, IO, Outcome}
 import cats.syntax.all.*
 import com.evolutiongaming.catshelper.CatsHelper.*
 import com.evolutiongaming.catshelper.SerialRef
-import com.evolutiongaming.scache.IOSuite.*
+import com.evolution.scache.IOSuite.*
 
 import scala.util.control.NoStackTrace
 import org.scalatest.funsuite.AsyncFunSuite
