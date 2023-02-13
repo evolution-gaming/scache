@@ -24,7 +24,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
 
   for {
     (name, cache0) <- List(
-      ("default"               , Cache.loading1[IO, Int, Int]),
+      ("default"               , Cache.loading[IO, Int, Int]),
       ("no partitions"         , LoadingCache.of(LoadingCache.EntryRefs.empty[IO, Int, Int])),
       ("expiring"              , expiringCache),
       ("expiring no partitions", ExpiringCache.of[IO, Int, Int](ExpiringCache.Config(expireAfterRead = 1.minute))))
@@ -99,14 +99,14 @@ class CacheSpec extends AsyncFunSuite with Matchers {
     }
 
 
-    test(s"getOrElse1: $name") {
+    test(s"getOrElse: $name") {
       cache
         .use { cache =>
           for {
-            value <- cache.getOrElse1(0, 1.pure[IO])
+            value <- cache.getOrElse(0, 1.pure[IO])
             _      = value shouldEqual 1
             _     <- cache.put(0, 2)
-            value <- cache.getOrElse1(0, 1.pure[IO])
+            value <- cache.getOrElse(0, 1.pure[IO])
             _      = value shouldEqual 2
           } yield {}
         }
@@ -114,10 +114,10 @@ class CacheSpec extends AsyncFunSuite with Matchers {
     }
 
 
-    test(s"getOrElse1 succeeds after cache is released: $name") {
+    test(s"getOrElse succeeds after cache is released: $name") {
       val result = for {
         cache <- cache.use { _.pure[IO] }
-        a     <- cache.getOrElse1(0, 1.pure[IO])
+        a     <- cache.getOrElse(0, 1.pure[IO])
         _      = a shouldEqual 1
       } yield {}
       result.run()

@@ -11,7 +11,7 @@ import org.scalatest.matchers.should.Matchers
 class CacheFencedTest extends AsyncFunSuite with Matchers {
 
   private val cache = Cache
-    .loading1[IO, Int, Int]
+    .loading[IO, Int, Int]
     .flatMap { _.withFence }
 
   test(s"get succeeds after cache is released") {
@@ -26,7 +26,7 @@ class CacheFencedTest extends AsyncFunSuite with Matchers {
   test("getOrElse succeeds after cache is released") {
     val result = for {
       cache <- cache.use(_.pure[IO])
-      a     <- cache.getOrElse1(0, 1.pure[IO])
+      a     <- cache.getOrElse(0, 1.pure[IO])
       _      = a shouldEqual 1
     } yield {}
     result.run()
@@ -100,7 +100,7 @@ class CacheFencedTest extends AsyncFunSuite with Matchers {
       val cache = for {
         _     <- Resource.release { ref.update(_ + 1) }
         cache <- Cache
-          .loading1[IO, Int, Int]
+          .loading[IO, Int, Int]
           .flatMap { _.withFence }
       } yield cache
       cache.fenced
