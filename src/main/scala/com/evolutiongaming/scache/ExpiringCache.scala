@@ -77,7 +77,7 @@ object ExpiringCache {
               entries
                 .sortBy(_.timestamp)
                 .take(maxSize / 10)
-                .parFoldMap1 { elem => remove(elem.key) }
+                .foldMapM { elem => remove(elem.key) }
             }
         }
 
@@ -89,7 +89,7 @@ object ExpiringCache {
 
       for {
         entryRefs <- ref.get
-        result    <- entryRefs.parFoldMap1 { case (key, entryRef) => removeExpired(key, entryRef) }
+        result    <- entryRefs.foldMapM { case (key, entryRef) => removeExpired(key, entryRef) }
         _         <- config
           .maxSize
           .foldMapM { maxSize => notExceedMaxSize(maxSize) }
@@ -104,7 +104,7 @@ object ExpiringCache {
       ref
         .get
         .flatMap { entryRefs =>
-          entryRefs.parFoldMap1 { case (key, entryRef) =>
+          entryRefs.foldMapM { case (key, entryRef) =>
             entryRef
               .get
               .flatMap { value =>
@@ -350,4 +350,18 @@ object ExpiringCache {
     expireAfterWrite: Option[FiniteDuration] = none,
     maxSize: Option[Int] = none,
     refresh: Option[Refresh[K, F[Option[V]]]] = none)
+
+
+  private implicit class MapOps[K, V](val self: Map[K, V]) extends AnyVal {
+    def foldMapM[F[_]: Monad, A: Monoid](f: (K, V) => F[A]): F[A] = {
+      self.foldLeft(Monoid[A].empty.pure[F]) { case (a, (k, v)) =>
+        for {
+          a <- a
+          b <- f(k, v)
+        } yield {
+          a.combine(b)
+        }
+      }
+    }
+  }
 }
