@@ -12,6 +12,19 @@ import com.evolutiongaming.smetrics.MeasureDuration
 
 import scala.util.control.NoStackTrace
 
+/** Tagless Final implementation of a cache interface.
+  *
+  * @tparam F
+  *   Effect to be used in effectful methods such as [[#get]]
+  * @tparam K
+  *   Key type. While there is no restriction / context bounds on this type
+  *   parameter, the implementation is expected to abuse the fact that it is
+  *   possible to call `hashCode` and `==` on any object in JVM. If performance
+  *   is important, it is recommeded to limit `K` to the types where these
+  *   operations are fast such as `String` or `Integer`.
+  * @tparam V
+  *   Value type.
+  */
 trait Cache[F[_], K, V] {
 
   type Release = F[Unit]
@@ -58,7 +71,7 @@ trait Cache[F[_], K, V] {
 
 
   def contains(key: K): F[Boolean]
-  
+
 
   def size: F[Int]
 
@@ -94,6 +107,17 @@ trait Cache[F[_], K, V] {
 
 object Cache {
 
+  /** Creates an always-empty implementation of cache.
+    *
+    * The implementation *almost* always returns `None` regardess the key.
+    * The notable exception are [[#getOrUpdate]], [[#getOrUpdate1]] and
+    * [[#getOrUpdateOpt]] methods, which return the value passed to them to
+    * ensure the consistent behavior (i.e. it could be a suprise if someone
+    * calls [[#getOrUpdateOpt]] with `Some` and gets `None` as a result).
+    *
+    * It is meant to be used in tests, or as a stub in the code where cache
+    * should be disabled.
+    */
   def empty[F[_]: Monad, K, V]: Cache[F, K, V] = {
     abstract class Empty extends Cache.Abstract0[F, K, V]
 
