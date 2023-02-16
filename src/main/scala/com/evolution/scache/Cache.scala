@@ -185,7 +185,7 @@ object Cache {
     *   - [[cats.Parallel]] allows splitting underlying cache into multiple
     *     partitions, so there is no contention on a single [[cats.effect.Ref]]
     *     when cache need to be updated.
-    *   - `Runtime` is used to determine optimal number of partition based on
+    *   - `Runtime` is used to determine optimal number of partitions based on
     *     CPU count if the value is not provided as a parameter.
     *   - [[cats.effect.Sync]] (which comes as part of
     *     [[cats.effect.Concurrent]]), allows internal structures using
@@ -193,7 +193,7 @@ object Cache {
     *   - [[cats.effect.Concurrent]], allows `release` parameter in
     *     [[Cache#put(key:K,value:V,release:Cache*]] and [[Cache#getOrUpdate1]]
     *     methods to be called in background without waiting for release to be
-    *     complete.
+    *     completed.
     *
     * @tparam F
     *   Effect type. See [[Cache]] for more details.
