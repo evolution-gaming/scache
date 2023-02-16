@@ -21,7 +21,7 @@ import scala.util.control.NoStackTrace
   *   parameter, the implementation is expected to abuse the fact that it is
   *   possible to call `hashCode` and `==` on any object in JVM. If performance
   *   is important, it is recommeded to limit `K` to the types where these
-  *   operations are fast such as `String` or `Integer`.
+  *   operations are fast such as `String`, `Integer` or a case class.
   * @tparam V
   *   Value type.
   */
