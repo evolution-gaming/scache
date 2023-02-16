@@ -109,11 +109,12 @@ object Cache {
 
   /** Creates an always-empty implementation of cache.
     *
-    * The implementation *almost* always returns `None` regardess the key. The
-    * notable exception are [[Cache#getOrUpdate]], [[Cache#getOrUpdate1]] and
-    * [[Cache#getOrUpdateOpt]] methods, which return the value passed to them to
-    * ensure the consistent behavior (i.e. it could be a suprise if someone
-    * calls [[Cache#getOrUpdateOpt]] with `Some` and gets `None` as a result).
+    * The implementation *almost* always returns [[scala.None]] regardess the
+    * key. The notable exception are [[Cache#getOrUpdate]],
+    * [[Cache#getOrUpdate1]] and [[Cache#getOrUpdateOpt]] methods, which return
+    * the value passed to them to ensure the consistent behavior (i.e. it could
+    * be a suprise if someone calls [[Cache#getOrUpdateOpt]] with [[scala.Some]]
+    * and gets [[scala.None]] as a result).
     *
     * It is meant to be used in tests, or as a stub in the code where cache
     * should be disabled.
