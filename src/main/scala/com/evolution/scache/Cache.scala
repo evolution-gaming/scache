@@ -15,7 +15,7 @@ import scala.util.control.NoStackTrace
 /** Tagless Final implementation of a cache interface.
   *
   * @tparam F
-  *   Effect to be used in effectful methods such as [[#get]]
+  *   Effect to be used in effectful methods such as [[#get]].
   * @tparam K
   *   Key type. While there is no restriction / context bounds on this type
   *   parameter, the implementation is expected to abuse the fact that it is
@@ -109,11 +109,11 @@ object Cache {
 
   /** Creates an always-empty implementation of cache.
     *
-    * The implementation *almost* always returns `None` regardess the key.
-    * The notable exception are [[#getOrUpdate]], [[#getOrUpdate1]] and
-    * [[#getOrUpdateOpt]] methods, which return the value passed to them to
+    * The implementation *almost* always returns `None` regardess the key. The
+    * notable exception are [[Cache#getOrUpdate]], [[Cache#getOrUpdate1]] and
+    * [[Cache#getOrUpdateOpt]] methods, which return the value passed to them to
     * ensure the consistent behavior (i.e. it could be a suprise if someone
-    * calls [[#getOrUpdateOpt]] with `Some` and gets `None` as a result).
+    * calls [[Cache#getOrUpdateOpt]] with `Some` and gets `None` as a result).
     *
     * It is meant to be used in tests, or as a stub in the code where cache
     * should be disabled.
@@ -157,14 +157,55 @@ object Cache {
     }
   }
 
+  /** Creates a cache implementation, which is able to load the missing values.
+    *
+    * Same as [[[[#loading[F[_],K,V](partitions:Int)*]]]], but with number of
+    * paritions determined automatically.
+    */
   def loading[F[_]: Concurrent: Parallel: Runtime, K, V]: Resource[F, Cache[F, K, V]] = {
     loading(none)
   }
 
+  /** Creates a cache implementation, which is able to load the missing values.
+    *
+    * Same as [[#loading[F[_],K,V](partitions:Option[Int])*]], but without the
+    * need to use `Option`.
+    */
   def loading[F[_]: Concurrent: Parallel: Runtime, K, V](partitions: Int): Resource[F, Cache[F, K, V]] = {
     loading(partitions.some)
   }
 
+  /** Creates a cache implementation, which is able to load the missing values.
+    *
+    * To speed the operations, the cache may use several partitions each of whom
+    * may be accessed in parallel.
+    *
+    * Here is a short description of why some of the context bounds are required
+    * on `F[_]`:
+    *   - [[cats.Parallel]] allows splitting underlying cache into multiple
+    *     partitions, so there is no contention on a single [[cats.effect.Ref]]
+    *     when cache need to be updated.
+    *   - `Runtime` is used to determine optimal number of partition based on
+    *     CPU count if the value is not provided as a parameter.
+    *   - [[cats.effect.Sync]] (which comes as part of
+    *     [[cats.effect.Concurrent]]), allows internal structures using
+    *     [[cats.effect.Ref]] and [[cats.effect.Deferred]] to be created.
+    *   - [[cats.effect.Concurrent]], allows `release` parameter in
+    *     [[Cache#put(key:K,value:V,release:Cache*]] and [[Cache#getOrUpdate1]]
+    *     methods to be called in background without waiting for release to be
+    *     complete.
+    *
+    * @tparam F
+    *   Effect type. See [[Cache]] for more details.
+    * @tparam K
+    *   Key type. See [[Cache]] for more details.
+    * @tparam V
+    *   Value type. See [[Cache]] for more details.
+    *
+    * @param partitions
+    *   Number of partitions to use, or [[scala.None]] in case number of
+    *   partitions should be determined automatically.
+    */
   def loading[F[_]: Concurrent: Parallel: Runtime, K, V](partitions: Option[Int] = None): Resource[F, Cache[F, K, V]] = {
 
     implicit val hash: Hash[K] = Hash.fromUniversalHashCode[K]

@@ -45,6 +45,8 @@ libraryDependencies ++= Seq(
   scalatest % Test
 )
 
+autoAPIMappings := true
+
 licenses := Seq(("MIT", url("https://opensource.org/licenses/MIT")))
 
 description             := "Cache in Scala with cats-effect"
