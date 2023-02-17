@@ -161,7 +161,7 @@ object Cache {
   /** Creates a cache implementation, which is able to load the missing values.
     *
     * Same as [[[[#loading[F[_],K,V](partitions:Int)*]]]], but with number of
-    * paritions determined automatically.
+    * paritions determined automatically using passed `Runtime` implementation.
     */
   def loading[F[_]: Concurrent: Parallel: Runtime, K, V]: Resource[F, Cache[F, K, V]] = {
     loading(none)
@@ -180,6 +180,11 @@ object Cache {
     *
     * To speed the operations, the cache may use several partitions each of whom
     * may be accessed in parallel.
+    *
+    * Note, that the values getting into this cache never expire, i.e. the cache
+    * will grow indefinetely unless [[Cache#remove]] is called. See
+    * [[#expiring]] for the implementation, which allows automatic expriation of
+    * the values.
     *
     * Here is a short description of why some of the context bounds are required
     * on `F[_]`:
@@ -205,7 +210,8 @@ object Cache {
     *
     * @param partitions
     *   Number of partitions to use, or [[scala.None]] in case number of
-    *   partitions should be determined automatically.
+    *   partitions should be determined automatically using passed `Runtime`
+    *   implementation.
     */
   def loading[F[_]: Concurrent: Parallel: Runtime, K, V](partitions: Option[Int] = None): Resource[F, Cache[F, K, V]] = {
 
@@ -224,6 +230,36 @@ object Cache {
     result.breakFlatMapChain
   }
 
+  /** Creates a cache implementation, which is able remove the stale values.
+    *
+    * The undelying storage implementation is the same as in [[#loading]], but
+    * the expiration routines are added on top of it.
+    *
+    * Besides a value expiration leading to specific key being removed from the
+    * cache, the implementation is capable of _refreshing_ the values instead of
+    * removing them, which might be useful if the cache is used as a wrapper for
+    * setting or configuration service. The feature is possible to configure
+    * using `config` parameter.
+    *
+    * In adddition to context bounds used in [[#loading]], this implementation
+    * also adds [[cats.effect.Clock]] (as part of [[cats.effect.Temporal]]), to
+    * have the ability to schedule cache clean up in a concurrent way.
+    *
+    * @tparam F
+    *   Effect type. See [[#loading]] and [[Cache]] for more details.
+    * @tparam K
+    *   Key type. See [[Cache]] for more details.
+    * @tparam V
+    *   Value type. See [[Cache]] for more details.
+    *
+    * @param config
+    *   Cache configuration. See [[ExpiringCache.Config]] for more details on
+    *   what parameters could be configured.
+    * @param partitions
+    *   Number of partitions to use, or [[scala.None]] in case number of
+    *   partitions should be determined automatically using passed `Runtime`
+    *   implementation.
+    */
   def expiring[F[_]: Temporal: Runtime: Parallel, K, V](
     config: ExpiringCache.Config[F, K, V],
     partitions: Option[Int] = None
