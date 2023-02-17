@@ -14,6 +14,11 @@ import scala.util.control.NoStackTrace
 
 /** Tagless Final implementation of a cache interface.
   *
+  * Most developers using the library may want to use [[Cache#expiring]] to
+  * construct the cache, though, if element expiration is not required, then
+  * it might be useful to use
+  * [[Cache#loading[F[_],K,V](partitions:Option[Int])*]] instead.
+  *
   * @tparam F
   *   Effect to be used in effectful methods such as [[#get]].
   * @tparam K
@@ -162,6 +167,11 @@ object Cache {
     *
     * Same as [[[[#loading[F[_],K,V](partitions:Int)*]]]], but with number of
     * paritions determined automatically using passed `Runtime` implementation.
+    *
+    * Minimal usage example:
+    * {{
+    * Cache.loading[F, String, User]
+    * }}
     */
   def loading[F[_]: Concurrent: Parallel: Runtime, K, V]: Resource[F, Cache[F, K, V]] = {
     loading(none)
@@ -171,6 +181,11 @@ object Cache {
     *
     * Same as [[#loading[F[_],K,V](partitions:Option[Int])*]], but without the
     * need to use `Option`.
+    *
+    * Minimal usage example:
+    * {{
+    * Cache.loading[F, String, User](partitions = 8)
+    * }}
     */
   def loading[F[_]: Concurrent: Parallel: Runtime, K, V](partitions: Int): Resource[F, Cache[F, K, V]] = {
     loading(partitions.some)
@@ -202,6 +217,11 @@ object Cache {
     *     [[Cache#put(key:K,value:V,release:Cache*]] and [[Cache#getOrUpdate1]]
     *     methods to be called in background without waiting for release to be
     *     completed.
+    *
+    * Minimal usage example:
+    * {{
+    * Cache.loading[F, String, User](partitions = None)
+    * }}
     *
     * @tparam F
     *   Effect type. See [[Cache]] for more details.
@@ -248,6 +268,14 @@ object Cache {
     * [[#loading[F[_],K,V](partitions:Option[Int])*]], this implementation also
     * adds [[cats.effect.Clock]] (as part of [[cats.effect.Temporal]]), to have
     * the ability to schedule cache clean up in a concurrent way.
+    *
+    * Minimal usage example:
+    * {{
+    * Cache.expiring[F, String, User](
+    *   config = ExpiringCache.Config(expireAfterRead = 1.minute),
+    *   partitions = None,
+    * )
+    * }}
     *
     * @tparam F
     *   Effect type. See [[#loading[F[_],K,V](partitions:Option[Int])*]] and

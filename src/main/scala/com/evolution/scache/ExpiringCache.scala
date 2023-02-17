@@ -333,6 +333,14 @@ object ExpiringCache {
 
   /** Configuration of a refresh background job.
     *
+    * Usage example (`SettingService.get` returns `F[Option[Setting]]`):
+    * {{
+    * ExpiringCache.Refresh(
+    *   interval = 1.minute,
+    *   value = key => SettingService.getOrNone(key)
+    * )
+    * }}
+    *
     * @param interval
     *   How often the refresh routine should be called. Note, that all cache
     *   entries will be refreshed regardless how long ago these were added to
@@ -364,6 +372,18 @@ object ExpiringCache {
     * actually done more often, for sake of faster cleanup), so the very small
     * value set for any of these parameters may affect the performance of the
     * cache, as cleanup will happen too often.
+    *
+    * Usage example (`SettingService.get` returns `F[Option[Setting]]`):
+    * {{
+    * ExpiringCache.Config(
+    *   expireAfterRead = 1.minute,
+    *   expireAfterWrite = None,
+    *   maxSize = None,
+    *   refresh = Some(ExpiringCache.Refresh(
+    *     interval = 1.minute,
+    *     value = key => SettingService.get(key)
+    *   ))
+    * }}
     *
     * @param expireAfterRead
     *   The value will be removed after the period set by this parameter if it
