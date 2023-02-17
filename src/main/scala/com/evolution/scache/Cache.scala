@@ -304,7 +304,7 @@ object Cache {
     * It is only left public for sake of backwards compatibility.
     *
     * Please consider using either
-    * [[#loading[F[_],K,V](partitions:Option[Int])*]] or [[#expring]] instead.
+    * [[#loading[F[_],K,V](partitions:Option[Int])*]] or [[#expiring]] instead.
     *
     * Here is a short description of why some of the context bounds are required
     * on `F[_]`:

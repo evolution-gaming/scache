@@ -331,6 +331,20 @@ object ExpiringCache {
   }
 
 
+  /** Configuration of a refresh background job.
+    *
+    * @param interval
+    *   How often the refresh routine should be called. Note, that all cache
+    *   entries will be refreshed regardless how long ago these were added to
+    *   the cache, hence the operation might be expensive.
+    * @param value
+    *   The function which returns a value for the specific key. While the
+    *   function itself is pure, all the current implementation use
+    *   `Refresh[K, F[Option[T]]]`, so `V` is not a real value, but an effectful
+    *   function which calculates a value. The [[scala.Option]] is used to
+    *   indicate if value should be removed (i.e. [[scala.None]] means the
+    *   key is to be deleted).
+    */
   final case class Refresh[-K, +V](interval: FiniteDuration, value: K => V)
 
   object Refresh {
@@ -362,6 +376,18 @@ object ExpiringCache {
     *   by this parameter regardless if it was touched by [[Cache#get]] or
     *   similar methods. Note, that this removal has a best effort guarantee,
     *   i.e. there is possibility that value is still there after it expires.
+    * @param maxSize
+    *   If set then the cache implementation will try to keep the cache size
+    *   under `maxSize` whenever clean up routine happens. It the cache size
+    *   exceeds the value, it will try to drop part of non-expired element
+    *   sorted by the timestamp, when these elements were last read. There is
+    *   no guarantee, though, that this size will not be exceeded a bit, if
+    *   a lot of elements are put into cache between the cleanup calls.
+    * @param refresh
+    *   If set to [[scala.Some]], the cache will schedule a background job,
+    *   which will refresh or remove the _existing_ values regularly. The
+    *   keys not already present in a cache will not be affected anyhow. See
+    *   [[Refresh]] documentation for more details.
     */
   case class Config[F[_], -K, V](
     expireAfterRead: FiniteDuration,
