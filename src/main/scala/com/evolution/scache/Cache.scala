@@ -188,9 +188,11 @@ object Cache {
     *
     * Here is a short description of why some of the context bounds are required
     * on `F[_]`:
-    *   - [[cats.Parallel]] allows splitting underlying cache into multiple
-    *     partitions, so there is no contention on a single [[cats.effect.Ref]]
-    *     when cache need to be updated.
+    *   - [[cats.Parallel]] is required for an efficient [[Cache#foldMapPar]]
+    *     implementation whenever cache partitioning is used. Cache partitioning
+    *     itself allows splitting underlying cache into multiple partitions, so
+    *     there is no contention on a single [[cats.effect.Ref]] when cache need
+    *     to be updated.
     *   - `Runtime` is used to determine optimal number of partitions based on
     *     CPU count if the value is not provided as a parameter.
     *   - [[cats.effect.Sync]] (which comes as part of
@@ -291,6 +293,26 @@ object Cache {
     result.breakFlatMapChain
   }
 
+  /** Creates [[Cache]] interface to a set of precreated caches.
+    *
+    * This method is required to use common partitioning implementation for
+    * various caches and is not intended to be called directly. Cache
+    * partitioning itself allows splitting underlying cache into multiple
+    * partitions, so there is no contention on a single [[cats.effect.Ref]] when
+    * cache need to be updated.
+    *
+    * It is only left public for sake of backwards compatibility.
+    *
+    * Please consider using either
+    * [[#loading[F[_],K,V](partitions:Option[Int])*]] or [[#expring]] instead.
+    *
+    * Here is a short description of why some of the context bounds are required
+    * on `F[_]`:
+    *   - [[cats.MonadError]] is required to throw an error in case partitioning
+    *     function passed as part of [[Partitions]] does not return any values.
+    *   - [[cats.Parallel]] is required for an efficient [[Cache#foldMapPar]]
+    *     implementation.
+    */
   def fromPartitions[F[_]: MonadThrow: Parallel, K, V](partitions: Partitions[K, Cache[F, K, V]]): Cache[F, K, V] = {
     PartitionedCache(partitions)
   }
