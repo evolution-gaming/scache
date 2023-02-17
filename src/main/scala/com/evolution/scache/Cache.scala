@@ -63,8 +63,12 @@ trait Cache[F[_], K, V] {
     */
   def get1(key: K): F[Option[Either[F[V], V]]]
 
-  /**
-    * Does not run `value` concurrently for the same key
+  /** Gets a value for specific key, or loads it using the provided function.
+    *
+    * The method does not run `value` concurrently for the same key. I.e. if
+    * `F[_]` takes a time to be completed, and `getOrUpdate` is called several
+    * times then the consequent calls will not cause `F[_]` to be called, but
+    * will wait for the first one to complete.
     */
   def getOrUpdate(key: K)(value: => F[V]): F[V]
 
