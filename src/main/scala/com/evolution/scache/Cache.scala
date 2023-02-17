@@ -281,7 +281,7 @@ object Cache {
 
   /** Creates a cache implementation, which is able remove the stale values.
     *
-    * The undelying storage implementation is the same as in
+    * The underlying storage implementation is the same as in
     * [[#loading[F[_],K,V](partitions:Option[Int])*]], but the expiration
     * routines are added on top of it.
     *
