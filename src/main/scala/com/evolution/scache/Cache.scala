@@ -36,8 +36,31 @@ trait Cache[F[_], K, V] {
 
   type Released = F[Unit]
 
+  /** Gets a value for specific key.
+    *
+    *   - If the new value is loading (as result of [[#getOrUpdate]] or
+    *     implementation-specific refresh), then `F[_]` will not complete until
+    *     the value is fully loaded.
+    *   - `F[_]` will complete to `None` if there is no `key` present in the
+    *     cache.
+    */
   def get(key: K): F[Option[V]]
 
+  /** Gets a value for specific key.
+    *
+    * The point of this method, comparing to [[#get]] is that it does not wait
+    * if the value for a specific key is still loading, allowing the caller to
+    * not block while waiting for it.
+    *
+    *   - If the value is already in the cache then `F[_]` will complete to
+    *     `Some(Right(v))`.
+    *   - If the new value is loading (as result of [[#getOrUpdate]] or
+    *     implementation-specific refresh), then `F[_]` will complete to
+    *     `Some(Left(io))`, where `io` will not complete until the value is
+    *     fully loaded.
+    *   - `F[_]` will complete to `None` if there is no `key` present in the
+    *     cache.
+    */
   def get1(key: K): F[Option[Either[F[V], V]]]
 
   /**
