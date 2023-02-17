@@ -398,7 +398,7 @@ object ExpiringCache {
     *   i.e. there is possibility that value is still there after it expires.
     * @param maxSize
     *   If set then the cache implementation will try to keep the cache size
-    *   under `maxSize` whenever clean up routine happens. It the cache size
+    *   under `maxSize` whenever clean up routine happens. If the cache size
     *   exceeds the value, it will try to drop part of non-expired element
     *   sorted by the timestamp, when these elements were last read. There is
     *   no guarantee, though, that this size will not be exceeded a bit, if
