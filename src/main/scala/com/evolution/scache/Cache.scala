@@ -232,8 +232,9 @@ object Cache {
 
   /** Creates a cache implementation, which is able remove the stale values.
     *
-    * The undelying storage implementation is the same as in [[#loading]], but
-    * the expiration routines are added on top of it.
+    * The undelying storage implementation is the same as in
+    * [[#loading[F[_],K,V](partitions:Option[Int])*]], but the expiration
+    * routines are added on top of it.
     *
     * Besides a value expiration leading to specific key being removed from the
     * cache, the implementation is capable of _refreshing_ the values instead of
@@ -241,12 +242,14 @@ object Cache {
     * setting or configuration service. The feature is possible to configure
     * using `config` parameter.
     *
-    * In adddition to context bounds used in [[#loading]], this implementation
-    * also adds [[cats.effect.Clock]] (as part of [[cats.effect.Temporal]]), to
-    * have the ability to schedule cache clean up in a concurrent way.
+    * In adddition to context bounds used in
+    * [[#loading[F[_],K,V](partitions:Option[Int])*]], this implementation also
+    * adds [[cats.effect.Clock]] (as part of [[cats.effect.Temporal]]), to have
+    * the ability to schedule cache clean up in a concurrent way.
     *
     * @tparam F
-    *   Effect type. See [[#loading]] and [[Cache]] for more details.
+    *   Effect type. See [[#loading[F[_],K,V](partitions:Option[Int])*]] and
+    *   [[Cache]] for more details.
     * @tparam K
     *   Key type. See [[Cache]] for more details.
     * @tparam V
