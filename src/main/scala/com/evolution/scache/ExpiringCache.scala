@@ -17,7 +17,7 @@ object ExpiringCache {
   private[scache] def of[F[_], K, V](
     config: Config[F, K, V]
   )(implicit G: Temporal[F]): Resource[F, Cache[F, K, V]] = {
-    
+
     type E = Entry[V]
 
     val cooldown           = config.expireAfterRead.toMillis / 5
@@ -330,7 +330,7 @@ object ExpiringCache {
     def touched: Timestamp = read.getOrElse(created)
   }
 
-  
+
   final case class Refresh[-K, +V](interval: FiniteDuration, value: K => V)
 
   object Refresh {
@@ -343,7 +343,27 @@ object ExpiringCache {
   }
 
 
-  final case class Config[F[_], -K, V](
+  /** Configuration of expiring cache, including the potential refresh routine.
+    *
+    * Performance consideration: The frequency of internal expiration routine
+    * depends on `expireAfterRead` and `expireAfterWrite` parameters (it is
+    * actually done more often, for sake of faster cleanup), so the very small
+    * value set for any of these parameters may affect the performance of the
+    * cache, as cleanup will happen too often.
+    *
+    * @param expireAfterRead
+    *   The value will be removed after the period set by this parameter if it
+    *   was not read (i.e. one of methods reading the value such as
+    *   [[Cache#get]] or [[Cache#getOrUpdate]] method was not called). Note,
+    *   that this removal has a best effort guarantee, i.e. there is possibility
+    *   that value is still there after it expires.
+    * @param expireAfterWrite
+    *   If set to [[scala.Some]], the value will be removed after the period set
+    *   by this parameter regardless if it was touched by [[Cache#get]] or
+    *   similar methods. Note, that this removal has a best effort guarantee,
+    *   i.e. there is possibility that value is still there after it expires.
+    */
+  case class Config[F[_], -K, V](
     expireAfterRead: FiniteDuration,
     expireAfterWrite: Option[FiniteDuration] = None,
     maxSize: Option[Int] = None,
