@@ -409,7 +409,7 @@ object ExpiringCache {
     *   keys not already present in a cache will not be affected anyhow. See
     *   [[Refresh]] documentation for more details.
     */
-  case class Config[F[_], -K, V](
+  final case class Config[F[_], -K, V](
     expireAfterRead: FiniteDuration,
     expireAfterWrite: Option[FiniteDuration] = None,
     maxSize: Option[Int] = None,
