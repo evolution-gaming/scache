@@ -94,12 +94,11 @@ trait Cache[F[_], K, V] {
     */
   def getOrUpdate(key: K)(value: => F[V]): F[V]
 
-  /** Gets a value for specific key, or loads it using the provided function.
+   /** Gets a value for specific key, or loads it using the provided function.
     *
-    * The point of this method, comparing to [[#getOrUpdate]] is that it neither
-    * waits if value for a key is still loading, nor waits for a passed `value`
-    * function to complete, allowing the caller to not block while waiting for
-    * the result.
+    * The point of this method, comparing to [[#getOrUpdate]] is that it does
+    * not wait if value for a key is still loading, allowing the caller to not
+    * block while waiting for the result.
     *
     * It also allows some additional functionality similar to
     * [[#put(key:K,value:V,release:Option[*]].
