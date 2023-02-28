@@ -38,6 +38,11 @@ trait Cache[F[_], K, V] {
 
   /** Gets a value for specific key.
     *
+    * @param key
+    *   The key to return the value for.
+    * @return
+    *   - If the key is already in the cache then `F[_]` will complete to
+    *     `Some(v)`, where `v` is a value associated with the key.
     *   - If the new value is loading (as result of [[#getOrUpdate]] or
     *     implementation-specific refresh), then `F[_]` will not complete until
     *     the value is fully loaded.
@@ -52,8 +57,11 @@ trait Cache[F[_], K, V] {
     * if the value for a specific key is still loading, allowing the caller to
     * not block while waiting for it.
     *
-    *   - If the value is already in the cache then `F[_]` will complete to
-    *     `Some(Right(v))`.
+    * @param key
+    *   The key to return the value for.
+    * @return
+    *   - If the key is already in the cache then `F[_]` will complete to
+    *     `Some(Right(v))`, where `v` is a value associated with the key.
     *   - If the new value is loading (as result of [[#getOrUpdate]] or
     *     implementation-specific refresh), then `F[_]` will complete to
     *     `Some(Left(io))`, where `io` will not complete until the value is
@@ -69,14 +77,55 @@ trait Cache[F[_], K, V] {
     * `F[_]` takes a time to be completed, and `getOrUpdate` is called several
     * times then the consequent calls will not cause `F[_]` to be called, but
     * will wait for the first one to complete.
+    *
+    * @param key
+    *   The key to return the value for.
+    * @param value
+    *   The function to run to load the missing value with.
+    *
+    * @return
+    *   - If the key is already in the cache then `F[_]` will complete to the
+    *     value associated with the key.
+    *   - `F[_]` will complete to the value loaded by `value` function if there
+    *     is no `key` present in the cache.
+    *   - If the new value is loading (as result of this or another
+    *     [[#getOrUpdate]] call, or implementation-specific refresh), then
+    *     `F[_]` will not complete until the value is fully loaded.
     */
   def getOrUpdate(key: K)(value: => F[V]): F[V]
 
-  /**
-    * Does not run `value` concurrently for the same key
-    * release will be called upon key removal from the cache
+  /** Gets a value for specific key, or loads it using the provided function.
     *
-    * @return either A passed as argument or `Either[F[V], V]` that represents loading or loaded value
+    * The point of this method, comparing to [[#getOrUpdate]] is that it neither
+    * waits if value for a key is still loading, nor waits for a passed `value`
+    * function to complete, allowing the caller to not block while waiting for
+    * the result.
+    *
+    * It also allows some additional functionality similar to
+    * [[#put(key:K,value:V,release:Option[*]].
+    *
+    * The method does not run `value` concurrently for the same key. I.e. if
+    * `F[_]` takes a time to be completed, and `getOrUpdate` is called several
+    * times then the consequent calls will not cause `F[_]` to be called, but
+    * will wait for the first one to complete.
+    *
+    * The `value` is only called if `key` is not found, the tuple elements will
+    * be used like following:
+    *   - `A` will be returned by [[#getOrUpdate]] to differentiate from the
+    *     case when the value is already there,
+    *   - `V` will be put to the cache,
+    *   - `Release`, if present, will be called when this value is removed from
+    *     the cache.
+    *
+    * @param key
+    *   The key to return the value for.
+    * @param value
+    *   The function to run to load the missing value with.
+    *
+    * @return
+    *   Either `A` passed as argument, if `key` was not found in cache, or
+    *   `Either[F[V], V]` that represents loading or loaded value, if `key` is
+    *   already in the cache.
     */
   def getOrUpdate1[A](key: K)(value: => F[(A, V, Option[Release])]): F[Either[A, Either[F[V], V]]]
 
