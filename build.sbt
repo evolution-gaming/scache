@@ -11,7 +11,7 @@ def crossSettings[T](scalaVersion: String, if3: Seq[T], if2: Seq[T]) = {
 
 name := "scache"
 
-organization := "com.evolutiongaming"
+organization := "com.evolution"
 
 homepage := Some(new URL("http://github.com/evolution-gaming/scache"))
 
@@ -24,8 +24,6 @@ organizationHomepage := Some(url("http://evolutiongaming.com"))
 scalaVersion := crossScalaVersions.value.head
 
 crossScalaVersions := Seq("2.13.8", /*"3.2.0", */"2.12.17")
-
-publishTo := Some(Resolver.evolutionReleases)
 
 libraryDependencies ++= crossSettings(
   scalaVersion.value,
@@ -49,4 +47,28 @@ libraryDependencies ++= Seq(
 
 licenses := Seq(("MIT", url("https://opensource.org/licenses/MIT")))
 
-releaseCrossBuild := true
+description             := "Cache in Scala with cats-effect"
+
+sonatypeCredentialHost := "s01.oss.sonatype.org"
+
+sonatypeRepository := "https://s01.oss.sonatype.org/service/local"
+
+Test / publishArtifact  := false
+
+scmInfo                 := Some(
+  ScmInfo(
+    url("https://github.com/evolution-gaming/scache"),
+    "git@github.com:evolution-gaming/scache.git",
+  ),
+)
+
+developers              := List(
+    Developer(
+      "t3hnar",
+      "Yaroslav Klymko",
+      "yklymko@evolution.com",
+      url("https://github.com/t3hnar"),
+    )
+  )
+
+enablePlugins(GitVersioning)

@@ -1,6 +1,15 @@
 name: CI
 
-on: [push, pull_request]
+on:
+  push:
+    branches: [ "master" ]
+    tags: ["v*"]
+  pull_request:
+    branches: [ "master" ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   test:
@@ -20,10 +29,12 @@ jobs:
 
       - uses: coursier/cache-action@v6
 
-      - name: scala
-        uses: olafurpg/setup-scala@v11
+      - name: Setup Java
+        uses: actions/setup-java@v3
         with:
-          java-version: 17
+          java-version: '17'
+          distribution: 'temurin'
+          cache: 'sbt'
 
       - name: build ${{ matrix.scala }}
         run: sbt ++${{ matrix.scala }} clean coverage test
@@ -42,3 +53,28 @@ jobs:
           type: ${{ job.status }}
           job_name: Build
           url: ${{ secrets.SLACK_WEBHOOK }}
+
+  publish:
+    name: Publish Artifacts
+    needs: [ test ]
+    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v'))
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: coursier/cache-action@v6
+
+      - name: Setup Java
+        uses: actions/setup-java@v3
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: 'sbt'
+
+      - name: Publish artifacts
+        env:
+          SONATYPE_USERNAME: ${{ secrets.SONATYPE_USER }}
+          SONATYPE_PASSWORD: ${{ secrets.SONATYPE_PASS }}
+          PGP_PASSPHRASE: ${{ secrets.PGP_PASSPHRASE }}
+          PGP_SECRET: ${{ secrets.PGP_SECRET }}
+        run: sbt ci-release
