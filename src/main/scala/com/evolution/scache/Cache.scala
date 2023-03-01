@@ -46,8 +46,8 @@ trait Cache[F[_], K, V] {
     *   - If the new value is loading (as result of [[#getOrUpdate]] or
     *     implementation-specific refresh), then `F[_]` will not complete until
     *     the value is fully loaded.
-    *   - `F[_]` will complete to `None` if there is no `key` present in the
-    *     cache.
+    *   - `F[_]` will complete to [[scala.None]] if there is no `key` present in
+    *     the cache.
     */
   def get(key: K): F[Option[V]]
 
@@ -66,8 +66,8 @@ trait Cache[F[_], K, V] {
     *     implementation-specific refresh), then `F[_]` will complete to
     *     `Some(Left(io))`, where `io` will not complete until the value is
     *     fully loaded.
-    *   - `F[_]` will complete to `None` if there is no `key` present in the
-    *     cache.
+    *   - `F[_]` will complete to [[scala.None]] if there is no `key` present in
+    *     the cache.
     */
   def get1(key: K): F[Option[Either[F[V], V]]]
 
@@ -128,9 +128,20 @@ trait Cache[F[_], K, V] {
     */
   def getOrUpdate1[A](key: K)(value: => F[(A, V, Option[Release])]): F[Either[A, Either[F[V], V]]]
 
-  /**
-    * Does not run `value` concurrently for the same key
-    * In case of none returned, value will be ignored by cache
+  /** Gets a value for specific key, or tries to load it.
+    *
+    * The difference between this method and [[#getOrUpdate]] is that this one
+    * allows the loading function to fail finding the value, i.e. return
+    * [[scala.None]].
+    *
+    * Note, that this may not come for free in some implementations, i.e. some
+    * implementations use exceptions to bypass the loading mechanism internally,
+    * so the performance may suffer in this case.
+    *
+    * @return
+    *   The same semantics applies as in [[#getOrUpdate]], except that the
+    *   method may return [[scala.None]] in case `value` completes to
+    *   [[scala.None]].
     */
   def getOrUpdateOpt(key: K)(value: => F[Option[V]]): F[Option[V]]
 
