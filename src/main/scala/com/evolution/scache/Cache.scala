@@ -74,9 +74,9 @@ trait Cache[F[_], K, V] {
   /** Gets a value for specific key, or loads it using the provided function.
     *
     * The method does not run `value` concurrently for the same key. I.e. if
-    * `F[_]` takes a time to be completed, and `getOrUpdate` is called several
-    * times then the consequent calls will not cause `F[_]` to be called, but
-    * will wait for the first one to complete.
+    * `value` takes a time to be completed, and [[#getOrUpdate]] is called
+    * several times, then the consequent calls will not cause `value` to be
+    * called, but will wait for the first one to complete.
     *
     * @param key
     *   The key to return the value for.
@@ -94,7 +94,7 @@ trait Cache[F[_], K, V] {
     */
   def getOrUpdate(key: K)(value: => F[V]): F[V]
 
-   /** Gets a value for specific key, or loads it using the provided function.
+  /** Gets a value for specific key, or loads it using the provided function.
     *
     * The point of this method, comparing to [[#getOrUpdate]] is that it does
     * not wait if value for a key is still loading, allowing the caller to not
@@ -104,13 +104,13 @@ trait Cache[F[_], K, V] {
     * [[#put(key:K,value:V,release:Option[*]].
     *
     * The method does not run `value` concurrently for the same key. I.e. if
-    * `F[_]` takes a time to be completed, and `getOrUpdate` is called several
-    * times then the consequent calls will not cause `F[_]` to be called, but
-    * will wait for the first one to complete.
+    * `value` takes a time to be completed, and [[#getOrUpdate1]] is called
+    * several times, then the consequent calls will not cause `value` to be
+    * called, but will wait for the first one to complete.
     *
     * The `value` is only called if `key` is not found, the tuple elements will
     * be used like following:
-    *   - `A` will be returned by [[#getOrUpdate]] to differentiate from the
+    *   - `A` will be returned by [[#getOrUpdate1]] to differentiate from the
     *     case when the value is already there,
     *   - `V` will be put to the cache,
     *   - `Release`, if present, will be called when this value is removed from
