@@ -151,18 +151,68 @@ trait Cache[F[_], K, V] {
     */
   def getOrUpdateOpt(key: K)(value: => F[Option[V]]): F[Option[V]]
 
-  /**
-    * @return previous value if any, possibly not yet loaded
+  /** Puts a value into cache under specific key.
+    *
+    * If the value is already being loaded (using [[#getOrUpdate]] method?) then
+    * the returned `F[_]` will wait for it to fully load, and then overwrite it.
+    *
+    * @param key
+    *   The key to store value for.
+    * @param value
+    *   The new value to put into the cache.
+    *
+    * @return
+    *   A previous value is returned if it was already added into the cache,
+    *   [[scala.None]] otherwise. The returned value is wrapped into `F[_]`
+    *   twice, because outer `F[_]` will complete when the value is put into
+    *   cache, but the second when `release` function passed to
+    *   [[#put(key:K,value:V,release:Cache*]] completes, i.e. the underlying
+    *   resource if fully released.
     */
   def put(key: K, value: V): F[F[Option[V]]]
 
-  /**
-    * @return previous value if any, possibly not yet loaded
+  /** Puts a value into cache under specific key.
+    *
+    * If the value is already being loaded (using [[#getOrUpdate]] method?) then
+    * the returned `F[_]` will wait for it to fully load, and then overwrite it.
+    *
+    * @param key
+    *   The key to store value for.
+    * @param value
+    *   The new value to put into the cache.
+    * @param release
+    *   The function to call when the value is removed from the cache.
+    *
+    * @return
+    *   A previous value is returned if it was already added into the cache,
+    *   [[scala.None]] otherwise. The returned value is wrapped into `F[_]`
+    *   twice, because outer `F[_]` will complete when the value is put into
+    *   cache, but the second when `release` function passed to
+    *   [[#put(key:K,value:V,release:Cache*]] completes, i.e. the underlying
+    *   resource if fully released.
     */
   def put(key: K, value: V, release: Release): F[F[Option[V]]]
 
-  /**
-    * @return previous value if any, possibly not yet loaded
+  /** Puts a value into cache under specific key.
+    *
+    * If the value is already being loaded (using [[#getOrUpdate]] method?) then
+    * the returned `F[_]` will wait for it to fully load, and then overwrite it.
+    *
+    * @param key
+    *   The key to store value for.
+    * @param value
+    *   The new value to put into the cache.
+    * @param release
+    *   The function to call when the value is removed from the cache.
+    *   No function will be called if it is set to [[scala.None]].
+    *
+    * @return
+    *   A previous value is returned if it was already added into the cache,
+    *   [[scala.None]] otherwise. The returned value is wrapped into `F[_]`
+    *   twice, because outer `F[_]` will complete when the value is put into
+    *   cache, but the second when `release` function passed to
+    *   [[#put(key:K,value:V,release:Cache*]] completes, i.e. the underlying
+    *   resource if fully released.
     */
   def put(key: K, value: V, release: Option[Release]): F[F[Option[V]]]
 
