@@ -167,7 +167,7 @@ trait Cache[F[_], K, V] {
     *   twice, because outer `F[_]` will complete when the value is put into
     *   cache, but the second when `release` function passed to
     *   [[#put(key:K,value:V,release:Cache*]] completes, i.e. the underlying
-    *   resource if fully released.
+    *   resource is fully released.
     */
   def put(key: K, value: V): F[F[Option[V]]]
 
@@ -189,7 +189,7 @@ trait Cache[F[_], K, V] {
     *   twice, because outer `F[_]` will complete when the value is put into
     *   cache, but the second when `release` function passed to
     *   [[#put(key:K,value:V,release:Cache*]] completes, i.e. the underlying
-    *   resource if fully released.
+    *   resource is fully released.
     */
   def put(key: K, value: V, release: Release): F[F[Option[V]]]
 
@@ -212,7 +212,7 @@ trait Cache[F[_], K, V] {
     *   twice, because outer `F[_]` will complete when the value is put into
     *   cache, but the second when `release` function passed to
     *   [[#put(key:K,value:V,release:Cache*]] completes, i.e. the underlying
-    *   resource if fully released.
+    *   resource is fully released.
     */
   def put(key: K, value: V, release: Option[Release]): F[F[Option[V]]]
 
