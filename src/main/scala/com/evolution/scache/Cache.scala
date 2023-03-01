@@ -116,6 +116,12 @@ trait Cache[F[_], K, V] {
     *   - `Release`, if present, will be called when this value is removed from
     *     the cache.
     *
+    * Note: this method is meant to be used where [[cats.effect.Resource]] is
+    * not convenient to use, i.e. when integration with legacy code is required
+    * or for internal implementation. For all other cases it is recommended to
+    * use [[Cache.CacheOps#getOrUpdateResource]] instead as more human-readable
+    * alernative.
+    *
     * @param key
     *   The key to return the value for.
     * @param value
