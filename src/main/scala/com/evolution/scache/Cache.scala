@@ -144,6 +144,11 @@ trait Cache[F[_], K, V] {
     * implementations use exceptions to bypass the loading mechanism internally,
     * so the performance may suffer in this case.
     *
+    * @param key
+    *   The key to return the value for.
+    * @param value
+    *   The function to run to load the missing value with.
+    *
     * @return
     *   The same semantics applies as in [[#getOrUpdate]], except that the
     *   method may return [[scala.None]] in case `value` completes to
@@ -632,10 +637,31 @@ object Cache {
         }
     }
 
-    /**
-      * Does not run `value` concurrently for the same key
-      * release will be called upon key removal from the cache
-      * In case of none returned, value will be ignored by cache
+    /** Gets a value for specific key, or tries to load it.
+      *
+      * The difference between this method and [[#getOrUpdate1]] is that this
+      * one allows the loading function to fail finding the value, i.e. return
+      * [[scala.None]].
+      *
+      * Note, that this may not come for free in some implementations, i.e. some
+      * implementations use exceptions to bypass the loading mechanism
+      * internally, so the performance may suffer in this case.
+      *
+      * Also, this method is meant to be used where [[cats.effect.Resource]] is
+      * not convenient to use, i.e. when integration with legacy code is
+      * required or for internal implementation. For all other cases it is
+      * recommended to use [[#getOrUpdateResourceOpt]] instead as more
+      * human-readable alernative.
+      *
+      * @param key
+      *   The key to return the value for.
+      * @param value
+      *   The function to run to load the missing value with.
+      *
+      * @return
+      *   The same semantics applies as in [[#getOrUpdate1]], except that the
+      *   method may return [[scala.None]] in case `value` completes to
+      *   [[scala.None]].
       */
     def getOrUpdateOpt1[A](key: K)(
       value: => F[Option[(A, V, Option[Cache[F, K, V]#Release])]])(implicit
