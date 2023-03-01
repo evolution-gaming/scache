@@ -652,9 +652,30 @@ object Cache {
         .recover { case NoneError => none }
     }
 
-    /**
-      * Does not run `value` concurrently for the same key
-      * Resource will be release upon key removal from the cache
+    /** Gets a value for specific key, or loads it using the provided function.
+      *
+      * The difference between this method and [[#getOrUpdate]] is that it
+      * accepts [[cats.effect.Resource]] as a value parameter and releases it
+      * when the value is removed from cache.
+      *
+      * The method does not run `value` concurrently for the same key. I.e. if
+      * `value` takes a time to be completed, and [[#getOrUpdateResource]] is
+      * called several times, then the consequent calls will not cause `value`
+      * to be called, but will wait for the first one to complete.
+      *
+      * @param key
+      *   The key to return the value for.
+      * @param value
+      *   The function to run to load the missing resource with.
+      *
+      * @return
+      *   - If the key is already in the cache then `F[_]` will complete to the
+      *     value associated with the key.
+      *   - `F[_]` will complete to the value loaded by `value` function if
+      *     there is no `key` present in the cache.
+      *   - If the new value is loading (as result of this or another
+      *     [[#getOrUpdateResource]] call, or implementation-specific refresh),
+      *     then `F[_]` will not complete until the value is fully loaded.
       */
     def getOrUpdateResource(key: K)(value: => Resource[F, V])(implicit F: MonadCancel[F, Throwable]): F[V] = {
       self
