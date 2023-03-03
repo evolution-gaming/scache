@@ -297,8 +297,39 @@ trait Cache[F[_], K, V] {
     */
   def clear: F[Released]
 
+  /** Aggregate all keys and values present in the cache to something else.
+    *
+    * Example: calculate sum of all loaded [[scala.Int]] values:
+    * {{{
+    * cache.foldMap {
+    *   case (key, Right(loadedValue)) => loadedValue.pure[F]
+    *   case (key, Left(pendingValue)) => 0.pure[F]
+    * }
+    * }}}
+    *
+    * @return
+    *   Result of the aggregation, i.e. all mapped values combined using passed
+    *   `CommutativeMonoid`.
+    */
   def foldMap[A: CommutativeMonoid](f: (K, Either[F[V], V]) => F[A]): F[A]
 
+  /** Aggregate all keys and values present in the cache to something else.
+    *
+    * The difference between this method and [[#foldMap]] is that this one may
+    * perform the work in parallel.
+    *
+    * Example: calculate sum of all loading [[scala.Int]] values in parallel:
+    * {{{
+    * cache.foldMapPar {
+    *   case (key, Right(loadedValue)) => 0.pure[F]
+    *   case (key, Left(pendingValue)) => pendingValue
+    * }
+    * }}}
+    *
+    * @return
+    *   Result of the aggregation, i.e. all mapped values combined using passed
+    *   `CommutativeMonoid`.
+    */
   def foldMapPar[A: CommutativeMonoid](f: (K, Either[F[V], V]) => F[A]): F[A]
 }
 
@@ -361,9 +392,9 @@ object Cache {
     * paritions determined automatically using passed `Runtime` implementation.
     *
     * Minimal usage example:
-    * {{
+    * {{{
     * Cache.loading[F, String, User]
-    * }}
+    * }}}
     */
   def loading[F[_]: Concurrent: Parallel: Runtime, K, V]: Resource[F, Cache[F, K, V]] = {
     loading(none)
@@ -375,9 +406,9 @@ object Cache {
     * need to use `Option`.
     *
     * Minimal usage example:
-    * {{
+    * {{{
     * Cache.loading[F, String, User](partitions = 8)
-    * }}
+    * }}}
     */
   def loading[F[_]: Concurrent: Parallel: Runtime, K, V](partitions: Int): Resource[F, Cache[F, K, V]] = {
     loading(partitions.some)
@@ -411,9 +442,9 @@ object Cache {
     *     completed.
     *
     * Minimal usage example:
-    * {{
+    * {{{
     * Cache.loading[F, String, User](partitions = None)
-    * }}
+    * }}}
     *
     * @tparam F
     *   Effect type. See [[Cache]] for more details.
@@ -462,12 +493,12 @@ object Cache {
     * the ability to schedule cache clean up in a concurrent way.
     *
     * Minimal usage example:
-    * {{
+    * {{{
     * Cache.expiring[F, String, User](
     *   config = ExpiringCache.Config(expireAfterRead = 1.minute),
     *   partitions = None,
     * )
-    * }}
+    * }}}
     *
     * @tparam F
     *   Effect type. See [[#loading[F[_],K,V](partitions:Option[Int])*]] and
