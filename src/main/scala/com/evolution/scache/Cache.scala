@@ -265,7 +265,8 @@ trait Cache[F[_], K, V] {
     *
     * @return
     *   All keys and values in the cache put into map. Loaded values are
-    *   returned as `Right(v)`, while loading ones are represented by `Left(F[V])`.
+    *   returned as `Right(v)`, while loading ones are represented by
+    *   `Left(F[V])`.
     */
   def values1: F[Map[K, Either[F[V], V]]]
 
