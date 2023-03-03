@@ -221,23 +221,51 @@ trait Cache[F[_], K, V] {
     */
   def put(key: K, value: V, release: Option[Release]): F[F[Option[V]]]
 
-
+  /** Checks if the value for the key is present in the cache.
+    *
+    * @return
+    *   `true` if either loaded or loading value is present in the cache.
+    */
   def contains(key: K): F[Boolean]
 
-
+  /** Calculates the size of the cache including both loaded and loading keys.
+    *
+    * May iterate over all of keys for map-bazed implementation, hence should be
+    * used with care on very large caches.
+    *
+    * @return
+    *   current size of the cache.
+    */
   def size: F[Int]
 
-
+  /** Returns set of the keys present in the cache, either loaded or loading.
+    *
+    * @return
+    *   keys present in the cache, either loaded or loading.
+    */
   def keys: F[Set[K]]
 
-  /**
-    * Might be an expensive call
+  /** Returns map representation of the cache.
+    *
+    * Warning: this might be an expensive call to make.
+    *
+    * @return
+    *   All keys and values in the cache put into map. Both loaded and loading
+    *   values will be wrapped into `F[V]`.
     */
   def values: F[Map[K, F[V]]]
 
-  /**
-    * @return either map of either loading or loaded value
-    * Might be an expensive call
+  /** Returns map representation of the cache.
+    *
+    * The different between this method and [[#values]] is that loading values
+    * are not wrapped into `F[V]` and decision if it is worth to wait for their
+    * completion is left to the caller discretion.
+    *
+    * Warning: this might be an expensive call to make.
+    *
+    * @return
+    *   All keys and values in the cache put into map. Loaded values are
+    *   returned as `Right(v)`, while loading are represented by `Left(F[V])`.
     */
   def values1: F[Map[K, Either[F[V], V]]]
 
@@ -639,9 +667,9 @@ object Cache {
 
     /** Gets a value for specific key, or tries to load it.
       *
-      * The difference between this method and [[#getOrUpdate1]] is that this
-      * one allows the loading function to fail finding the value, i.e. return
-      * [[scala.None]].
+      * The difference between this method and [[Cache#getOrUpdate1]] is that
+      * this one allows the loading function to fail finding the value, i.e.
+      * return [[scala.None]].
       *
       * Note, that this may not come for free in some implementations, i.e. some
       * implementations use exceptions to bypass the loading mechanism
@@ -659,8 +687,8 @@ object Cache {
       *   The function to run to load the missing value with.
       *
       * @return
-      *   The same semantics applies as in [[#getOrUpdate1]], except that the
-      *   method may return [[scala.None]] in case `value` completes to
+      *   The same semantics applies as in [[Cache#getOrUpdate1]], except that
+      *   the method may return [[scala.None]] in case `value` completes to
       *   [[scala.None]].
       */
     def getOrUpdateOpt1[A](key: K)(
@@ -680,7 +708,7 @@ object Cache {
 
     /** Gets a value for specific key, or loads it using the provided function.
       *
-      * The difference between this method and [[#getOrUpdate]] is that it
+      * The difference between this method and [[Cache#getOrUpdate]] is that it
       * accepts [[cats.effect.Resource]] as a value parameter and releases it
       * when the value is removed from cache.
       *
