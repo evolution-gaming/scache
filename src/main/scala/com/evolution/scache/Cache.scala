@@ -269,14 +269,30 @@ trait Cache[F[_], K, V] {
     */
   def values1: F[Map[K, Either[F[V], V]]]
 
-  /**
-    * @return previous value if any, possibly not yet loaded
+  /** Removes a key from the cache, and also calls a release function.
+    *
+    * @return
+    *   A stored value is returned if such was present in the cache,
+    *   [[scala.None]] otherwise. The returned value is wrapped into `F[_]`
+    *   twice, because outer `F[_]` will complete when the value is put into
+    *   cache, but the second when `release` function passed to
+    *   [[#put(key:K,value:V,release:Cache*]] completes, i.e. the underlying
+    *   resource is fully released.
     */
   def remove(key: K): F[F[Option[V]]]
 
-
-  /**
-    * Removes loading values from the cache, however does not cancel them
+  /** Removes all the keys and their respective values from the cache.
+    *
+    * Both loaded and loading values are removed, and `release` function is
+    * called on them if present. The call does not cancel the loading values,
+    * but waits until these are fully loaded, instead.
+    *
+    * @return
+    *   The returned `Unit` is wrapped into `F[_]` twice, because outer
+    *   `F[Released]` will complete when the value is put into cache, but the
+    *   second `Released = F[Unit]` when `release` function passed to
+    *   [[#put(key:K,value:V,release:Cache*]] completes, i.e. the underlying
+    *   resource is fully released.
     */
   def clear: F[Released]
 
