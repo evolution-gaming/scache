@@ -708,6 +708,23 @@ object Cache {
 
     def withFence(implicit F: Concurrent[F]): Resource[F, Cache[F, K, V]] = CacheFenced.of(self)
 
+    /** Gets a value for specific key or uses another value.
+      *
+      * The semantics is exactly the same as in [[Cache#get]].
+      *
+      * Warning: The value passed as a second argument may only be returned, and
+      * never put into cache. If putting a value into cache is required, then
+      * [[Cache#getOrUpdate]] should be called instead.
+      *
+      * @param key
+      *   The key to return the value for.
+      * @param value
+      *   The function to run to get the missing value with.
+      *
+      * @return
+      *   The same semantics applies as in [[Cache#getOrUpdate]], except that in
+      *   this method there is no possibility to get [[scala.None]].
+      */
     def getOrElse(key: K, value: => F[V])(implicit F: Monad[F]): F[V] = {
       self
         .get(key)
@@ -844,7 +861,7 @@ object Cache {
 
     /** Gets a value for specific key, or tries to load it.
       *
-      * The difference between this method and [[Cache#getOrUpdateResource]] is
+      * The difference between this method and [[#getOrUpdateResource]] is
       * that this one allows the loading function to fail finding the value,
       * i.e. return [[scala.None]].
       *
