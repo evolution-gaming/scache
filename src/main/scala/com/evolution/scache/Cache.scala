@@ -807,10 +807,26 @@ object Cache {
         }
     }
 
-    /**
-      * Does not run `value` concurrently for the same key
-      * Resource will be release upon key removal from the cache
-      * In case of none returned, value will be ignored by cache
+    /** Gets a value for specific key, or tries to load it.
+      *
+      * The difference between this method and [[Cache#getOrUpdateResource]] is
+      * that this one allows the loading function to fail finding the value,
+      * i.e. return [[scala.None]].
+      *
+      * Note, that this may not come for free in some implementations, i.e. some
+      * implementations use exceptions to bypass the loading mechanism
+      * internally, so the performance may suffer in this case.
+      *
+      * @param key
+      *   The key to return the value for.
+      * @param value
+      *   The function to run to load the missing value with.
+      *
+      * @return
+      *   The same semantics applies as in [[#getOrUpdateResource]], except that
+      *   the method may return [[scala.None]] in case `value` completes to
+      *   [[scala.None]]. The resource will be released normally even if `None`
+      *   is returned.
       */
     def getOrUpdateResourceOpt(key: K)(value: => Resource[F, Option[V]])(implicit F: MonadCancel[F, Throwable]): F[Option[V]] = {
       self
