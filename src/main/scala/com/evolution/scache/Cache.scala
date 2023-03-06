@@ -120,12 +120,16 @@ trait Cache[F[_], K, V] {
     * not convenient to use, i.e. when integration with legacy code is required
     * or for internal implementation. For all other cases it is recommended to
     * use [[Cache.CacheOps#getOrUpdateResource]] instead as more human-readable
-    * alernative.
+    * alternative.
     *
     * @param key
     *   The key to return the value for.
     * @param value
     *   The function to run to load the missing value with.
+    *
+    * @tparam A
+    *   Arbitrary type of a value to return in case key was not present in a
+    *   cache.
     *
     * @return
     *   Either `A` passed as argument, if `key` was not found in cache, or
@@ -713,6 +717,33 @@ object Cache {
         }
     }
 
+    /** Gets a value for specific key, or loads it using a specified function.
+      *
+      * The difference between this method and [[Cache#getOrUpdate1]] is that
+      * this one does not differentiate between loading or loaded values present
+      * in a cache. If the value is still loading, `F[_]` will not complete
+      * until is is fully loaded.
+      *
+      * Also this method is meant to be used where [[cats.effect.Resource]] is
+      * not convenient to use, i.e. when integration with legacy code is
+      * required or for internal implementation. For all other cases it is
+      * recommended to use [[#getOrUpdateResource]] instead as more
+      * human-readable alternative.
+      *
+      * @param key
+      *   The key to return the value for.
+      * @param value
+      *   The function to run to load the missing value with.
+      *
+      * @tparam A
+      *   Arbitrary type of a value to return in case key was not present in a
+      *   cache.
+      *
+      * @return
+      *   The same semantics applies as in [[Cache#getOrUpdate1]], except that
+      *   in this method `F[_]` will only complete when the value is fully
+      *   loaded.
+      */
     def getOrUpdate2[A](
       key: K)(
       value: => F[(A, V, Option[Cache[F, K, V]#Release])])(implicit
@@ -737,16 +768,20 @@ object Cache {
       * implementations use exceptions to bypass the loading mechanism
       * internally, so the performance may suffer in this case.
       *
-      * Also, this method is meant to be used where [[cats.effect.Resource]] is
+      * Also this method is meant to be used where [[cats.effect.Resource]] is
       * not convenient to use, i.e. when integration with legacy code is
       * required or for internal implementation. For all other cases it is
       * recommended to use [[#getOrUpdateResourceOpt]] instead as more
-      * human-readable alernative.
+      * human-readable alternative.
       *
       * @param key
       *   The key to return the value for.
       * @param value
       *   The function to run to load the missing value with.
+      *
+      * @tparam A
+      *   Arbitrary type of a value to return in case key was not present in a
+      *   cache.
       *
       * @return
       *   The same semantics applies as in [[Cache#getOrUpdate1]], except that
