@@ -706,6 +706,11 @@ object Cache {
       }
     }
 
+    /** Prevents adding new keys with `release` after cache itself was released.
+      *
+      * This may be useful, for example, to prevent dangling cache references to
+      * be filled instead of an intended instance.
+      */
     def withFence(implicit F: Concurrent[F]): Resource[F, Cache[F, K, V]] = CacheFenced.of(self)
 
     /** Gets a value for specific key or uses another value.
