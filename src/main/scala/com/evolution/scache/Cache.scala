@@ -307,9 +307,16 @@ trait Cache[F[_], K, V] {
     * }
     * }}}
     *
+    * @tparam A
+    *   Type to map the key/values to, and aggregate with. It requires
+    *   [[cats.kernel.CommutativeMonoid]] to be present to be able to sum up the
+    *   values, without having a guarantee about the order of the values being
+    *   aggregates as the order may be random depending on a cache
+    *   implementation.
+    *
     * @return
     *   Result of the aggregation, i.e. all mapped values combined using passed
-    *   `CommutativeMonoid`.
+    *   [[cats.kernel.CommutativeMonoid]].
     */
   def foldMap[A: CommutativeMonoid](f: (K, Either[F[V], V]) => F[A]): F[A]
 
@@ -326,9 +333,16 @@ trait Cache[F[_], K, V] {
     * }
     * }}}
     *
+    * @tparam A
+    *   Type to map the key/values to, and aggregate with. It requires
+    *   [[cats.kernel.CommutativeMonoid]] to be present to be able to sum up the
+    *   values, without having a guarantee about the order of the values being
+    *   aggregates as the order may be random depending on a cache
+    *   implementation.
+    *
     * @return
     *   Result of the aggregation, i.e. all mapped values combined using passed
-    *   `CommutativeMonoid`.
+    *   [[cats.kernel.CommutativeMonoid]].
     */
   def foldMapPar[A: CommutativeMonoid](f: (K, Either[F[V], V]) => F[A]): F[A]
 }
