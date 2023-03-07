@@ -144,10 +144,6 @@ trait Cache[F[_], K, V] {
     * allows the loading function to fail finding the value, i.e. return
     * [[scala.None]].
     *
-    * Note, that this may not come for free in some implementations, i.e. some
-    * implementations use exceptions to bypass the loading mechanism internally,
-    * so the performance may suffer in this case.
-    *
     * @param key
     *   The key to return the value for.
     * @param value
@@ -786,9 +782,6 @@ object Cache {
       * this one allows the loading function to fail finding the value, i.e.
       * return [[scala.None]].
       *
-      * Note, that this may not come for free in some implementations, i.e. some
-      * implementations use exceptions to bypass the loading mechanism
-      * internally, so the performance may suffer in this case.
       *
       * Also this method is meant to be used where [[cats.effect.Resource]] is
       * not convenient to use, i.e. when integration with legacy code is
@@ -869,10 +862,6 @@ object Cache {
       * The difference between this method and [[#getOrUpdateResource]] is
       * that this one allows the loading function to fail finding the value,
       * i.e. return [[scala.None]].
-      *
-      * Note, that this may not come for free in some implementations, i.e. some
-      * implementations use exceptions to bypass the loading mechanism
-      * internally, so the performance may suffer in this case.
       *
       * @param key
       *   The key to return the value for.
