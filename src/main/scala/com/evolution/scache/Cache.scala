@@ -409,6 +409,12 @@ object Cache {
     * {{{
     * Cache.loading[F, String, User]
     * }}}
+    *
+    * @return
+    *   A new instance of a cache wrapped into [[cats.effect.Resource]]. Note,
+    *   that [[#clear]] method will be called on underlying cache when resource
+    *   is released to make sure all resources stored in a cache are also
+    *   released.
     */
   def loading[F[_]: Concurrent: Parallel: Runtime, K, V]: Resource[F, Cache[F, K, V]] = {
     loading(none)
@@ -423,6 +429,12 @@ object Cache {
     * {{{
     * Cache.loading[F, String, User](partitions = 8)
     * }}}
+    *
+    * @return
+    *   A new instance of a cache wrapped into [[cats.effect.Resource]]. Note,
+    *   that [[#clear]] method will be called on underlying cache when resource
+    *   is released to make sure all resources stored in a cache are also
+    *   released.
     */
   def loading[F[_]: Concurrent: Parallel: Runtime, K, V](partitions: Int): Resource[F, Cache[F, K, V]] = {
     loading(partitions.some)
@@ -471,6 +483,12 @@ object Cache {
     *   Number of partitions to use, or [[scala.None]] in case number of
     *   partitions should be determined automatically using passed `Runtime`
     *   implementation.
+    *
+    * @return
+    *   A new instance of a cache wrapped into [[cats.effect.Resource]]. Note,
+    *   that [[#clear]] method will be called on underlying cache when resource
+    *   is released to make sure all resources stored in a cache are also
+    *   released.
     */
   def loading[F[_]: Concurrent: Parallel: Runtime, K, V](partitions: Option[Int] = None): Resource[F, Cache[F, K, V]] = {
 
@@ -529,6 +547,12 @@ object Cache {
     *   Number of partitions to use, or [[scala.None]] in case number of
     *   partitions should be determined automatically using passed `Runtime`
     *   implementation.
+    *
+    * @return
+    *   A new instance of a cache wrapped into [[cats.effect.Resource]]. Note,
+    *   that [[#clear]] method will be called on underlying cache when resource
+    *   is released to make sure all resources stored in a cache are also
+    *   released.
     */
   def expiring[F[_]: Temporal: Runtime: Parallel, K, V](
     config: ExpiringCache.Config[F, K, V],
