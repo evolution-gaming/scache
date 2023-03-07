@@ -412,9 +412,9 @@ object Cache {
     *
     * @return
     *   A new instance of a cache wrapped into [[cats.effect.Resource]]. Note,
-    *   that [[#clear]] method will be called on underlying cache when resource
-    *   is released to make sure all resources stored in a cache are also
-    *   released.
+    *   that [[Cache#clear]] method will be called on underlying cache when
+    *   resource is released to make sure all resources stored in a cache are
+    *   also released.
     */
   def loading[F[_]: Concurrent: Parallel: Runtime, K, V]: Resource[F, Cache[F, K, V]] = {
     loading(none)
@@ -432,9 +432,9 @@ object Cache {
     *
     * @return
     *   A new instance of a cache wrapped into [[cats.effect.Resource]]. Note,
-    *   that [[#clear]] method will be called on underlying cache when resource
-    *   is released to make sure all resources stored in a cache are also
-    *   released.
+    *   that [[Cache#clear]] method will be called on underlying cache when
+    *   resource is released to make sure all resources stored in a cache are
+    *   also released.
     */
   def loading[F[_]: Concurrent: Parallel: Runtime, K, V](partitions: Int): Resource[F, Cache[F, K, V]] = {
     loading(partitions.some)
@@ -486,9 +486,9 @@ object Cache {
     *
     * @return
     *   A new instance of a cache wrapped into [[cats.effect.Resource]]. Note,
-    *   that [[#clear]] method will be called on underlying cache when resource
-    *   is released to make sure all resources stored in a cache are also
-    *   released.
+    *   that [[Cache#clear]] method will be called on underlying cache when
+    *   resource is released to make sure all resources stored in a cache are
+    *   also released.
     */
   def loading[F[_]: Concurrent: Parallel: Runtime, K, V](partitions: Option[Int] = None): Resource[F, Cache[F, K, V]] = {
 
@@ -550,9 +550,9 @@ object Cache {
     *
     * @return
     *   A new instance of a cache wrapped into [[cats.effect.Resource]]. Note,
-    *   that [[#clear]] method will be called on underlying cache when resource
-    *   is released to make sure all resources stored in a cache are also
-    *   released.
+    *   that [[Cache#clear]] method will be called on underlying cache when
+    *   resource is released to make sure all resources stored in a cache are
+    *   also released.
     */
   def expiring[F[_]: Temporal: Runtime: Parallel, K, V](
     config: ExpiringCache.Config[F, K, V],
