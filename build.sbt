@@ -26,6 +26,32 @@ libraryDependencies ++= Seq(
   scalatest % Test
 )
 
+autoAPIMappings := true
+
+// autoAPIMappings was not enabled for CE2, so we do this manually
+// this is only needed to support `[[...]]` syntax for scaladoc
+Compile / apiMappings := {
+
+  val log = streams.value.log
+  val mappings = (Compile / apiMappings).value
+
+  val moduleId = s"${Cats.effect.name}_${scalaBinaryVersion.value}"
+  val libraryFile = (Compile / dependencyClasspath).value find { libraryFile =>
+    libraryFile.metadata.get(moduleID.key).map(_.name) == Some(moduleId)
+  }
+  val libraryUrl = url("https://typelevel.org/cats-effect/api/2.x/")
+
+  if (libraryFile.isEmpty) {
+    log.warn(s"Could not find `$moduleId` in dependencies, `doc` task might fail with an error")
+  }
+
+  // if library file is not found, we just ignore it and change nothing
+  libraryFile.fold(mappings) { libraryFile =>
+    mappings + (libraryFile.data -> libraryUrl)
+  }
+
+}
+
 licenses := Seq(("MIT", url("https://opensource.org/licenses/MIT")))
 
 description             := "Cache in Scala with cats-effect"
