@@ -64,18 +64,23 @@ object CacheMetered {
           for {
             result <- cache.getOrUpdate1(key) {
               for {
-                start    <- MeasureDuration[F].start
-                value    <- value.attempt
-                duration <- start
-                _        <- metrics.load(duration, value.isRight)
-                value    <- value.liftTo[F]
+                _          <- metrics.get(false)
+                start      <- MeasureDuration[F].start
+                value      <- value.attempt
+                duration   <- start
+                loadSucceed = value match {
+                  case Right(_) | Left(Cache.NoneError) => true
+                  case Left(_)                          => false
+                }
+                _     <- metrics.load(duration, loadSucceed)
+                value <- value.liftTo[F]
               } yield {
                 val (a, v, release) = value
                 val release1 = releaseMetered(start, release.getOrElse { ().pure[F] })
                 (a, v, release1.some) // TODO is this a good idea to convert option to always some?
               }
             }
-            _     <- metrics.get(result.isRight)
+            _ <- metrics.get(true).whenA(result.isRight)
           } yield result
         }
 
