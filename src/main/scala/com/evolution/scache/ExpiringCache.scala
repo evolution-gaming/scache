@@ -5,6 +5,7 @@ import cats.effect.syntax.all.*
 import cats.kernel.CommutativeMonoid
 import cats.syntax.all.*
 import cats.{Applicative, Monad, MonadThrow, Monoid}
+import com.evolution.scache.LoadingCache.EntryState
 import com.evolutiongaming.catshelper.ClockHelper.*
 import com.evolutiongaming.catshelper.Schedule
 
@@ -40,8 +41,8 @@ object ExpiringCache {
       def removeExpired(key: K, entryRef: LoadingCache.EntryRef[F, Entry[V]]) = {
         entryRef
           .get
-          .flatMap { entry =>
-            entry.foldMapM { entry =>
+          .flatMap {
+            case EntryState.Value(entry) =>
               for {
                 now               <- Clock[F].millis
                 expiredAfterRead   = expireAfterReadMs + entry.value.touched < now
@@ -49,7 +50,8 @@ object ExpiringCache {
                 expired            = expiredAfterRead || expiredAfterWrite()
                 result            <- if (expired) remove(key) else ().pure[F]
               } yield result
-            }
+            case EntryState.Loading(_) => ().pure[F]
+            case EntryState.Removed(_) => ().pure[F]
           }
       }
 
@@ -66,8 +68,9 @@ object ExpiringCache {
                 entryRef
                   .get
                   .map {
-                    case Right(a) => Elem(key, a.value.touched) :: result
-                    case Left(_)  => result
+                    case EntryState.Value(a) => Elem(key, a.value.touched) :: result
+                    case EntryState.Loading(_) => result
+                    case EntryState.Removed(_) => result
                   }
               }
             }
@@ -105,8 +108,8 @@ object ExpiringCache {
           entryRefs.foldMapM { case (key, entryRef) =>
             entryRef
               .get
-              .flatMap { value =>
-                value.foldMapM { _ =>
+              .flatMap {
+                case EntryState.Value(_) =>
                   refresh
                     .value(key)
                     .flatMap {
@@ -114,7 +117,8 @@ object ExpiringCache {
                       case None        => cache.remove(key).void
                     }
                     .handleError { _ => () }
-                }
+                case EntryState.Loading(_) => ().pure[F]
+                case EntryState.Removed(_) => ().pure[F]
               }
           }
         }

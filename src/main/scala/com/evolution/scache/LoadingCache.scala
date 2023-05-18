@@ -1,6 +1,6 @@
 package com.evolution.scache
 
-import cats.{Functor, Monad, MonadThrow, Parallel}
+import cats.{Applicative, Functor, Monad, MonadThrow, Parallel}
 import cats.effect.implicits.*
 import cats.effect.{Concurrent, Deferred, Fiber, GenConcurrent, Outcome, Ref, Resource}
 import cats.kernel.CommutativeMonoid
@@ -46,6 +46,8 @@ private[scache] object LoadingCache {
 
     new LoadingCache {
 
+      import EntryState.*
+
       def get(key: K) = {
         ref
           .get
@@ -58,12 +60,12 @@ private[scache] object LoadingCache {
                 entry
                   .get
                   .flatMap {
-                    case Right(entry)   =>
+                    case Value(entry)   =>
                       entry
                         .value
                         .some
                         .pure[F]
-                    case Left(deferred) =>
+                    case Loading(deferred) =>
                       deferred
                         .get
                         .map { entry =>
@@ -71,6 +73,8 @@ private[scache] object LoadingCache {
                             .toOption
                             .map { _.value }
                         }
+                    case Removed(_) =>
+                      none[V].pure[F]
                   }
               }
           }
@@ -82,7 +86,7 @@ private[scache] object LoadingCache {
           .flatMap { entryRefs =>
             entryRefs
               .get(key)
-              .traverse { _.either }
+              .flatTraverse { _.optEither }
           }
       }
 
@@ -104,7 +108,7 @@ private[scache] object LoadingCache {
                 .fold {
                   for {
                     deferred <- Deferred[F, Either[Throwable, Entry[F, V]]]
-                    entryRef <- Ref[F].of(deferred.asLeft[Entry[F, V]])
+                    entryRef <- Ref[F].of[EntryState[F, V]](Loading(deferred))
                     result   <- set(entryRefs.updated(key, entryRef))
                       .flatMap {
                         case true =>
@@ -116,12 +120,19 @@ private[scache] object LoadingCache {
                             .attempt
                             .race1 { deferred.get }
                             .flatMap {
+                              // `value` got computed, and deferred was not completed by in another fiber in `put`
                               case Left(Right((a, entry))) =>
                                 0.tailRecM { counter =>
                                   entryRef
                                     .access
                                     .flatMap {
-                                      case (Right(entry0), _) =>
+                                      // Entry contains a computed value, which is only possible
+                                      // if a successful `put` was performed by another fiber
+                                      // after our `value` started computing.
+                                      // That fiber also must've also completed our deferred,
+                                      // so we don't do anything about it.
+                                      // Returning their (newer) value, and releasing the value we just computed.
+                                      case (Value(entry0), _) =>
                                         entry
                                           .release1
                                           .as {
@@ -132,16 +143,24 @@ private[scache] object LoadingCache {
                                               .asRight[Int]
                                           }
 
-                                      case (Left(_), set) =>
-                                        set(entry.asRight).flatMap {
+                                      // Our deferred is still there
+                                      case (Loading(_), set) =>
+                                        set(Value(entry)).flatMap {
+                                          // Successfully replaced our deferred with the loaded value,
+                                          // now we can complete it.
                                           case true  =>
                                             deferred
                                               .complete(entry.asRight)
                                               .flatMap {
+                                                // Happy path: successfully completed our deferred
                                                 case true  =>
                                                   a
                                                     .asLeft[Either[F[V], V]]
                                                     .pure[F]
+                                                // Deferred got completed by another fiber,
+                                                // so we return what they put there.
+                                                // That fiber will take care of releasing the value we just computed
+                                                // and already put in the entryRef (see `put` cycle).
                                                 case false =>
                                                   deferred
                                                     .getOrError
@@ -153,14 +172,52 @@ private[scache] object LoadingCache {
                                                     }
                                               }
                                               .map { _.asRight[Int] }
+                                          // Our deferred got replaced by another fiber, retrying
                                           case false =>
                                             (counter + 1)
                                               .asLeft[Either[A, Either[F[V], V]]]
                                               .pure[F]
                                         }
+
+                                      // The entry got removed by another fiber while we were loading it,
+                                      // so we just complete the deferred with the value we computed:
+                                      // 1: for anyone waiting on it in `get*`,
+                                      // 2: so it can be released by the fiber that removed the entry (see `remove`).
+                                      case (Removed(_), _) =>
+                                        deferred
+                                          .complete(entry.asRight)
+                                          .flatMap {
+                                            // Returning the value we successfully computed,
+                                            // even though it got removed from the entryMap mid-evaluation.
+                                            case true =>
+                                              a
+                                                .asLeft[Either[F[V], V]]
+                                                .pure[F]
+                                            // Another fiber completed our deferred (see `put`),
+                                            // right before the entry was removed from the entryMap,
+                                            // so we return what they `put` there, and release the value we just computed.
+                                            // NB: the value we are returning might've already been released in `remove`.
+                                            case false =>
+                                              entry
+                                                .release1
+                                                .start
+                                                .productR {
+                                                  deferred
+                                                    .getOrError
+                                                    .map { entry =>
+                                                      entry
+                                                        .value
+                                                        .asRight[F[V]]
+                                                        .asRight[A]
+                                                    }
+                                                }
+                                          }
+                                          .map { _.asRight[Int] }
                                     }
                                 }
 
+                              // `value` computation completed with error,
+                              // and deferred was not completed in another fiber in `put`.
                               case Left(Left(error)) =>
                                 deferred
                                   .complete(error.asLeft)
@@ -169,7 +226,8 @@ private[scache] object LoadingCache {
                                       entryRef
                                         .get
                                         .flatMap {
-                                          case Left(_)      =>
+                                          // Our deferred is still there
+                                          case Loading(_) =>
                                             0.tailRecM { counter =>
                                               ref
                                                 .access
@@ -177,8 +235,13 @@ private[scache] object LoadingCache {
                                                   entryRefs
                                                     .get(key)
                                                     .fold {
+                                                      // Key was removed while we were loading,
+                                                      // so we are just propagating the error
                                                       error.raiseError[F, Either[Int, V]]
                                                     } {
+                                                      // The entry we added to the map is still there and unmodified,
+                                                      // so we can safely remove it and propagate the error,
+                                                      // without needing to release anything.
                                                       case `entryRef` =>
                                                         set(entryRefs - key).flatMap {
                                                           case true  =>
@@ -188,27 +251,45 @@ private[scache] object LoadingCache {
                                                               .asLeft[V]
                                                               .pure[F]
                                                         }
-                                                      case entryRef   =>
+                                                      // Another fiber replaced the `ref` we added to the map,
+                                                      // which shouldn't be possible, but if it happens,
+                                                      // we return their value if it's already computed,
+                                                      // or propagate our error if it's still loading,
+                                                      // without waiting for their value to compute.
+                                                      case entryRef =>
                                                         entryRef
                                                           .get
                                                           .flatMap {
-                                                            case Left(_)      =>
+                                                            case Loading(_) =>
                                                               error.raiseError[F, Either[Int, V]]
-                                                            case Right(entry) =>
+                                                            case Value(entry) =>
                                                               entry
                                                                 .value
                                                                 .asRight[Int]
                                                                 .pure[F]
+                                                            case Removed(_) =>
+                                                              error.raiseError[F, Either[Int, V]]
                                                           }
                                                     }
                                                 }
                                             }
-                                          case Right(entry) =>
+
+                                          // Shouldn't be possible for us to complete `deferred` and then encounter
+                                          // a different value already set,
+                                          // but if it happens we just return that value and ignore the error we got.
+                                          case Value(entry) =>
                                             entry
                                               .value
                                               .pure[F]
+
+                                          // Key was removed while we were loading,
+                                          // so we are just propagating the error
+                                          case Removed(_) =>
+                                            error.raiseError[F, V]
                                         }
 
+                                    // Someone else completed the deferred before us, so they must've take care of
+                                    // updating the `ref`, and we return their result.
                                     case false =>
                                       deferred
                                         .getOrError
@@ -220,6 +301,8 @@ private[scache] object LoadingCache {
                                       .asRight[A]
                                   }
 
+                              // Deferred was completed by `put` in another fiber before `value` computation completed.
+                              // We return their value, and schedule release of the value that is still being computed.
                               case Right((fiber, entry)) =>
                                 fiber
                                   .joinWithNever
@@ -250,11 +333,15 @@ private[scache] object LoadingCache {
                   } yield result
                 } { entryRef =>
                   entryRef
-                    .either
-                    .map { value =>
-                      value
-                        .asRight[A]
-                        .asRight[Int]
+                    .optEither
+                    .map {
+                      case Some(either) =>
+                        either
+                          .asRight[A]
+                          .asRight[Int]
+                      case None =>
+                        (counter + 1)
+                          .asLeft[Either[A, Either[F[V], V]]]
                     }
                 }
             }
@@ -270,8 +357,9 @@ private[scache] object LoadingCache {
               entryRefs
                 .get(key)
                 .fold {
+                  // No entry present in the map, so we add one
                   Ref[F]
-                    .of(entry.asRight[DeferredThrow[F, Entry[F, V]]])
+                    .of[EntryState[F, V]](Value(entry))
                     .flatMap { entryRef =>
                       set(entryRefs.updated(key, entryRef)).map {
                         case true  =>
@@ -287,8 +375,10 @@ private[scache] object LoadingCache {
                     entryRef
                       .access
                       .flatMap {
-                        case (Right(entry0), set) =>
-                          set(entry.asRight)
+                        // A computed value is already present in the map, so we are replacing it, and taking care of
+                        // releasing the old value.
+                        case (Value(entry0), set) =>
+                          set(Value(entry))
                             .flatMap {
                               case true  =>
                                 entry0
@@ -306,13 +396,15 @@ private[scache] object LoadingCache {
                                   .pure[F]
                             }
 
-                        case (Left(deferred), set) =>
+                        // The value is still loading, so we complete the `deferred` with our value, and the creator of
+                        // of it will take care of releasing their computed value when they see that it's been completed.
+                        case (Loading(deferred), set) =>
                           deferred
                             .complete(entry.asRight)
                             .flatMap {
-                              case true  =>
-                                set(entry.asRight).map {
-                                  case true  =>
+                              case true =>
+                                set(Value(entry)).map {
+                                  case true =>
                                     none[V]
                                       .pure[F]
                                       .asRight[Int]
@@ -324,6 +416,16 @@ private[scache] object LoadingCache {
                                   .asLeft[F[Option[V]]]
                                   .pure[F]
                             }
+
+                        // The key was just removed from the map, so we retry from the beginning:
+                        // at this point the key shouldn't be present in the map anymore.
+                        case (Removed(_), _) =>
+                          entry
+                            .release
+                            .traverse { _.start }
+                            .as { none[V] }
+                            .asRight[Int]
+                            .pure[F]
                       }
                       .uncancelable
                       .map { _.asRight[Int] }
@@ -332,6 +434,95 @@ private[scache] object LoadingCache {
             }
         }
       }
+
+//      private def put1(key: K, value: V, release: Option[Release]): F[F[Option[V]]] =
+//        modify[Unit](key)(_ => ((), Some((value, release)))).map { case (_, f) => f }
+
+      // Modify the optionally present value associated with the given key.
+      // If `f` returns `None` the entry is removed, otherwise the value is updated.
+      // Returned outer effect contains the result of `f`,
+      // and the inner effect represents the release function of the previously stored value.
+//      def modify[A](key: K)(f: Option[V] => (A, Option[(V, Option[Release])])): F[(A, F[Option[V]])] = {
+//
+//        def tryUpdateEntry(
+//          entry0: Entry[F, V],
+//          set: Either[DeferredThrow[F, Entry[F, V]], Entry[F, V]] => F[Boolean],
+//        ): F[Either[Unit, Option[V]]] =
+//          f(entry0.value.some) match {
+//            case (a, Some((newValue, newRelease))) =>
+//              set(entryOf(newValue, newRelease).asRight).flatMap {
+//                case true =>
+//                  entry0
+//                    .release
+//                    .traverse { _.start }
+//                    .map { fiber =>
+//                      val m = fiber
+//                        .foldMapM { _.joinWithNever }
+//                        m.as { newValue.some }
+//                        .asRight[Unit]
+//                    }
+//                case false =>
+//                  none[V].asRight[Unit].pure[F]
+//              }
+//            case (a, None) =>
+//              ???
+//              ().asLeft[Option[V]].pure[F]
+//          }
+//
+//        ().tailRecM { _ =>
+//          ref
+//            .access
+//            .flatMap { case (entryRefs, setRefs) =>
+//              entryRefs
+//                .get(key)
+//                .fold {
+//                  f(None) match {
+//                    case (a, Some((newValue, newRelease))) =>
+//                      Ref[F]
+//                        .of(entryOf(newValue, newRelease).asRight[DeferredThrow[F, Entry[F, V]]])
+//                        .flatMap { entryRef =>
+//                          setRefs(entryRefs.updated(key, entryRef)).map {
+//                            case true =>
+//                              (a, none[V].pure[F])
+//                                .asRight[Unit]
+//                            case false =>
+//                              ().asLeft[F[(A, F[Option[V]])]]
+//                          }
+//                        }
+//                    case (a, None) =>
+//                      (a, none[V].pure[F])
+//                        .asRight[Unit]
+//                        .pure[F]
+//                  }
+//                } { entryRef =>
+//                  // Entry exists for the given key, so we try to modify it
+//                  ().tailRecM { _ =>
+//                    entryRef
+//                      .access
+//                      .flatMap {
+//                        // Entry contains already calculated value
+//                        case (Right(entry0), set) =>
+//                          tryUpdateEntry(entry0, set)
+//                        // Entry contains deferred value
+//                        case (Left(deferred), set) =>
+//                          deferred
+//                            .get
+//                            .flatMap {
+//                              case Left(_) =>
+//                                // Deferred was completed with an error,
+//                                // which means it will soon be removed or replaced, so we retry
+//                                ().asLeft[Option[V]].pure[F]
+//                              case Right(entry0) =>
+//                                tryUpdateEntry(entry0, set)
+//                            }
+//                      }
+//                      .uncancelable
+//                      .map { _.asRight[Unit] }
+//                  }
+//                }
+//            }
+//        }
+//      }
 
       def contains(key: K) = {
         ref
@@ -367,7 +558,10 @@ private[scache] object LoadingCache {
                 values.flatMap { values =>
                   entryRef
                     .value
-                    .map { value => (key, value) :: values }
+                    .map {
+                      case Some(value) => (key, value) :: values
+                      case None => values
+                    }
                 }
               }
           }
@@ -386,8 +580,11 @@ private[scache] object LoadingCache {
               } { case (values, (key, entryRef)) =>
                 values.flatMap { values =>
                   entryRef
-                    .either
-                    .map { value => (key, value) :: values }
+                    .optEither
+                    .map {
+                      case Some(value) => (key, value) :: values
+                      case None => values
+                    }
                 }
               }
           }
@@ -396,45 +593,41 @@ private[scache] object LoadingCache {
 
 
       def remove(key: K) = {
-        0.tailRecM { counter =>
-          ref
-            .access
-            .flatMap { case (entryRefs, set) =>
-              entryRefs
-                .get(key)
-                .fold {
-                  none[V]
-                    .pure[F]
-                    .asRight[Int]
-                    .pure[F]
-                } { entryRef =>
-                  set(entryRefs - key)
-                    .flatMap {
-                      case true  =>
-                        entryRef
-                          .getOption
-                          .flatMap { entry =>
-                            entry.traverse { entry =>
-                              entry
-                                .release1
-                                .as { entry.value }
-                            }
+        ref
+          .modify { entryRefs =>
+            entryRefs
+              .get(key)
+              .fold {
+                (entryRefs, none[EntryRef[F, V]])
+              } { entryRef =>
+                (entryRefs - key, entryRef.some)
+              }
+          }
+          .flatMap { maybeRemovedEntryRef =>
+            maybeRemovedEntryRef
+              .traverse { entryRef =>
+                entryRef
+                  .getAndSet(Removed[F, V]())
+                  .flatMap { previousEntryState =>
+                    previousEntryState
+                      .getOption
+                      .flatMap { maybeEntry =>
+                        maybeEntry
+                          .traverse { entry =>
+                            entry
+                              .release1
+                              .as {
+                                entry.value
+                              }
                           }
-                          .start
-                          .map { fiber =>
-                            fiber
-                              .joinWithNever
-                              .asRight[Int]
-                          }
-                      case false =>
-                        (counter + 1)
-                          .asLeft[F[Option[V]]]
-                          .pure[F]
-                    }
-                    .uncancelable
-                }
-            }
-        }
+                      }
+                      .start
+                      .map {_.joinWithNever }
+                  }
+              }
+              .map(_.getOrElse(none[V].pure[F]))
+              .uncancelable
+          }
       }
 
 
@@ -465,8 +658,8 @@ private[scache] object LoadingCache {
             entryRefs.foldLeft(zero) { case (a, (key, entryRef)) =>
               for {
                 a <- a
-                v <- entryRef.either
-                b <- f(key, v)
+                v <- entryRef.optEither
+                b <- v.fold(CommutativeMonoid[A].empty.pure[F])(v => f(key, v))
               } yield {
                 CommutativeMonoid[A].combine(a, b)
               }
@@ -486,8 +679,8 @@ private[scache] object LoadingCache {
                 .foldLeft(zero) { case (a, (key, entryRef)) =>
                   val b = Parallel[F].parallel {
                     for {
-                      v <- entryRef.either
-                      b <- f(key, v)
+                      v <- entryRef.optEither
+                      b <- v.fold(CommutativeMonoid[A].empty.pure[F])(v => f(key, v))
                     } yield b
                   }
                   Parallel[F]
@@ -508,9 +701,24 @@ private[scache] object LoadingCache {
     }
   }
 
+  sealed trait EntryState[F[_], A] {
+    def getOption(implicit F: Applicative[F]): F[Option[Entry[F, A]]] =
+      this match {
+        case EntryState.Loading(deferred) => deferred.getOption
+        case EntryState.Value(entry)      => entry.some.pure[F]
+        case EntryState.Removed(_)        => none[Entry[F, A]].pure[F]
+      }
+  }
+
+  object EntryState {
+    final case class Loading[F[_], A](deferred: Deferred[F, Either[Throwable, Entry[F, A]]]) extends EntryState[F, A]
+    final case class Value[F[_], A](entry: Entry[F, A]) extends EntryState[F, A]
+    final case class Removed[F[_], A](stub: Boolean = true) extends EntryState[F, A]
+  }
+
   type DeferredThrow[F[_], A] = Deferred[F, Either[Throwable, A]]
 
-  type EntryRef[F[_], A] = Ref[F, Either[DeferredThrow[F, Entry[F, A]], Entry[F, A]]]
+  type EntryRef[F[_], A] = Ref[F, EntryState[F, A]]
 
   type EntryRefs[F[_], K, V] = Map[K, EntryRef[F, V]]
 
@@ -537,24 +745,24 @@ private[scache] object LoadingCache {
 
   implicit class EntryRefOps[F[_], A](val self: EntryRef[F, A]) extends AnyVal {
 
+    import EntryState.*
+
     def getOption(implicit F: Monad[F]): F[Option[Entry[F, A]]] = {
       self
         .get
-        .flatMap {
-          case Right(a) => a.some.pure[F]
-          case Left(a)  => a.getOption
-        }
+        .flatMap(_.getOption)
     }
 
-    def either(implicit F: MonadThrow[F]): F[Either[F[A], A]] = {
+    def optEither(implicit F: MonadThrow[F]): F[Option[Either[F[A], A]]] = {
       self
         .get
         .map {
-          case Right(entry)   =>
+          case Value(entry)   =>
             entry
               .value
               .asRight[F[A]]
-          case Left(deferred) =>
+              .some
+          case Loading(deferred) =>
             deferred
               .get
               .flatMap {
@@ -566,21 +774,28 @@ private[scache] object LoadingCache {
                   error.raiseError[F, A]
               }
               .asLeft[A]
+              .some
+          case Removed(_) =>
+            none[Either[F[A], A]]
         }
     }
 
-    def value(implicit F: MonadThrow[F]): F[F[A]] = {
+    def value(implicit F: MonadThrow[F]): F[Option[F[A]]] = {
       self
         .get
         .map {
-          case Right(entry)   =>
+          case Value(entry)   =>
             entry
               .value
               .pure[F]
-          case Left(deferred) =>
+              .some
+          case Loading(deferred) =>
             deferred
               .getOrError
               .map { _.value }
+              .some
+          case Removed(_) =>
+            none[F[A]]
         }
     }
 
@@ -589,13 +804,17 @@ private[scache] object LoadingCache {
         self
           .access
           .flatMap {
-            case (Right(entry), set) =>
+            case (Value(entry), set) =>
               val entry1 = entry.copy(value = f(entry.value))
-              set(entry1.asRight).map {
+              set(Value(entry1)).map {
                 case true  => ().asRight[Int]
                 case false => (counter + 1).asLeft[Unit]
               }
-            case (Left(_), _)        =>
+            case (Loading(_), _) =>
+              ()
+                .asRight[Int]
+                .pure[F]
+            case (Removed(_), _) =>
               ()
                 .asRight[Int]
                 .pure[F]
