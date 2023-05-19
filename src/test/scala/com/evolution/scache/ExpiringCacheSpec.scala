@@ -275,12 +275,13 @@ class ExpiringCacheSpec extends AsyncFunSuite with Matchers {
         value    <- cache.get(0)
         _        <- Sync[F].delay { value shouldEqual 1.some }
         value    <- retryUntilNone(0)
+        _        <- Temporal[F].sleep(10.millis) // Account to `release` being performed asynchronously
         released <- released.get
         _        <- Sync[F].delay { released shouldEqual true}
         _        <- Sync[F].delay { value shouldEqual none }
         _        <- release.get
       } yield {}
-    }
+    }.replicateA_(20)
   }
 
 
