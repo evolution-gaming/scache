@@ -384,25 +384,21 @@ private[scache] object LoadingCache {
                               case true =>
                                 Concurrent[F]
                                   .asInstanceOf[Async[F]]
-                                  .delay(println(s"Releasing ${entry.value} from inside put")) *>
+                                  .delay(println(s"Releasing ${entry0.value} from inside put")) *>
                                 entry0
-//                                  .value
-//                                  .some
-//                                  .pure[F]
                                   .release
                                   .traverse { _.start }
                                   .map { fiber =>
                                     fiber
                                       .foldMapM { _.joinWithNever }
-                                      .flatMap { _ =>
+                                      .flatTap { _ =>
                                         Concurrent[F]
                                           .asInstanceOf[Async[F]]
-                                          .delay(println(s"Released ${entry.value} from inside put"))
+                                          .delay(println(s"Released ${entry0.value} from inside put"))
                                       }
                                       .as { entry0.value.some }
                                       .asRight[Int] // Breaking outer cycle
                                       .asRight[Int] // Breaking inner cycle
-//                                  .pure[F]
                                   }
                               case false =>
                                 (counter + 1)
