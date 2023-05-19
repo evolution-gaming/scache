@@ -28,7 +28,10 @@ crossScalaVersions := Seq("2.13.8", /*"3.2.0", */"2.12.17")
 libraryDependencies ++= crossSettings(
   scalaVersion.value,
   if3 = Nil,
-  if2 = Seq(compilerPlugin(`kind-projector` cross CrossVersion.full)),
+  if2 = Seq(
+    compilerPlugin(betterMonadicFor),
+    compilerPlugin(`kind-projector` cross CrossVersion.full)
+  ),
 )
 
 scalacOptions ++= crossSettings(
