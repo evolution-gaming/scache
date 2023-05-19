@@ -2,7 +2,7 @@ package com.evolution.scache
 
 import cats.{Applicative, Functor, Monad, MonadThrow, Parallel}
 import cats.effect.implicits.*
-import cats.effect.{Concurrent, Deferred, Fiber, GenConcurrent, Outcome, Ref, Resource}
+import cats.effect.{Async, Concurrent, Deferred, Fiber, GenConcurrent, Outcome, Ref, Resource}
 import cats.kernel.CommutativeMonoid
 import com.evolutiongaming.catshelper.ParallelHelper.*
 import cats.syntax.all.*
@@ -367,7 +367,8 @@ private[scache] object LoadingCache {
                             .pure[F]
                             .asRight[Int]
                         case false =>
-                          (counter + 1).asLeft[F[Option[V]]]
+                          (counter + 1)
+                            .asLeft[F[Option[V]]]
                       }
                     }
                 } { entryRef =>
@@ -380,19 +381,32 @@ private[scache] object LoadingCache {
                         case (Value(entry0), set) =>
                           set(Value(entry))
                             .flatMap {
-                              case true  =>
+                              case true =>
+                                Concurrent[F]
+                                  .asInstanceOf[Async[F]]
+                                  .delay(println(s"Releasing ${entry.value} from inside put")) *>
                                 entry0
+//                                  .value
+//                                  .some
+//                                  .pure[F]
                                   .release
                                   .traverse { _.start }
                                   .map { fiber =>
                                     fiber
                                       .foldMapM { _.joinWithNever }
+                                      .flatMap { _ =>
+                                        Concurrent[F]
+                                          .asInstanceOf[Async[F]]
+                                          .delay(println(s"Released ${entry.value} from inside put"))
+                                      }
                                       .as { entry0.value.some }
-                                      .asRight[Int]
+                                      .asRight[Int] // Breaking outer cycle
+                                      .asRight[Int] // Breaking inner cycle
+//                                  .pure[F]
                                   }
                               case false =>
                                 (counter + 1)
-                                  .asLeft[F[Option[V]]]
+                                  .asLeft[Either[Int, F[Option[V]]]]
                                   .pure[F]
                             }
 
@@ -407,28 +421,27 @@ private[scache] object LoadingCache {
                                   case true =>
                                     none[V]
                                       .pure[F]
-                                      .asRight[Int]
+                                      .asRight[Int] // Breaking outer cycle
+                                      .asRight[Int] // Breaking inner cycle
                                   case false =>
-                                    (counter + 1).asLeft[F[Option[V]]]
+                                    (counter + 1)
+                                      .asLeft[Either[Int, F[Option[V]]]] // Retrying inner cycle
                                 }
                               case false =>
                                 (counter + 1)
-                                  .asLeft[F[Option[V]]]
+                                  .asLeft[Either[Int, F[Option[V]]]] // Retrying inner cycle
                                   .pure[F]
                             }
 
                         // The key was just removed from the map, so we retry from the beginning:
                         // at this point the key shouldn't be present in the map anymore.
                         case (Removed(_), _) =>
-                          entry
-                            .release
-                            .traverse { _.start }
-                            .as { none[V] }
-                            .asRight[Int]
+                          (counter + 1)
+                            .asLeft[F[Option[V]]] // Retrying outer cycle
+                            .asRight[Int] // Breaking inner cycle
                             .pure[F]
                       }
                       .uncancelable
-                      .map { _.asRight[Int] }
                   }
                 }
             }
@@ -614,11 +627,17 @@ private[scache] object LoadingCache {
                       .flatMap { maybeEntry =>
                         maybeEntry
                           .traverse { entry =>
+                            Concurrent[F]
+                              .asInstanceOf[Async[F]]
+                              .delay(println(s"Releasing ${entry.value} from inside remove")) *>
                             entry
                               .release1
-                              .as {
-                                entry.value
+                              .flatTap { _ =>
+                                Concurrent[F]
+                                  .asInstanceOf[Async[F]]
+                                  .delay(println(s"Released ${entry.value} from inside remove"))
                               }
+                              .as { entry.value }
                           }
                       }
                       .start
@@ -639,7 +658,20 @@ private[scache] object LoadingCache {
               .parFoldMap1 { case (_, entryRef) =>
                 entryRef
                   .getOption
-                  .flatMap { _.foldMapM { _.release1 } }
+                  .flatMap {
+                    _.foldMapM { entry =>
+                      Concurrent[F]
+                        .asInstanceOf[Async[F]]
+                        .delay(println(s"Releasing ${entry.value} from inside clear")) *>
+                      entry
+                        .release1
+                        .flatTap { _ =>
+                          Concurrent[F]
+                            .asInstanceOf[Async[F]]
+                            .delay(println(s"Released ${entry.value} from inside clear"))
+                        }
+                    }
+                  }
                   .uncancelable
               }
               .start
