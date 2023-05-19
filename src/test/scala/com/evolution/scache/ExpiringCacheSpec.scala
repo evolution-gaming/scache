@@ -281,7 +281,7 @@ class ExpiringCacheSpec extends AsyncFunSuite with Matchers {
         _        <- Sync[F].delay { value shouldEqual none }
         _        <- release.get
       } yield {}
-    }.replicateA_(20)
+    }
   }
 
 
