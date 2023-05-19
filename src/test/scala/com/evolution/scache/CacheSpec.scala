@@ -1167,7 +1167,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
           for {
             resultRef1 <- Ref[IO].of(0)
             resultRef2 <- Ref[IO].of(0)
-            range = 1 to 10_000
+            range = 1 to 100_000
 
             // For `getOrUpdate*` we don't know how many times the resource will be run,
             // so we use increment/decrement as a way to check that the resource is released exactly once.
@@ -1198,7 +1198,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         .use { cache =>
           for {
             resultRef <- Ref[IO].of(0)
-            range = 1 to 10_000
+            range = 1 to 100_000
 
             f1 <- (range: Seq[Int]).parTraverse(i => cache.put(0, 0, resultRef.update(_ + i))).start
             f2 <- (range: Seq[Int]).parTraverse(_ => cache.remove(0)).start
@@ -1210,9 +1210,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
             _ <- cache.clear.flatten
 
             result <- resultRef.get
-            _ <- IO {
-              result shouldEqual expectedResult
-            }
+            _ <- IO { result shouldEqual expectedResult }
           } yield ()
         }
         .run()
@@ -1224,7 +1222,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
           for {
             resultRef1 <- Ref[IO].of(0)
             resultRef2 <- Ref[IO].of(0)
-            range = 1 to 10_000
+            range = 1 to 100_000
 
             // For `getOrUpdate*` we don't know how many times the resource will be run,
             // so we use increment/decrement as a way to check that the resource is released exactly once.
@@ -1248,6 +1246,53 @@ class CacheSpec extends AsyncFunSuite with Matchers {
             result2 <- resultRef2.get
             _ <- IO { result1 shouldEqual 0 }
             _ <- IO { result2 shouldEqual expectedResult }
+          } yield ()
+        }
+        .run()
+    }
+
+    test(s"failing loads don't interfere with releases during `getOrUpdate1`, `put` and `remove` race: $name") {
+      cache
+        .use { cache =>
+          for {
+            resultRef1 <- Ref[IO].of(0)
+            resultRef2 <- Ref[IO].of(0)
+            resultRef3 <- Ref[IO].of(0)
+            range = 1 to 100_000
+
+            // For `getOrUpdate*` we don't know how many times the resource will be run,
+            // so we use increment/decrement as a way to check that the resource is released exactly once.
+            valueResource = (i: Int) => Resource.make(resultRef1.update(_ + i).as(i))(_ => resultRef1.update(_ - i))
+            f1 <- (range: Seq[Int]).parTraverse { i =>
+              cache.getOrUpdateResource(0)(valueResource(i)).recover(_ => -1)
+            }.start
+
+            failingResource = (i: Int) =>
+              Resource.make(new Exception("Boom").raiseError[IO, Int])(_ => resultRef2.update(_ - i))
+            f2 <- (range: Seq[Int]).parTraverse { i =>
+              cache.getOrUpdateResource(0)(failingResource(i)).recover(_ => -1)
+            }.start
+
+            // For `put` we know that the resource will be written and released every time,
+            // so we increment on release and check that the final value is equal to the sum of the range.
+            f3 <- (range: Seq[Int]).parTraverse(i => cache.put(0, 0, resultRef3.update(_ + i))).start
+
+            f4 <- (range: Seq[Int]).parTraverse(_ => cache.remove(0)).start
+
+            expectedResult = range.sum
+
+            _ <- f1.joinWithNever.void
+            _ <- f2.joinWithNever.void
+            _ <- f3.joinWithNever.flatMap(_.sequence)
+            _ <- f4.joinWithNever.flatMap(_.sequence)
+            _ <- cache.clear.flatten
+
+            result1 <- resultRef1.get
+            result2 <- resultRef2.get
+            result3 <- resultRef3.get
+            _ <- IO { result1 shouldEqual 0 }
+            _ <- IO { result2 shouldEqual 0 }
+            _ <- IO { result3 shouldEqual expectedResult }
           } yield ()
         }
         .run()

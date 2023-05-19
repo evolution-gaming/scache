@@ -2,11 +2,10 @@ package com.evolution.scache
 
 import cats.{Applicative, Functor, Monad, MonadThrow, Parallel}
 import cats.effect.implicits.*
-import cats.effect.{Async, Concurrent, Deferred, Fiber, GenConcurrent, Outcome, Ref, Resource}
+import cats.effect.{Concurrent, Deferred, Fiber, GenConcurrent, Outcome, Ref, Resource}
 import cats.kernel.CommutativeMonoid
 import com.evolutiongaming.catshelper.ParallelHelper.*
 import cats.syntax.all.*
-
 
 private[scache] object LoadingCache {
 
@@ -98,8 +97,8 @@ private[scache] object LoadingCache {
         }
       }
 
-      def getOrUpdate1[A](key: K)(value: => F[(A, V, Option[Release])]) = {
-        0.tailRecM { counter =>
+      def getOrUpdate1[A](key: K)(value: => F[(A, V, Option[Release])]): F[Either[A, Either[F[V], V]]] = {
+        0.tailRecM { counter0 =>
           ref
             .access
             .flatMap { case (entryRefs, set) =>
@@ -120,16 +119,16 @@ private[scache] object LoadingCache {
                             .attempt
                             .race1 { deferred.get }
                             .flatMap {
-                              // `value` got computed, and deferred was not completed by in another fiber in `put`
+                              // `value` got computed, and deferred was not (yet) completed by any other fiber in `put`
                               case Left(Right((a, entry))) =>
-                                0.tailRecM { counter =>
+                                0.tailRecM { counter1 =>
                                   entryRef
                                     .access
                                     .flatMap {
-                                      // Entry contains a computed value, which is only possible
+                                      // Entry already contains a computed value, which is only possible
                                       // if a successful `put` was performed by another fiber
                                       // after our `value` started computing.
-                                      // That fiber also must've also completed our deferred,
+                                      // It means that our deferred is already take care of,
                                       // so we don't do anything about it.
                                       // Returning their (newer) value, and releasing the value we just computed.
                                       case (Value(entry0), _) =>
@@ -149,11 +148,17 @@ private[scache] object LoadingCache {
                                           // Successfully replaced our deferred with the loaded value,
                                           // now we can complete it.
                                           case true  =>
+//                                            Concurrent[F]
+//                                              .asInstanceOf[Async[F]]
+//                                              .delay(println(s"[getOrUpdate1][Loading] Set ref to Value(${entry.value})")) *>
                                             deferred
                                               .complete(entry.asRight)
                                               .flatMap {
                                                 // Happy path: successfully completed our deferred
                                                 case true  =>
+//                                                  Concurrent[F]
+//                                                    .asInstanceOf[Async[F]]
+//                                                    .delay(println(s"[getOrUpdate1][Loading] Completed deferred with ${entry.value}")) *>
                                                   a
                                                     .asLeft[Either[F[V], V]]
                                                     .pure[F]
@@ -164,8 +169,11 @@ private[scache] object LoadingCache {
                                                 case false =>
                                                   deferred
                                                     .getOrError
-                                                    .map { entry =>
-                                                      entry
+                                                    .map { entry1 =>
+//                                                      Concurrent[F]
+//                                                        .asInstanceOf[Async[F]]
+//                                                        .delay(println(s"[getOrUpdate1][Loading] Failed to complete deferred with ${entry.value}, returning ${entry1.value} from own deferred")) as
+                                                      entry1
                                                         .value
                                                         .asRight[F[V]]
                                                         .asRight[A]
@@ -174,27 +182,27 @@ private[scache] object LoadingCache {
                                               .map { _.asRight[Int] }
                                           // Our deferred got replaced by another fiber, retrying
                                           case false =>
-                                            (counter + 1)
+                                            (counter1 + 1)
                                               .asLeft[Either[A, Either[F[V], V]]]
                                               .pure[F]
                                         }
 
                                       // The entry got removed by another fiber while we were loading it,
-                                      // so we just complete the deferred with the value we computed:
-                                      // 1: for anyone waiting on it in `get*`,
-                                      // 2: so it can be released by the fiber that removed the entry (see `remove`).
+                                      // so we just complete the deferred with the value we computed in order to:
+                                      // 1: notify anyone waiting on it in `get*`,
+                                      // 2: let it be released by the fiber that removed the entry
+                                      // (see `remove` and `put`).
                                       case (Removed(_), _) =>
                                         deferred
                                           .complete(entry.asRight)
                                           .flatMap {
                                             // Returning the value we successfully computed,
-                                            // even though it got removed from the entryMap mid-evaluation.
+                                            // even though we know it was removed from the entryMap mid-evaluation.
                                             case true =>
                                               a
                                                 .asLeft[Either[F[V], V]]
                                                 .pure[F]
                                             // Another fiber completed our deferred (see `put`),
-                                            // right before the entry was removed from the entryMap,
                                             // so we return what they `put` there, and release the value we just computed.
                                             // NB: the value we are returning might've already been released in `remove`.
                                             case false =>
@@ -228,7 +236,7 @@ private[scache] object LoadingCache {
                                         .flatMap {
                                           // Our deferred is still there
                                           case Loading(_) =>
-                                            0.tailRecM { counter =>
+                                            0.tailRecM { counter1 =>
                                               ref
                                                 .access
                                                 .flatMap { case (entryRefs, set) =>
@@ -247,7 +255,7 @@ private[scache] object LoadingCache {
                                                           case true  =>
                                                             error.raiseError[F, Either[Int, V]]
                                                           case false =>
-                                                            (counter + 1)
+                                                            (counter1 + 1)
                                                               .asLeft[V]
                                                               .pure[F]
                                                         }
@@ -314,6 +322,11 @@ private[scache] object LoadingCache {
                                   .productR {
                                     entry
                                       .liftTo[F]
+//                                      .flatTap { entry =>
+//                                        Concurrent[F]
+//                                          .asInstanceOf[Async[F]]
+//                                          .delay(println(s"[getOrUpdate1] Lost race to put, returning ${entry.value}"))
+//                                      }
                                       .map { entry =>
                                         entry
                                           .value
@@ -325,7 +338,7 @@ private[scache] object LoadingCache {
                             .map { _.asRight[Int] }
 
                         case false =>
-                          (counter + 1)
+                          (counter0 + 1)
                             .asLeft[Either[A, Either[F[V], V]]]
                             .pure[F]
                       }
@@ -340,7 +353,7 @@ private[scache] object LoadingCache {
                           .asRight[A]
                           .asRight[Int]
                       case None =>
-                        (counter + 1)
+                        (counter0 + 1)
                           .asLeft[Either[A, Either[F[V], V]]]
                     }
                 }
@@ -348,91 +361,147 @@ private[scache] object LoadingCache {
         }
       }
 
-      def put(key: K, value: V, release: Option[Release]) = {
+      def put(key: K, value: V, release: Option[Release]): F[F[Option[V]]] = {
         val entry = entryOf(value, release)
-        0.tailRecM { counter =>
+        0.tailRecM { counter0 =>
+//          Concurrent[F]
+//            .asInstanceOf[Async[F]]
+//            .delay(println(s"[put][outer] Attempt $counter0 of putting $value")) *>
           ref
             .access
             .flatMap { case (entryRefs, set) =>
               entryRefs
                 .get(key)
                 .fold {
-                  // No entry present in the map, so we add one
+                  // No entry present in the map, so we add a new one
                   Ref[F]
                     .of[EntryState[F, V]](Value(entry))
                     .flatMap { entryRef =>
                       set(entryRefs.updated(key, entryRef)).map {
                         case true  =>
+//                          Concurrent[F]
+//                            .asInstanceOf[Async[F]]
+//                            .delay(println(s"[put] Finished adding new key with Value(${entry.value})")) as
                           none[V]
                             .pure[F]
                             .asRight[Int]
                         case false =>
-                          (counter + 1)
+                          (counter0 + 1)
                             .asLeft[F[Option[V]]]
+//                            .pure[F]
                       }
                     }
                 } { entryRef =>
-                  0.tailRecM { counter =>
+                  0.tailRecM { counter1 =>
+//                    Concurrent[F]
+//                      .asInstanceOf[Async[F]]
+//                      .delay(println(s"[put][inner] Attempt $counter1 of putting $value")) *>
                     entryRef
                       .access
                       .flatMap {
-                        // A computed value is already present in the map, so we are replacing it, and taking care of
-                        // releasing the old value.
+                        // A computed value is already present in the map, so we are replacing it with our value.
                         case (Value(entry0), set) =>
                           set(Value(entry))
                             .flatMap {
+                              // Successfully replaced the entryRef with our value,
+                              // now we are responsible for releasing the old value.
                               case true =>
-                                Concurrent[F]
-                                  .asInstanceOf[Async[F]]
-                                  .delay(println(s"Releasing ${entry0.value} from inside put")) *>
+//                                Concurrent[F]
+//                                  .asInstanceOf[Async[F]]
+//                                  .delay(println(s"[put] Set ${entry.value}, releasing ${entry0.value}")) *>
                                 entry0
                                   .release
                                   .traverse { _.start }
                                   .map { fiber =>
                                     fiber
                                       .foldMapM { _.joinWithNever }
-                                      .flatTap { _ =>
-                                        Concurrent[F]
-                                          .asInstanceOf[Async[F]]
-                                          .delay(println(s"Released ${entry0.value} from inside put"))
-                                      }
+//                                      .flatTap { _ =>
+//                                        Concurrent[F]
+//                                          .asInstanceOf[Async[F]]
+//                                          .delay(println(s"[put] Released ${entry0.value} after setting ${entry.value}"))
+//                                      }
                                       .as { entry0.value.some }
                                       .asRight[Int] // Breaking outer cycle
                                       .asRight[Int] // Breaking inner cycle
                                   }
+                              // Failed to set the entryRef to our value, it is safe to retry
                               case false =>
-                                (counter + 1)
+                                (counter1 + 1)
                                   .asLeft[Either[Int, F[Option[V]]]]
                                   .pure[F]
                             }
 
-                        // The value is still loading, so we complete the `deferred` with our value, and the creator of
-                        // of it will take care of releasing their computed value when they see that it's been completed.
+                        // The value is still loading, so we first replace it with our value,
+                        // and then try to complete the deferred with it.
                         case (Loading(deferred), set) =>
-                          deferred
-                            .complete(entry.asRight)
-                            .flatMap {
-                              case true =>
-                                set(Value(entry)).map {
+                          set(Value(entry)).flatMap {
+                            // We successfully replaced the entry with our value,
+                            // so now we are responsible for handling the deferred that was there.
+                            case true =>
+//                              Concurrent[F]
+//                                .asInstanceOf[Async[F]]
+//                                .delay(println(s"[put] Finished setting entryRef to Value(${entry.value})")) *>
+                              deferred
+                                .complete(entry.asRight)
+                                .flatMap {
+                                  // We successfully completed the deferred, so we are done.
                                   case true =>
+//                                    Concurrent[F]
+//                                      .asInstanceOf[Async[F]]
+//                                      .delay(println(s"[put] Finished setting deferred to ${entry.value}")) as
                                     none[V]
                                       .pure[F]
                                       .asRight[Int] // Breaking outer cycle
                                       .asRight[Int] // Breaking inner cycle
+                                      .pure[F]
+                                  // Another fiber completed the deferred before us, so we need to release their value.
                                   case false =>
-                                    (counter + 1)
-                                      .asLeft[Either[Int, F[Option[V]]]] // Retrying inner cycle
+//                                    Concurrent[F]
+//                                      .asInstanceOf[Async[F]]
+//                                      .delay(println(s"[put] Failed to set deferred to ${entry.value}, will release what is inside of it")) *>
+                                    deferred
+                                      .getOption
+                                      .flatMap { maybeEntry =>
+                                        maybeEntry
+                                          .traverse { entry1 =>
+//                                          Concurrent[F]
+//                                            .asInstanceOf[Async[F]]
+//                                            .delay(println(s"[put] Releasing ${entry1.value} from deferred, after setting ${entry.value}")) *>
+                                            entry1
+                                              .release1
+//                                              .flatTap { _ =>
+//                                                Concurrent[F]
+//                                                  .asInstanceOf[Async[F]]
+//                                                  .delay(println(s"[remove] Released ${entry1.value} from deferred, after setting ${entry.value}"))
+//                                              }
+                                              .as { entry1.value }
+                                          }
+                                      }
+                                      .start
+                                      .map { releaseFiber =>
+                                        releaseFiber
+                                          .joinWithNever
+                                          .asRight[Int] // Breaking outer cycle
+                                          .asRight[Int] // Breaking inner cycle
+                                      }
                                 }
-                              case false =>
-                                (counter + 1)
-                                  .asLeft[Either[Int, F[Option[V]]]] // Retrying inner cycle
-                                  .pure[F]
-                            }
+                            case false =>
+                              // Failed to set the entryRef to our value, it is safe to retry
+//                              Concurrent[F]
+//                                .asInstanceOf[Async[F]]
+//                                .delay(println(s"[put] Failed to set entryRef to Value(${entry.value})")) as
+                              (counter1 + 1)
+                                .asLeft[Either[Int, F[Option[V]]]] // Retrying inner cycle
+                                .pure[F]
+                          }
 
                         // The key was just removed from the map, so we retry from the beginning:
                         // at this point the key shouldn't be present in the map anymore.
                         case (Removed(_), _) =>
-                          (counter + 1)
+//                          Concurrent[F]
+//                            .asInstanceOf[Async[F]]
+//                            .delay(println(s"[put] Key was just removed, retrying from the top for ${entry.value}")) *>
+                          (counter0 + 1)
                             .asLeft[F[Option[V]]] // Retrying outer cycle
                             .asRight[Int] // Breaking inner cycle
                             .pure[F]
@@ -601,7 +670,7 @@ private[scache] object LoadingCache {
       }
 
 
-      def remove(key: K) = {
+      def remove(key: K): F[F[Option[V]]] = {
         ref
           .modify { entryRefs =>
             entryRefs
@@ -615,24 +684,27 @@ private[scache] object LoadingCache {
           .flatMap { maybeRemovedEntryRef =>
             maybeRemovedEntryRef
               .traverse { entryRef =>
+                // We just removed the entry, now we need to release it.
+                // Replacing the value of the ref with `Removed` means that we are getting responsible for the release.
                 entryRef
                   .getAndSet(Removed[F, V]())
                   .flatMap { previousEntryState =>
+                    // If the entry was in "Removed" state already, it's a noop for us.
                     previousEntryState
                       .getOption
                       .flatMap { maybeEntry =>
                         maybeEntry
                           .traverse { entry =>
-                            Concurrent[F]
-                              .asInstanceOf[Async[F]]
-                              .delay(println(s"Releasing ${entry.value} from inside remove")) *>
+//                            Concurrent[F]
+//                              .asInstanceOf[Async[F]]
+//                              .delay(println(s"[remove] Releasing ${entry.value}, the state was $previousEntryState")) *>
                             entry
                               .release1
-                              .flatTap { _ =>
-                                Concurrent[F]
-                                  .asInstanceOf[Async[F]]
-                                  .delay(println(s"Released ${entry.value} from inside remove"))
-                              }
+//                              .flatTap { _ =>
+//                                Concurrent[F]
+//                                  .asInstanceOf[Async[F]]
+//                                  .delay(println(s"[remove] Released ${entry.value}, the state was $previousEntryState"))
+//                              }
                               .as { entry.value }
                           }
                       }
@@ -656,16 +728,16 @@ private[scache] object LoadingCache {
                   .getOption
                   .flatMap {
                     _.foldMapM { entry =>
-                      Concurrent[F]
-                        .asInstanceOf[Async[F]]
-                        .delay(println(s"Releasing ${entry.value} from inside clear")) *>
+//                      Concurrent[F]
+//                        .asInstanceOf[Async[F]]
+//                        .delay(println(s"Releasing ${entry.value} from inside clear")) *>
                       entry
                         .release1
-                        .flatTap { _ =>
-                          Concurrent[F]
-                            .asInstanceOf[Async[F]]
-                            .delay(println(s"Released ${entry.value} from inside clear"))
-                        }
+//                        .flatTap { _ =>
+//                          Concurrent[F]
+//                            .asInstanceOf[Async[F]]
+//                            .delay(println(s"Released ${entry.value} from inside clear"))
+//                        }
                     }
                   }
                   .uncancelable
