@@ -120,102 +120,91 @@ private[scache] object LoadingCache {
                             .flatMap {
                               // `value` got computed, and deferred was not (yet) completed by any other fiber in `put`
                               case Left(Right((a, entry))) =>
-                                0.tailRecM { counter1 =>
-                                  entryRef
-                                    .access
-                                    .flatMap {
-                                      // Entry already contains a computed value, which is only possible
-                                      // if a successful `put` was performed by another fiber
-                                      // after our `value` started computing.
-                                      // It means that our deferred is already take care of,
-                                      // so we don't do anything about it.
-                                      // Returning their (newer) value, and releasing the value we just computed.
-                                      case (EntryState.Value(entry0), _) =>
-                                        entry
-                                          .release1
-                                          .as {
-                                            entry0
-                                              .value
-                                              .asRight[F[V]]
-                                              .asRight[A]
-                                              .asRight[Int]
-                                          }
-
-                                      // Our deferred is still there
-                                      case (_: EntryState.Loading[F, V], set) =>
-                                        set(EntryState.Value(entry)).flatMap {
-                                          // Successfully replaced our deferred with the loaded value,
-                                          // now we can complete it.
-                                          case true  =>
-                                            deferred
-                                              .complete(entry.asRight)
-                                              .flatMap {
-                                                // Happy path: successfully completed our deferred
-                                                case true  =>
-                                                  a
-                                                    .asLeft[Either[F[V], V]]
-                                                    .pure[F]
-                                                // Deferred got completed by another fiber,
-                                                // so we return what they put there.
-                                                // That fiber will take care of releasing the value we just computed
-                                                // and already put in the entryRef (see `put` cycle).
-                                                case false =>
-                                                  deferred
-                                                    .getOrError
-                                                    .map { entry1 =>
-                                                      entry1
-                                                        .value
-                                                        .asRight[F[V]]
-                                                        .asRight[A]
-                                                    }
-                                              }
-                                              .map { _.asRight[Int] }
-                                          // Our deferred got replaced by another fiber, retrying
-                                          case false =>
-                                            (counter1 + 1)
-                                              .asLeft[Either[A, Either[F[V], V]]]
-                                              .pure[F]
-                                        }
-
-                                      // The entry got removed by another fiber while we were loading it,
-                                      // so we just complete the deferred with the value we computed in order to:
-                                      // 1: notify anyone waiting on it in `get*`,
-                                      // 2: let it be released by the fiber that removed the entry
-                                      // (see `remove` and `put`).
-                                      case (EntryState.Removed, _) =>
-                                        deferred
-                                          .complete(entry.asRight)
+                                deferred
+                                  .complete(entry.asRight)
+                                  .flatMap {
+                                    // Successfully completed our deferred,
+                                    // now trying to place the new value in the entry.
+                                    case true =>
+                                      0.tailRecM { counter1 =>
+                                        entryRef
+                                          .access
                                           .flatMap {
-                                            // Returning the value we successfully computed,
-                                            // even though we know it was removed from the entryMap mid-evaluation.
-                                            case true =>
-                                              a
-                                                .asLeft[Either[F[V], V]]
-                                                .pure[F]
-                                            // Another fiber completed our deferred (see `put`),
-                                            // so we return what they `put` there, and release the value we just computed.
-                                            // NB: the value we are returning might've already been released in `remove`.
-                                            case false =>
+                                            // Entry is still in loading state, containing the same deferred we just completed.
+                                            // It is the only situation in which we actually want to try to put our value.
+                                            case (EntryState.Loading(`deferred`), set) =>
+                                              set(EntryState.Value(entry))
+                                                .map {
+                                                  // Happy path: successfully placed our computed value
+                                                  case true =>
+                                                    a
+                                                      .asLeft[Either[F[V], V]]
+                                                      .asRight[Int]
+                                                  case false =>
+                                                    (counter1 + 1)
+                                                      .asLeft[Either[A, Either[F[V], V]]]
+                                                }
+
+                                            // Entry contains a _different_ loading value
+                                            // (for example as a result of concurrent `remove` followed by another `getOrUpdate1`),
+                                            // so we return our computed value and release it immediately.
+                                            case (_: EntryState.Loading[F, V], _) =>
                                               entry
                                                 .release1
                                                 .start
-                                                .productR {
-                                                  deferred
-                                                    .getOrError
-                                                    .map { entry =>
-                                                      entry
-                                                        .value
-                                                        .asRight[F[V]]
-                                                        .asRight[A]
-                                                    }
+                                                .as {
+                                                  a
+                                                    .asLeft[Either[F[V], V]]
+                                                    .asRight[Int]
+                                                }
+
+                                            // Entry already contains a different computed value
+                                            // (for example as a result of a concurrent `remove` followed by `put`),
+                                            // so we return their computed value and release our value.
+                                            case (EntryState.Value(entry0), _) =>
+                                              entry
+                                                .release1
+                                                .start
+                                                .as {
+                                                  entry0
+                                                    .value
+                                                    .asRight[F[V]]
+                                                    .asRight[A]
+                                                    .asRight[Int]
+                                                }
+
+                                            // The entry got removed by another fiber while we were computing it,
+                                            // so we return our computed value and release it immediately.
+                                            case (EntryState.Removed, _) =>
+                                              entry
+                                                .release1
+                                                .start
+                                                .as {
+                                                  a
+                                                    .asLeft[Either[F[V], V]]
+                                                    .asRight[Int]
                                                 }
                                           }
-                                          .map { _.asRight[Int] }
-                                    }
-                                }
+                                      }
 
-                              // `value` computation completed with error,
-                              // and deferred was not completed in another fiber in `put`.
+                                    // Deferred got completed by another fiber, so we return what they put there,
+                                    // and release the value we just computed.
+                                    case false =>
+                                      entry
+                                        .release1
+                                        .start
+                                        .productR(
+                                          deferred
+                                            .getOrError
+                                            .map { entry =>
+                                              entry
+                                                .value
+                                                .asRight[F[V]]
+                                                .asRight[A]
+                                            }
+                                        )
+                                  }
+
                               case Left(Left(error)) =>
                                 deferred
                                   .complete(error.asLeft)
@@ -435,13 +424,17 @@ private[scache] object LoadingCache {
                                   .pure[F]
                             }
 
-                        // The key was just removed from the map, so we don't need to do anything.
+                        // The key was just removed from the map, so just release the value and exit.
                         case (EntryState.Removed, _) =>
-                          none[V]
-                            .pure[F]
-                            .asRight[Int] // Breaking outer cycle
-                            .asRight[Int] // Breaking inner cycle
-                            .pure[F]
+                          entry
+                            .release
+                            .traverse { _.start } // Start releasing and forget
+                            .as {
+                              none[V]
+                                .pure[F]
+                                .asRight[Int] // Breaking outer cycle
+                                .asRight[Int] // Breaking inner cycle
+                            }
                       }
                       .uncancelable
                   }
