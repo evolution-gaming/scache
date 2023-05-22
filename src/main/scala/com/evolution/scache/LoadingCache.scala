@@ -359,7 +359,7 @@ private[scache] object LoadingCache {
                     .of[EntryState[F, V]](EntryState.Value(entry))
                     .flatMap { entryRef =>
                       set(entryRefs.updated(key, entryRef)).map {
-                        case true  =>
+                        case true =>
                           none[V]
                             .pure[F]
                             .asRight[Int]
@@ -400,51 +400,44 @@ private[scache] object LoadingCache {
                         // The value is still loading, so we first replace it with our value,
                         // and then try to complete the deferred with it.
                         case (EntryState.Loading(deferred), set) =>
-                          set(EntryState.Value(entry)).flatMap {
-                            // We successfully replaced the entry with our value,
-                            // so now we are responsible for handling the deferred that was there.
-                            case true =>
-                              deferred
-                                .complete(entry.asRight)
-                                .flatMap {
-                                  // We successfully completed the deferred, so we are done.
+                          deferred
+                            .complete(entry.asRight)
+                            .flatMap {
+                              // We successfully completed the deferred, now trying to set the value.
+                              case true =>
+                                set(EntryState.Value(entry)).flatMap {
+                                  // We successfully replaced the entry with our value, so we are done.
                                   case true =>
                                     none[V]
                                       .pure[F]
                                       .asRight[Int] // Breaking outer cycle
                                       .asRight[Int] // Breaking inner cycle
                                       .pure[F]
-                                  // Another fiber completed the deferred before us, so we need to release their value.
+                                  // Another fiber completed placed their new value before us
+                                  // so we just release our value and exit.
                                   case false =>
-                                    deferred
-                                      .getOption
-                                      .flatMap { maybeEntry =>
-                                        maybeEntry
-                                          .traverse { entry1 =>
-                                            entry1
-                                              .release1
-                                              .as { entry1.value }
-                                          }
-                                      }
-                                      .start
-                                      .map { releaseFiber =>
-                                        releaseFiber
-                                          .joinWithNever
+                                    entry
+                                      .release
+                                      .traverse { _.start } // Start releasing and forget
+                                      .as {
+                                        none[V]
+                                          .pure[F]
                                           .asRight[Int] // Breaking outer cycle
                                           .asRight[Int] // Breaking inner cycle
                                       }
                                 }
-                            case false =>
-                              (counter1 + 1)
-                                .asLeft[Either[Int, F[Option[V]]]] // Retrying inner cycle
-                                .pure[F]
-                          }
+                              // Someone just completed the deferred we saw, so we retry expecting to see a value.
+                              case false =>
+                                (counter1 + 1)
+                                  .asLeft[Either[Int, F[Option[V]]]] // Retrying inner cycle
+                                  .pure[F]
+                            }
 
-                        // The key was just removed from the map, so we retry from the beginning:
-                        // at this point the key shouldn't be present in the map anymore.
+                        // The key was just removed from the map, so we don't need to do anything.
                         case (EntryState.Removed(_), _) =>
-                          (counter0 + 1)
-                            .asLeft[F[Option[V]]] // Retrying outer cycle
+                          none[V]
+                            .pure[F]
+                            .asRight[Int] // Breaking outer cycle
                             .asRight[Int] // Breaking inner cycle
                             .pure[F]
                       }
@@ -524,42 +517,62 @@ private[scache] object LoadingCache {
 
 
       def remove(key: K): F[F[Option[V]]] = {
-        ref
-          .modify { entryRefs =>
-            entryRefs
-              .get(key)
-              .fold {
-                (entryRefs, none[EntryRef[F, V]])
-              } { entryRef =>
-                (entryRefs - key, entryRef.some)
-              }
-          }
-          .flatMap { maybeRemovedEntryRef =>
-            maybeRemovedEntryRef
-              .traverse { entryRef =>
-                // We just removed the entry, now we need to release it.
-                // Replacing the value of the ref with `Removed` means that we are getting responsible for the release.
-                entryRef
-                  .getAndSet(EntryState.Removed[F, V]())
-                  .flatMap { previousEntryState =>
-                    // If the entry was in "Removed" state already, it's a noop for us.
-                    previousEntryState
-                      .getOption
-                      .flatMap { maybeEntry =>
-                        maybeEntry
-                          .traverse { entry =>
-                            entry
-                              .release1
-                              .as { entry.value }
+        0.tailRecM { counter0 =>
+          ref
+            .access
+            .flatMap { case (entryRefs, set) =>
+              entryRefs
+                .get(key)
+                .fold {
+                  none[V]
+                    .pure[F]
+                    .asRight[Int]
+                    .pure[F]
+                } { entryRef =>
+                  set(entryRefs - key)
+                    .flatMap {
+                      case true =>
+                        // We just removed the entry for the map, now we need to release it.
+                        // Replacing the value of the ref with `Removed` means that we are getting responsible for the release.
+                        entryRef
+                          .getAndSet(EntryState.Removed)
+                          .flatMap {
+                            // We removed a loaded value, so we are responsible for releasing it.
+                            case EntryState.Value(entry) =>
+                              entry
+                                .release1
+                                .as { entry.value.some }
+                                .start
+                                .map { fiber =>
+                                  fiber
+                                    .joinWithNever
+                                    .asRight[Int]
+                                }
+
+                            // We removed a loading value, and the fiber that will complete it will also
+                            // release that value, so there is nothing for us to return.
+                            case EntryState.Loading(_) =>
+                              none[V]
+                                .pure[F]
+                                .asRight[Int]
+                                .pure[F]
+
+                            // We removed an entry that was already being removed by another fiber, so we are done.
+                            case EntryState.Removed =>
+                              none[V]
+                                .pure[F]
+                                .asRight[Int]
+                                .pure[F]
                           }
-                      }
-                      .start
-                      .map {_.joinWithNever }
-                  }
-              }
-              .map(_.getOrElse(none[V].pure[F]))
-              .uncancelable
-          }
+                      case false =>
+                        (counter0 + 1)
+                          .asLeft[F[Option[V]]]
+                          .pure[F]
+                    }
+                    .uncancelable
+                }
+            }
+        }
       }
 
 
