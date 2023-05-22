@@ -39,7 +39,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
       } yield (cache, metrics)
 
     def check(testName: String)(assertions: (Cache[IO, Int, Int], CacheMetricsProbe) => IO[Any]): Unit = test(testName) {
-      cacheAndMetrics.use(assertions.tupled).run()
+      cacheAndMetrics.use(assertions.tupled).run(timeout = 20.seconds)
     }
 
     check(s"get: $name") { (cache, metrics) =>

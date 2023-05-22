@@ -57,8 +57,9 @@ private[scache] object LoadingCache {
                 entry
                   .get
                   .flatMap {
-                    case EntryState.Value(entry)   =>
-                      entry
+                    case state: EntryState.Value[F, V]   =>
+                      state
+                        .entry
                         .value
                         .some
                         .pure[F]
@@ -132,7 +133,7 @@ private[scache] object LoadingCache {
                                           .flatMap {
                                             // Entry is still in loading state, containing the same deferred we just completed.
                                             // It is the only situation in which we actually want to try to put our value.
-                                            case (EntryState.Loading(`deferred`), set) =>
+                                            case (state: EntryState.Loading[F, V], set) if state.deferred == deferred =>
                                               set(EntryState.Value(entry))
                                                 .map {
                                                   // Happy path: successfully placed our computed value
@@ -161,12 +162,14 @@ private[scache] object LoadingCache {
                                             // Entry already contains a different computed value
                                             // (for example as a result of a concurrent `remove` followed by `put`),
                                             // so we return their computed value and release our value.
-                                            case (EntryState.Value(entry0), _) =>
-                                              entry
+                                            case (state: EntryState.Value[F, V], _) =>
+                                              state
+                                                .entry
                                                 .release1
                                                 .start
                                                 .as {
-                                                  entry0
+                                                  state
+                                                    .entry
                                                     .value
                                                     .asRight[F[V]]
                                                     .asRight[A]
@@ -249,8 +252,9 @@ private[scache] object LoadingCache {
                                                           .flatMap {
                                                             case _: EntryState.Loading[F, V] =>
                                                               error.raiseError[F, Either[Int, V]]
-                                                            case EntryState.Value(entry) =>
-                                                              entry
+                                                            case state: EntryState.Value[F, V] =>
+                                                              state
+                                                                .entry
                                                                 .value
                                                                 .asRight[Int]
                                                                 .pure[F]
@@ -264,8 +268,9 @@ private[scache] object LoadingCache {
                                           // Shouldn't be possible for us to complete `deferred` and then encounter
                                           // a different value already set,
                                           // but if it happens we just return that value and ignore the error we got.
-                                          case EntryState.Value(entry) =>
-                                            entry
+                                          case state: EntryState.Value[F, V] =>
+                                            state
+                                              .entry
                                               .value
                                               .pure[F]
 
@@ -363,19 +368,20 @@ private[scache] object LoadingCache {
                     .access
                     .flatMap {
                       // A computed value is already present in the map, so we are replacing it with our value.
-                      case (EntryState.Value(entry0), set) =>
+                      case (state: EntryState.Value[F, V], set) =>
                         set(EntryState.Value(entry))
                           .flatMap {
                             // Successfully replaced the entryRef with our value,
                             // now we are responsible for releasing the old value.
                             case true =>
-                              entry0
+                              state
+                                .entry
                                 .release
                                 .traverse { _.start }
                                 .map { fiber =>
                                   fiber
                                     .foldMapM { _.joinWithNever }
-                                    .as { entry0.value.some }
+                                    .as { state.entry.value.some }
                                     .asRight[Int]
                                 }
                             // Failed to set the entryRef to our value
@@ -539,10 +545,11 @@ private[scache] object LoadingCache {
                           .getAndSet(EntryState.Removed)
                           .flatMap {
                             // We removed a loaded value, so we are responsible for releasing it.
-                            case EntryState.Value(entry) =>
-                              entry
+                            case state: EntryState.Value[F, V] =>
+                              state
+                                .entry
                                 .release1
-                                .as { entry.value.some }
+                                .as { state.entry.value.some }
                                 .start
                                 .map { fiber =>
                                   fiber

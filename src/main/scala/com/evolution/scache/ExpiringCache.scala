@@ -42,15 +42,15 @@ object ExpiringCache {
         entryRef
           .get
           .flatMap {
-            case EntryState.Value(entry) =>
+            case state: EntryState.Value[F, Entry[V]] =>
               for {
                 now               <- Clock[F].millis
-                expiredAfterRead   = expireAfterReadMs + entry.value.touched < now
-                expiredAfterWrite  = () => expireAfterWriteMs.exists { _ + entry.value.created < now }
+                expiredAfterRead   = expireAfterReadMs + state.entry.value.touched < now
+                expiredAfterWrite  = () => expireAfterWriteMs.exists { _ + state.entry.value.created < now }
                 expired            = expiredAfterRead || expiredAfterWrite()
                 result            <- if (expired) remove(key) else ().pure[F]
               } yield result
-            case EntryState.Loading(_) => ().pure[F]
+            case _: EntryState.Loading[F, Entry[V]] => ().pure[F]
             case EntryState.Removed => ().pure[F]
           }
       }
@@ -68,8 +68,8 @@ object ExpiringCache {
                 entryRef
                   .get
                   .map {
-                    case EntryState.Value(a) => Elem(key, a.value.touched) :: result
-                    case EntryState.Loading(_) => result
+                    case state: EntryState.Value[F, Entry[V]] => Elem(key, state.entry.value.touched) :: result
+                    case _: EntryState.Loading[F, Entry[V]] => result
                     case EntryState.Removed => result
                   }
               }
@@ -109,7 +109,7 @@ object ExpiringCache {
             entryRef
               .get
               .flatMap {
-                case EntryState.Value(_) =>
+                case _: EntryState.Value[F, Entry[V]] =>
                   refresh
                     .value(key)
                     .flatMap {
@@ -117,7 +117,7 @@ object ExpiringCache {
                       case None        => cache.remove(key).void
                     }
                     .handleError { _ => () }
-                case EntryState.Loading(_) => ().pure[F]
+                case _: EntryState.Loading[F, Entry[V]] => ().pure[F]
                 case EntryState.Removed => ().pure[F]
               }
           }
