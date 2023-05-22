@@ -359,85 +359,91 @@ private[scache] object LoadingCache {
                       }
                     }
                 } { entryRef =>
-                  0.tailRecM { counter1 =>
-                    entryRef
-                      .access
-                      .flatMap {
-                        // A computed value is already present in the map, so we are replacing it with our value.
-                        case (EntryState.Value(entry0), set) =>
-                          set(EntryState.Value(entry))
-                            .flatMap {
-                              // Successfully replaced the entryRef with our value,
-                              // now we are responsible for releasing the old value.
-                              case true =>
-                                entry0
-                                  .release
-                                  .traverse { _.start }
-                                  .map { fiber =>
-                                    fiber
-                                      .foldMapM { _.joinWithNever }
-                                      .as { entry0.value.some }
-                                      .asRight[Int] // Breaking outer cycle
-                                      .asRight[Int] // Breaking inner cycle
-                                  }
-                              // Failed to set the entryRef to our value, it is safe to retry
-                              case false =>
-                                (counter1 + 1)
-                                  .asLeft[Either[Int, F[Option[V]]]]
-                                  .pure[F]
-                            }
-
-                        // The value is still loading, so we first replace it with our value,
-                        // and then try to complete the deferred with it.
-                        case (state: EntryState.Loading[F, V], set) =>
-                          state
-                            .deferred
-                            .complete(entry.asRight)
-                            .flatMap {
-                              // We successfully completed the deferred, now trying to set the value.
-                              case true =>
-                                set(EntryState.Value(entry)).flatMap {
-                                  // We successfully replaced the entry with our value, so we are done.
-                                  case true =>
-                                    none[V]
-                                      .pure[F]
-                                      .asRight[Int] // Breaking outer cycle
-                                      .asRight[Int] // Breaking inner cycle
-                                      .pure[F]
-                                  // Another fiber completed placed their new value before us
-                                  // so we just release our value and exit.
-                                  case false =>
-                                    entry
-                                      .release
-                                      .traverse { _.start } // Start releasing and forget
-                                      .as {
-                                        none[V]
-                                          .pure[F]
-                                          .asRight[Int] // Breaking outer cycle
-                                          .asRight[Int] // Breaking inner cycle
-                                      }
+                  entryRef
+                    .access
+                    .flatMap {
+                      // A computed value is already present in the map, so we are replacing it with our value.
+                      case (EntryState.Value(entry0), set) =>
+                        set(EntryState.Value(entry))
+                          .flatMap {
+                            // Successfully replaced the entryRef with our value,
+                            // now we are responsible for releasing the old value.
+                            case true =>
+                              entry0
+                                .release
+                                .traverse { _.start }
+                                .map { fiber =>
+                                  fiber
+                                    .foldMapM { _.joinWithNever }
+                                    .as { entry0.value.some }
+                                    .asRight[Int]
                                 }
-                              // Someone just completed the deferred we saw, so we retry expecting to see a value.
-                              case false =>
-                                (counter1 + 1)
-                                  .asLeft[Either[Int, F[Option[V]]]] // Retrying inner cycle
-                                  .pure[F]
-                            }
+                            // Failed to set the entryRef to our value
+                            // so we just release our value and exit.
+                            case false =>
+                              entry
+                                .release
+                                .traverse { _.start } // Start releasing and forget
+                                .as {
+                                  none[V]
+                                    .pure[F]
+                                    .asRight[Int]
+                                }
+                          }
 
-                        // The key was just removed from the map, so just release the value and exit.
-                        case (EntryState.Removed, _) =>
-                          entry
-                            .release
-                            .traverse { _.start } // Start releasing and forget
-                            .as {
-                              none[V]
-                                .pure[F]
-                                .asRight[Int] // Breaking outer cycle
-                                .asRight[Int] // Breaking inner cycle
-                            }
-                      }
-                      .uncancelable
-                  }
+                      // The value is still loading, so we first replace it with our value,
+                      // and then try to complete the deferred with it.
+                      case (state: EntryState.Loading[F, V], set) =>
+                        state
+                          .deferred
+                          .complete(entry.asRight)
+                          .flatMap {
+                            // We successfully completed the deferred, now trying to set the value.
+                            case true =>
+                              set(EntryState.Value(entry)).flatMap {
+                                // We successfully replaced the entry with our value, so we are done.
+                                case true =>
+                                  none[V]
+                                    .pure[F]
+                                    .asRight[Int]
+                                    .pure[F]
+                                // Another fiber completed placed their new value before us
+                                // so we just release our value and exit.
+                                case false =>
+                                  entry
+                                    .release
+                                    .traverse { _.start } // Start releasing and forget
+                                    .as {
+                                      none[V]
+                                        .pure[F]
+                                        .asRight[Int]
+                                    }
+                              }
+                            // Someone just completed the deferred we saw
+                            // so we just release our value and exit.
+                            case false =>
+                              entry
+                                .release
+                                .traverse { _.start } // Start releasing and forget
+                                .as {
+                                  none[V]
+                                    .pure[F]
+                                    .asRight[Int]
+                                }
+                          }
+
+                      // The key was just removed from the map, so just release the value and exit.
+                      case (EntryState.Removed, _) =>
+                        entry
+                          .release
+                          .traverse { _.start } // Start releasing and forget
+                          .as {
+                            none[V]
+                              .pure[F]
+                              .asRight[Int]
+                          }
+                    }
+                    .uncancelable
                 }
             }
         }
