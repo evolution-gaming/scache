@@ -848,14 +848,13 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         fiber    <- cache.getOrUpdate1Ensure(0) { deferred.get }
         value1   <- cache.remove(0)
         release  <- Deferred[IO, Unit]
-        released <- Ref[IO].of(false)
-        _        <- deferred.complete((0, (release.get *> released.set(true)).some))
+        released <- Deferred[IO, Boolean]
+        _        <- deferred.complete((0, (release.get *> released.complete(true).void).some))
         value    <- fiber.joinWithNever
         _        <- IO { value shouldEqual 0.asRight }
         value    <- value1.startEnsure
         _        <- release.complete(())
         value    <- value.joinWithNever
-        _        <- IO.sleep(10.millis)
         released <- released.get
         _        <- IO { released shouldEqual true }
         _        <- IO { value shouldEqual None }
@@ -1162,7 +1161,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
       } yield {}
     }
 
-    check(s"each release performed exactly once during `getOrUpdate1` and `put` race: $name") { (cache, metrics) =>
+    check(s"each release performed exactly once during `getOrUpdate1` and `put` race: $name") { (cache, _) =>
       for {
         resultRef1 <- Ref[IO].of(0)
         resultRef2 <- Ref[IO].of(0)
@@ -1191,7 +1190,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
       } yield {}
     }
 
-    check(s"each release performed exactly once during `put` and `remove` race: $name") { (cache, metrics) =>
+    check(s"each release performed exactly once during `put` and `remove` race: $name") { (cache, _) =>
       for {
         resultRef <- Ref[IO].of(0)
         n = 100000
@@ -1211,7 +1210,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
       } yield {}
     }
 
-    check(s"each release performed exactly once during `getOrUpdate1`, `put` and `remove` race: $name") { (cache, metrics) =>
+    check(s"each release performed exactly once during `getOrUpdate1`, `put` and `remove` race: $name") { (cache, _) =>
       for {
         resultRef1 <- Ref[IO].of(0)
         resultRef2 <- Ref[IO].of(0)
@@ -1243,7 +1242,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
       } yield {}
     }
 
-    check(s"failing loads don't interfere with releases during `getOrUpdate1`, `put` and `remove` race: $name") { (cache, metrics) =>
+    check(s"failing loads don't interfere with releases during `getOrUpdate1`, `put` and `remove` race: $name") { (cache, _) =>
       for {
         resultRef1 <- Ref[IO].of(0)
         resultRef2 <- Ref[IO].of(0)
