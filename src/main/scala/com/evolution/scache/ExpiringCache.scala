@@ -51,7 +51,7 @@ object ExpiringCache {
                 result            <- if (expired) remove(key) else ().pure[F]
               } yield result
             case EntryState.Loading(_) => ().pure[F]
-            case EntryState.Removed(_) => ().pure[F]
+            case EntryState.Removed => ().pure[F]
           }
       }
 
@@ -70,7 +70,7 @@ object ExpiringCache {
                   .map {
                     case EntryState.Value(a) => Elem(key, a.value.touched) :: result
                     case EntryState.Loading(_) => result
-                    case EntryState.Removed(_) => result
+                    case EntryState.Removed => result
                   }
               }
             }
@@ -118,7 +118,7 @@ object ExpiringCache {
                     }
                     .handleError { _ => () }
                 case EntryState.Loading(_) => ().pure[F]
-                case EntryState.Removed(_) => ().pure[F]
+                case EntryState.Removed => ().pure[F]
               }
           }
         }

@@ -62,15 +62,16 @@ private[scache] object LoadingCache {
                         .value
                         .some
                         .pure[F]
-                    case EntryState.Loading(deferred) =>
-                      deferred
+                    case state: EntryState.Loading[F, V] =>
+                      state
+                        .deferred
                         .get
                         .map { entry =>
                           entry
                             .toOption
                             .map { _.value }
                         }
-                    case EntryState.Removed(_) =>
+                    case EntryState.Removed =>
                       none[V].pure[F]
                   }
               }
@@ -141,7 +142,7 @@ private[scache] object LoadingCache {
                                           }
 
                                       // Our deferred is still there
-                                      case (EntryState.Loading(_), set) =>
+                                      case (_: EntryState.Loading[F, V], set) =>
                                         set(EntryState.Value(entry)).flatMap {
                                           // Successfully replaced our deferred with the loaded value,
                                           // now we can complete it.
@@ -181,7 +182,7 @@ private[scache] object LoadingCache {
                                       // 1: notify anyone waiting on it in `get*`,
                                       // 2: let it be released by the fiber that removed the entry
                                       // (see `remove` and `put`).
-                                      case (EntryState.Removed(_), _) =>
+                                      case (EntryState.Removed, _) =>
                                         deferred
                                           .complete(entry.asRight)
                                           .flatMap {
@@ -224,7 +225,7 @@ private[scache] object LoadingCache {
                                         .get
                                         .flatMap {
                                           // Our deferred is still there
-                                          case EntryState.Loading(_) =>
+                                          case _: EntryState.Loading[F, V] =>
                                             0.tailRecM { counter1 =>
                                               ref
                                                 .access
@@ -257,14 +258,14 @@ private[scache] object LoadingCache {
                                                         entryRef
                                                           .get
                                                           .flatMap {
-                                                            case EntryState.Loading(_) =>
+                                                            case _: EntryState.Loading[F, V] =>
                                                               error.raiseError[F, Either[Int, V]]
                                                             case EntryState.Value(entry) =>
                                                               entry
                                                                 .value
                                                                 .asRight[Int]
                                                                 .pure[F]
-                                                            case EntryState.Removed(_) =>
+                                                            case EntryState.Removed =>
                                                               error.raiseError[F, Either[Int, V]]
                                                           }
                                                     }
@@ -281,7 +282,7 @@ private[scache] object LoadingCache {
 
                                           // Key was removed while we were loading,
                                           // so we are just propagating the error
-                                          case EntryState.Removed(_) =>
+                                          case EntryState.Removed =>
                                             error.raiseError[F, V]
                                         }
 
@@ -399,8 +400,9 @@ private[scache] object LoadingCache {
 
                         // The value is still loading, so we first replace it with our value,
                         // and then try to complete the deferred with it.
-                        case (EntryState.Loading(deferred), set) =>
-                          deferred
+                        case (state: EntryState.Loading[F, V], set) =>
+                          state
+                            .deferred
                             .complete(entry.asRight)
                             .flatMap {
                               // We successfully completed the deferred, now trying to set the value.
@@ -434,7 +436,7 @@ private[scache] object LoadingCache {
                             }
 
                         // The key was just removed from the map, so we don't need to do anything.
-                        case (EntryState.Removed(_), _) =>
+                        case (EntryState.Removed, _) =>
                           none[V]
                             .pure[F]
                             .asRight[Int] // Breaking outer cycle
@@ -551,7 +553,7 @@ private[scache] object LoadingCache {
 
                             // We removed a loading value, and the fiber that will complete it will also
                             // release that value, so there is nothing for us to return.
-                            case EntryState.Loading(_) =>
+                            case _: EntryState.Loading[F, V] =>
                               none[V]
                                 .pure[F]
                                 .asRight[Int]
@@ -638,7 +640,7 @@ private[scache] object LoadingCache {
     }
   }
 
-  final case class Entry[F[_], A](value: A, release: Option[F[Unit]])
+  final case class Entry[+F[_], +A](value: A, release: Option[F[Unit]])
 
   object Entry {
     implicit class EntryOps[F[_], A](val self: Entry[F, A]) extends AnyVal {
@@ -646,19 +648,11 @@ private[scache] object LoadingCache {
     }
   }
 
-  sealed trait EntryState[F[_], A] {
-    def getOption(implicit F: Applicative[F]): F[Option[Entry[F, A]]] =
-      this match {
-        case EntryState.Loading(deferred) => deferred.getOption
-        case EntryState.Value(entry)      => entry.some.pure[F]
-        case EntryState.Removed(_)        => none[Entry[F, A]].pure[F]
-      }
-  }
-
+  sealed trait EntryState[+F[_], +A]
   object EntryState {
     final case class Loading[F[_], A](deferred: Deferred[F, Either[Throwable, Entry[F, A]]]) extends EntryState[F, A]
     final case class Value[F[_], A](entry: Entry[F, A]) extends EntryState[F, A]
-    final case class Removed[F[_], A](stub: Boolean = true) extends EntryState[F, A]
+    final case object Removed extends EntryState[Nothing, Nothing]
   }
 
   type DeferredThrow[F[_], A] = Deferred[F, Either[Throwable, A]]
@@ -686,6 +680,15 @@ private[scache] object LoadingCache {
         .get
         .map { _.toOption }
     }
+  }
+
+  implicit class EntryStateOps[F[_], A](val self: EntryState[F, A]) extends AnyVal {
+    def getOption(implicit F: Applicative[F]): F[Option[Entry[F, A]]] =
+      self match {
+        case EntryState.Loading(deferred) => deferred.getOption
+        case EntryState.Value(entry) => entry.some.pure[F]
+        case EntryState.Removed => none[Entry[F, A]].pure[F]
+      }
   }
 
   implicit class EntryRefOps[F[_], A](val self: EntryRef[F, A]) extends AnyVal {
@@ -718,7 +721,7 @@ private[scache] object LoadingCache {
               }
               .asLeft[A]
               .some
-          case EntryState.Removed(_) =>
+          case EntryState.Removed =>
             none[Either[F[A], A]]
         }
     }
@@ -737,7 +740,7 @@ private[scache] object LoadingCache {
               .getOrError
               .map { _.value }
               .some
-          case EntryState.Removed(_) =>
+          case EntryState.Removed =>
             none[F[A]]
         }
     }
@@ -753,11 +756,11 @@ private[scache] object LoadingCache {
                 case true  => ().asRight[Int]
                 case false => (counter + 1).asLeft[Unit]
               }
-            case (EntryState.Loading(_), _) =>
+            case (_: EntryState.Loading[F, A], _) =>
               ()
                 .asRight[Int]
                 .pure[F]
-            case (EntryState.Removed(_), _) =>
+            case (EntryState.Removed, _) =>
               ()
                 .asRight[Int]
                 .pure[F]
