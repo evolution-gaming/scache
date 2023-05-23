@@ -127,68 +127,88 @@ private[scache] object LoadingCache {
                                     // Successfully completed our deferred,
                                     // now trying to place the new value in the entry.
                                     case true =>
-                                      0.tailRecM { counter1 =>
-                                        entryRef
-                                          .access
-                                          .flatMap {
-                                            // Entry is still in loading state, containing the same deferred we just completed.
-                                            // It is the only situation in which we actually want to try to put our value.
-                                            case (state: EntryState.Loading[F, V], set) if state.deferred == deferred =>
-                                              set(EntryState.Value(entry))
-                                                .map {
-                                                  // Happy path: successfully placed our computed value
-                                                  case true =>
-                                                    a
-                                                      .asLeft[Either[F[V], V]]
-                                                      .asRight[Int]
-                                                  case false =>
-                                                    (counter1 + 1)
-                                                      .asLeft[Either[A, Either[F[V], V]]]
-                                                }
-
-                                            // Entry contains a _different_ loading value
-                                            // (for example as a result of concurrent `remove` followed by another `getOrUpdate1`),
-                                            // so we return our computed value and release it immediately.
-                                            case (_: EntryState.Loading[F, V], _) =>
-                                              entry
-                                                .release1
-                                                .start
-                                                .as {
+                                      entryRef
+                                        .access
+                                        .flatMap {
+                                          // Entry is still in loading state, containing the same deferred we just completed.
+                                          // It is the only situation in which we actually want to try to put our value.
+                                          case (state: EntryState.Loading[F, V], set) if state.deferred == deferred =>
+                                            set(EntryState.Value(entry))
+                                              .flatMap {
+                                                // Happy path: successfully placed our computed value
+                                                case true =>
                                                   a
                                                     .asLeft[Either[F[V], V]]
-                                                    .asRight[Int]
-                                                }
+                                                    .pure[F]
+                                                // Failed to set our value, so we just release it and return:
+                                                // - Another value (computed or ongoing), if found in the ref
+                                                // - Our value otherwise
+                                                case false =>
+                                                  entry
+                                                    .release1
+                                                    .start
+                                                    .flatMap { _ =>
+                                                      entryRef
+                                                        .get
+                                                        .map {
+                                                          case state: EntryState.Value[F, V] =>
+                                                            state
+                                                              .entry
+                                                              .value
+                                                              .asRight[F[V]]
+                                                              .asRight[A]
+                                                          case state: EntryState.Loading[F, V] =>
+                                                            state
+                                                              .deferred
+                                                              .getOrError
+                                                              .map(_.value)
+                                                              .asLeft[V]
+                                                              .asRight[A]
+                                                          case EntryState.Removed =>
+                                                            a.asLeft[Either[F[V], V]]
+                                                        }
+                                                    }
+                                              }
 
-                                            // Entry already contains a different computed value
-                                            // (for example as a result of a concurrent `remove` followed by `put`),
-                                            // so we return their computed value and release our value.
-                                            case (state: EntryState.Value[F, V], _) =>
-                                              state
-                                                .entry
-                                                .release1
-                                                .start
-                                                .as {
-                                                  state
-                                                    .entry
-                                                    .value
-                                                    .asRight[F[V]]
-                                                    .asRight[A]
-                                                    .asRight[Int]
-                                                }
+                                          // Entry contains a _different_ loading value
+                                          // (for example as a result of concurrent `remove` followed by another `getOrUpdate1`),
+                                          // so we return new value computation and release our value immediately.
+                                          case (state: EntryState.Loading[F, V], _) =>
+                                            entry
+                                              .release1
+                                              .start
+                                              .as {
+                                                state
+                                                  .deferred
+                                                  .getOrError
+                                                  .map(_.value)
+                                                  .asLeft[V]
+                                                  .asRight[A]
+                                              }
 
-                                            // The entry got removed by another fiber while we were computing it,
-                                            // so we return our computed value and release it immediately.
-                                            case (EntryState.Removed, _) =>
-                                              entry
-                                                .release1
-                                                .start
-                                                .as {
-                                                  a
-                                                    .asLeft[Either[F[V], V]]
-                                                    .asRight[Int]
-                                                }
-                                          }
-                                      }
+                                          // Entry already contains a different computed value
+                                          // (for example as a result of a concurrent `remove` followed by `put`),
+                                          // so we return their computed value and release our value.
+                                          case (state: EntryState.Value[F, V], _) =>
+                                            entry
+                                              .release1
+                                              .start
+                                              .as {
+                                                state
+                                                  .entry
+                                                  .value
+                                                  .asRight[F[V]]
+                                                  .asRight[A]
+                                              }
+
+                                          // The entry got removed by another fiber while we were computing it,
+                                          // so we return our computed value and release it immediately.
+                                          case (EntryState.Removed, _) =>
+                                            entry
+                                              .release1
+                                              .start
+                                              .as { a.asLeft[Either[F[V], V]] }
+                                        }
 
                                     // Deferred got completed by another fiber, so we return what they put there,
                                     // and release the value we just computed.
