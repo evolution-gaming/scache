@@ -149,61 +149,21 @@ private[scache] object LoadingCache {
                                                     .start
                                                     .flatMap { _ =>
                                                       entryRef
-                                                        .get
-                                                        .map {
-                                                          case state: EntryState.Value[F, V] =>
-                                                            state
-                                                              .entry
-                                                              .value
-                                                              .asRight[F[V]]
-                                                              .asRight[A]
-                                                          case state: EntryState.Loading[F, V] =>
-                                                            state
-                                                              .deferred
-                                                              .getOrError
-                                                              .map(_.value)
-                                                              .asLeft[V]
-                                                              .asRight[A]
-                                                          case EntryState.Removed =>
-                                                            a.asLeft[Either[F[V], V]]
-                                                        }
+                                                        .optEither
+                                                        .map(_.toRight(a))
                                                     }
                                               }
 
                                           // Entry state got updated while we were loading, so we release our value
                                           // and return a value based on the latest entry content.
-                                          case state =>
+                                          case (state, _) =>
                                             entry
                                               .release1
                                               .start
                                               .as {
-                                                state match {
-                                                  // Entry contains a _different_ loading value (for example as a result
-                                                  // of concurrent `remove` followed by another `getOrUpdate1`), so we
-                                                  // return new value computation.
-                                                  case (state: EntryState.Loading[F, V], _) =>
-                                                    state
-                                                      .deferred
-                                                      .getOrError
-                                                      .map(_.value)
-                                                      .asLeft[V]
-                                                      .asRight[A]
-
-                                                  // Entry contains a different computed value (for example as a result
-                                                  // of a concurrent `remove` followed by `put`), so we
-                                                  // return their computed value.
-                                                  case (state: EntryState.Value[F, V], _) =>
-                                                    state
-                                                      .entry
-                                                      .value
-                                                      .asRight[F[V]]
-                                                      .asRight[A]
-
-                                                  // The entry got removed by another fiber,
-                                                  // so we return our computed value.
-                                                  case (EntryState.Removed, _) =>
-                                                    a.asLeft[Either[F[V], V]]
-                                                }
+                                                state
+                                                  .optEither
+                                                  .toRight(a)
                                               }
                                         }
 
@@ -225,83 +185,50 @@ private[scache] object LoadingCache {
                                         )
                                   }
 
+                              // `value` computation completed with error,
+                              // and deferred was not completed in another fiber in `put`.
                               case Left(Left(error)) =>
                                 deferred
                                   .complete(error.asLeft)
                                   .flatMap {
+                                    // Successfully completed our deferred with error,
+                                    // now trying to remove the entry from the map, if it is still there.
                                     case true =>
-                                      entryRef
-                                        .get
-                                        .flatMap {
-                                          // Our deferred is still there
-                                          case _: EntryState.Loading[F, V] =>
-                                            0.tailRecM { counter1 =>
-                                              ref
-                                                .access
-                                                .flatMap { case (entryRefs, set) =>
-                                                  entryRefs
-                                                    .get(key)
-                                                    .fold {
-                                                      // Key was removed while we were loading,
-                                                      // so we are just propagating the error
+                                      0.tailRecM { counter1 =>
+                                        ref
+                                          .access
+                                          .flatMap { case (entryRefs, set) =>
+                                            entryRefs
+                                              .get(key)
+                                              .fold {
+                                                // Key was removed while we were loading,
+                                                // so we are just propagating the error
+                                                error.raiseError[F, Either[Int, Either[F[V], V]]]
+                                              } {
+                                                // The entry we added to the map is still there and unmodified,
+                                                // so we can safely remove it and propagate the error
+                                                case `entryRef` =>
+                                                  set(entryRefs - key).flatMap {
+                                                    // Happy path: successfully removed our entry
+                                                    case true  =>
                                                       error.raiseError[F, Either[Int, Either[F[V], V]]]
-                                                    } {
-                                                      // The entry we added to the map is still there and unmodified,
-                                                      // so we can safely remove it and propagate the error,
-                                                      // without needing to release anything.
-                                                      case `entryRef` =>
-                                                        set(entryRefs - key).flatMap {
-                                                          case true  =>
-                                                            error.raiseError[F, Either[Int, Either[F[V], V]]]
-                                                          case false =>
-                                                            (counter1 + 1)
-                                                              .asLeft[Either[F[V], V]]
-                                                              .pure[F]
-                                                        }
-                                                      // Another fiber replaced the `ref` we added to the map,
-                                                      // so we return their value (computed or ongoing),
-                                                      // or propagate our error if our entry got removed.
-                                                      case entryRef =>
-                                                        entryRef
-                                                          .get
-                                                          .flatMap {
-                                                            case state: EntryState.Loading[F, V] =>
-                                                              state
-                                                                .deferred
-                                                                .getOrError
-                                                                .map(_.value)
-                                                                .asLeft[V]
-                                                                .asRight[Int]
-                                                                .pure[F]
-                                                            case state: EntryState.Value[F, V] =>
-                                                              state
-                                                                .entry
-                                                                .value
-                                                                .asRight[F[V]]
-                                                                .asRight[Int]
-                                                                .pure[F]
-                                                            case EntryState.Removed =>
-                                                              error.raiseError[F, Either[Int, Either[F[V], V]]]
-                                                          }
-                                                    }
-                                                }
-                                            }
-
-                                          // Shouldn't be possible for us to complete `deferred` and then encounter
-                                          // a different value already set,
-                                          // but if it happens we just return that value and ignore the error we got.
-                                          case state: EntryState.Value[F, V] =>
-                                            state
-                                              .entry
-                                              .value
-                                              .asRight[F[V]]
-                                              .pure[F]
-
-                                          // Key was removed while we were loading,
-                                          // so we are just propagating the error
-                                          case EntryState.Removed =>
-                                            error.raiseError[F, Either[F[V], V]]
-                                        }
+                                                    // Retrying (different keys could've been modified in the map)
+                                                    case false =>
+                                                      (counter1 + 1)
+                                                        .asLeft[Either[F[V], V]]
+                                                        .pure[F]
+                                                  }
+                                                // Another fiber replaced the `ref` we added to the map,
+                                                // so we return their value (computed or ongoing),
+                                                // or propagate our error if our entry got removed.
+                                                case entryRef =>
+                                                  entryRef
+                                                    .optEither
+                                                    .flatMap(_.liftTo[F](error))
+                                                    .map(_.asRight[Int])
+                                              }
+                                          }
+                                      }
 
                                     // Someone else completed the deferred before us, so they must've take care of
                                     // updating the `ref`, and we return their result.
@@ -710,12 +637,31 @@ private[scache] object LoadingCache {
   }
 
   implicit class EntryStateOps[F[_], A](val self: EntryState[F, A]) extends AnyVal {
+
     def getOption(implicit F: Applicative[F]): F[Option[Entry[F, A]]] =
       self match {
         case EntryState.Loading(deferred) => deferred.getOption
         case EntryState.Value(entry) => entry.some.pure[F]
         case EntryState.Removed => none[Entry[F, A]].pure[F]
       }
+
+    def optEither(implicit F: MonadThrow[F]): Option[Either[F[A], A]] =
+      self match {
+        case EntryState.Value(entry) =>
+          entry
+            .value
+            .asRight[F[A]]
+            .some
+        case EntryState.Loading(deferred) =>
+          deferred
+            .getOrError
+            .map(_.value)
+            .asLeft[A]
+            .some
+        case EntryState.Removed =>
+          none[Either[F[A], A]]
+      }
+
   }
 
   implicit class EntryRefOps[F[_], A](val self: EntryRef[F, A]) extends AnyVal {
@@ -729,28 +675,7 @@ private[scache] object LoadingCache {
     def optEither(implicit F: MonadThrow[F]): F[Option[Either[F[A], A]]] = {
       self
         .get
-        .map {
-          case EntryState.Value(entry)   =>
-            entry
-              .value
-              .asRight[F[A]]
-              .some
-          case EntryState.Loading(deferred) =>
-            deferred
-              .get
-              .flatMap {
-                case Right(entry) =>
-                  entry
-                    .value
-                    .pure[F]
-                case Left(error)  =>
-                  error.raiseError[F, A]
-              }
-              .asLeft[A]
-              .some
-          case EntryState.Removed =>
-            none[Either[F[A], A]]
-        }
+        .map(_.optEither)
     }
 
     def value(implicit F: MonadThrow[F]): F[Option[F[A]]] = {
