@@ -834,10 +834,13 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         _        <- IO { value shouldEqual 0.asRight }
         value    <- value1
         _        <- IO { value shouldEqual None }
+        // Value is still present in cache, since calculation ended later than remove
+        value    <- cache.get(0)
+        _        <- IO { value shouldEqual Some(0) }
         _        <- metrics.expect(
           metrics.expectedGet(hit = false)     -> 1,
-          metrics.expectedLoad(success = true) -> 1,
-          metrics.expectedLife                 -> 1
+          metrics.expectedGet(hit = true)      -> 1,
+          metrics.expectedLoad(success = true) -> 1
         )
       } yield {}
     }
@@ -848,20 +851,23 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         fiber    <- cache.getOrUpdate1Ensure(0) { deferred.get }
         value1   <- cache.remove(0)
         release  <- Deferred[IO, Unit]
-        released <- Deferred[IO, Boolean]
-        _        <- deferred.complete((0, (release.get *> released.complete(true).void).some))
+        released <- Ref[IO].of(false)
+        _        <- deferred.complete((0, (release.get *> released.set(true).void).some))
         value    <- fiber.joinWithNever
         _        <- IO { value shouldEqual 0.asRight }
         value    <- value1.startEnsure
         _        <- release.complete(())
         value    <- value.joinWithNever
         released <- released.get
-        _        <- IO { released shouldEqual true }
+        _        <- IO { released shouldEqual false }
         _        <- IO { value shouldEqual None }
+        value    <- cache.get(0)
+        // Value is still present in cache, since calculation ended later than remove
+        _        <- IO { value shouldEqual Some(0) }
         _        <- metrics.expect(
           metrics.expectedGet(hit = false)     -> 1,
-          metrics.expectedLoad(success = true) -> 1,
-          metrics.expectedLife                 -> 1
+          metrics.expectedGet(hit = true)      -> 1,
+          metrics.expectedLoad(success = true) -> 1
         )
       } yield {}
     }

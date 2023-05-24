@@ -127,6 +127,74 @@ private[scache] object LoadingCache {
                                     // Successfully completed our deferred,
                                     // now trying to place the new value in the entry.
                                     case true =>
+
+                                      def releaseAndReturnValue(state: EntryState.Value[F, V]): F[Either[A, Either[F[V], V]]] =
+                                        entry
+                                          .release1
+                                          .start
+                                          .as {
+                                            state
+                                              .entry
+                                              .value
+                                              .asRight[F[V]]
+                                              .asRight[A]
+                                          }
+
+                                      def releaseAndReturnLoading(state: EntryState.Loading[F, V]): F[Either[A, Either[F[V], V]]] =
+                                        entry
+                                          .release1
+                                          .start
+                                          .as {
+                                            state
+                                              .deferred
+                                              .getOrError
+                                              .map(_.value)
+                                              .asLeft[V]
+                                              .asRight[A]
+                                          }
+
+                                      def tryPutNewValue: F[Either[A, Either[F[V], V]]] =
+                                        0.tailRecM { counter =>
+                                          ref
+                                            .access
+                                            .flatMap { case (entryRefs, set) =>
+                                              entryRefs
+                                                .get(key)
+                                                .fold {
+                                                  // No entry present in the map, so we add a new one
+                                                  Ref[F]
+                                                    .of[EntryState[F, V]](EntryState.Value(entry))
+                                                    .flatMap { entryRef =>
+                                                      set(entryRefs.updated(key, entryRef)).map {
+                                                        case true =>
+                                                          a
+                                                            .asLeft[Either[F[V], V]]
+                                                            .asRight[Int]
+                                                        case false =>
+                                                          (counter + 1)
+                                                            .asLeft[Either[A, Either[F[V], V]]]
+                                                      }
+                                                    }
+                                                } { entryRef =>
+                                                  entryRef
+                                                    .get
+                                                    .flatMap {
+                                                      case state: EntryState.Value[F, V] =>
+                                                        releaseAndReturnValue(state).map(_.asRight[Int])
+
+                                                      case state: EntryState.Loading[F, V] =>
+                                                        releaseAndReturnLoading(state).map(_.asRight[Int])
+
+                                                      case EntryState.Removed =>
+                                                        (counter + 1)
+                                                          .asLeft[Either[A, Either[F[V], V]]]
+                                                          .pure[F]
+                                                    }
+                                                    .uncancelable
+                                                }
+                                            }
+                                        }
+
                                       entryRef
                                         .access
                                         .flatMap {
@@ -140,31 +208,32 @@ private[scache] object LoadingCache {
                                                   a
                                                     .asLeft[Either[F[V], V]]
                                                     .pure[F]
-                                                // Failed to set our value, so we just release it and return:
-                                                // - Another value (computed or ongoing), if found in the ref
-                                                // - Our value otherwise
+                                                // Failed to set our value, so we just release it and:
+                                                // - Return another value (computed or ongoing), if found in the ref
+                                                // - Retry our computation, if our entry was removed
                                                 case false =>
-                                                  entry
-                                                    .release1
-                                                    .start
-                                                    .flatMap { _ =>
-                                                      entryRef
-                                                        .optEither
-                                                        .map(_.toRight(a))
+                                                  entryRef
+                                                    .get
+                                                    .flatMap {
+                                                      case state: EntryState.Value[F, V] =>
+                                                        releaseAndReturnValue(state)
+
+                                                      case state: EntryState.Loading[F, V] =>
+                                                        releaseAndReturnLoading(state)
+
+                                                      case EntryState.Removed =>
+                                                        tryPutNewValue
                                                     }
                                               }
 
-                                          // Entry state got updated while we were loading, so we release our value
-                                          // and return a value based on the latest entry content.
-                                          case (state, _) =>
-                                            entry
-                                              .release1
-                                              .start
-                                              .as {
-                                                state
-                                                  .optEither
-                                                  .toRight(a)
-                                              }
+                                          case (state: EntryState.Value[F, V], _) =>
+                                            releaseAndReturnValue(state)
+
+                                          case (state: EntryState.Loading[F, V], _) =>
+                                            releaseAndReturnLoading(state)
+
+                                          case (EntryState.Removed, _) =>
+                                            tryPutNewValue
                                         }
 
                                     // Deferred got completed by another fiber, so we return what they put there,
@@ -345,8 +414,8 @@ private[scache] object LoadingCache {
                                 }
                           }
 
-                      // The value is still loading, so we first replace it with our value,
-                      // and then try to complete the deferred with it.
+                      // The value is still loading, so we first try to complete the deferred with it,
+                      // and then replace it with our value.
                       case (state: EntryState.Loading[F, V], set) =>
                         state
                           .deferred
