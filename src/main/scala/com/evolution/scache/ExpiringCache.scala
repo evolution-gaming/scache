@@ -1,12 +1,11 @@
-package com.evolutiongaming.scache
+package com.evolution.scache
 
 import cats.effect.{Clock, Ref, Resource, Temporal}
 import cats.effect.syntax.all.*
 import cats.kernel.CommutativeMonoid
 import cats.syntax.all.*
-import cats.{Applicative, MonadThrow, Monoid, Parallel}
+import cats.{Applicative, Monad, MonadThrow, Monoid}
 import com.evolutiongaming.catshelper.ClockHelper.*
-import com.evolutiongaming.catshelper.ParallelHelper.*
 import com.evolutiongaming.catshelper.Schedule
 
 import scala.concurrent.duration.*
@@ -15,10 +14,10 @@ object ExpiringCache {
 
   type Timestamp = Long
 
-  private[scache] def of[F[_]: Parallel, K, V](
+  private[scache] def of[F[_], K, V](
     config: Config[F, K, V]
   )(implicit G: Temporal[F]): Resource[F, Cache[F, K, V]] = {
-    
+
     type E = Entry[V]
 
     val cooldown           = config.expireAfterRead.toMillis / 5
@@ -76,7 +75,7 @@ object ExpiringCache {
               entries
                 .sortBy(_.timestamp)
                 .take(maxSize / 10)
-                .parFoldMap1 { elem => remove(elem.key) }
+                .foldMapM { elem => remove(elem.key) }
             }
         }
 
@@ -88,7 +87,7 @@ object ExpiringCache {
 
       for {
         entryRefs <- ref.get
-        result    <- entryRefs.parFoldMap1 { case (key, entryRef) => removeExpired(key, entryRef) }
+        result    <- entryRefs.foldMapM { case (key, entryRef) => removeExpired(key, entryRef) }
         _         <- config
           .maxSize
           .foldMapM { maxSize => notExceedMaxSize(maxSize) }
@@ -103,7 +102,7 @@ object ExpiringCache {
       ref
         .get
         .flatMap { entryRefs =>
-          entryRefs.parFoldMap1 { case (key, entryRef) =>
+          entryRefs.foldMapM { case (key, entryRef) =>
             entryRef
               .get
               .flatMap { value =>
@@ -331,7 +330,29 @@ object ExpiringCache {
     def touched: Timestamp = read.getOrElse(created)
   }
 
-  
+
+  /** Configuration of a refresh background job.
+    *
+    * Usage example (`SettingService.get` returns `F[Option[Setting]]`):
+    * {{{
+    * ExpiringCache.Refresh(
+    *   interval = 1.minute,
+    *   value = key => SettingService.getOrNone(key)
+    * )
+    * }}}
+    *
+    * @param interval
+    *   How often the refresh routine should be called. Note, that all cache
+    *   entries will be refreshed regardless how long ago these were added to
+    *   the cache, hence the operation might be expensive.
+    * @param value
+    *   The function which returns a value for the specific key. While the
+    *   function itself is pure, all the current implementation use
+    *   `Refresh[K, F[Option[T]]]`, so `V` is not a real value, but an effectful
+    *   function which calculates a value. The [[scala.Option]] is used to
+    *   indicate if value should be removed (i.e. [[scala.None]] means the
+    *   key is to be deleted).
+    */
   final case class Refresh[-K, +V](interval: FiniteDuration, value: K => V)
 
   object Refresh {
@@ -344,9 +365,67 @@ object ExpiringCache {
   }
 
 
+  /** Configuration of expiring cache, including the potential refresh routine.
+    *
+    * Performance consideration: The frequency of internal expiration routine
+    * depends on `expireAfterRead` and `expireAfterWrite` parameters (it is
+    * actually done more often, for sake of faster cleanup), so the very small
+    * value set for any of these parameters may affect the performance of the
+    * cache, as cleanup will happen too often.
+    *
+    * Usage example (`SettingService.get` returns `F[Option[Setting]]`):
+    * {{{
+    * ExpiringCache.Config(
+    *   expireAfterRead = 1.minute,
+    *   expireAfterWrite = None,
+    *   maxSize = None,
+    *   refresh = Some(ExpiringCache.Refresh(
+    *     interval = 1.minute,
+    *     value = key => SettingService.get(key)
+    *   ))
+    * }}}
+    *
+    * @param expireAfterRead
+    *   The value will be removed after the period set by this parameter if it
+    *   was not read (i.e. one of methods reading the value such as
+    *   [[Cache#get]] or [[Cache#getOrUpdate]] method was not called). Note,
+    *   that this removal has a best effort guarantee, i.e. there is possibility
+    *   that value is still there after it expires.
+    * @param expireAfterWrite
+    *   If set to [[scala.Some]], the value will be removed after the period set
+    *   by this parameter regardless if it was touched by [[Cache#get]] or
+    *   similar methods. Note, that this removal has a best effort guarantee,
+    *   i.e. there is possibility that value is still there after it expires.
+    * @param maxSize
+    *   If set then the cache implementation will try to keep the cache size
+    *   under `maxSize` whenever clean up routine happens. If the cache size
+    *   exceeds the value, it will try to drop part of non-expired element
+    *   sorted by the timestamp, when these elements were last read. There is
+    *   no guarantee, though, that this size will not be exceeded a bit, if
+    *   a lot of elements are put into cache between the cleanup calls.
+    * @param refresh
+    *   If set to [[scala.Some]], the cache will schedule a background job,
+    *   which will refresh or remove the _existing_ values regularly. The
+    *   keys not already present in a cache will not be affected anyhow. See
+    *   [[Refresh]] documentation for more details.
+    */
   final case class Config[F[_], -K, V](
     expireAfterRead: FiniteDuration,
     expireAfterWrite: Option[FiniteDuration] = None,
     maxSize: Option[Int] = None,
     refresh: Option[Refresh[K, F[Option[V]]]] = None)
+
+
+  private implicit class MapOps[K, V](val self: Map[K, V]) extends AnyVal {
+    def foldMapM[F[_]: Monad, A: Monoid](f: (K, V) => F[A]): F[A] = {
+      self.foldLeft(Monoid[A].empty.pure[F]) { case (a, (k, v)) =>
+        for {
+          a <- a
+          b <- f(k, v)
+        } yield {
+          a.combine(b)
+        }
+      }
+    }
+  }
 }

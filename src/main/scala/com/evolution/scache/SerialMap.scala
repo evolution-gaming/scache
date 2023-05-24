@@ -1,4 +1,4 @@
-package com.evolutiongaming.scache
+package com.evolution.scache
 
 import cats.Applicative
 import cats.effect.{Concurrent, Ref}
@@ -83,7 +83,7 @@ object SerialMap { self =>
 
   def of[F[_]: Concurrent: Runtime, K, V](partitions: Option[Int] = None): F[SerialMap[F, K, V]] = {
     Cache
-      .loading1[F, K, SerialRef[F, State[V]]](partitions)
+      .loading[F, K, SerialRef[F, State[V]]](partitions)
       .allocated
       .map { case (a, _) => apply(a) }
   }
