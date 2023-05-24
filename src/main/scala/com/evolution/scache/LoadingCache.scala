@@ -290,7 +290,7 @@ private[scache] object LoadingCache {
 
       def put(key: K, value: V, release: Option[Release]): F[F[Option[V]]] = {
         val entry = entryOf(value, release)
-        0.tailRecM { counter0 =>
+        0.tailRecM { counter =>
           ref
             .access
             .flatMap { case (entryRefs, set) =>
@@ -307,7 +307,7 @@ private[scache] object LoadingCache {
                             .pure[F]
                             .asRight[Int]
                         case false =>
-                          (counter0 + 1)
+                          (counter + 1)
                             .asLeft[F[Option[V]]]
                       }
                     }
@@ -472,7 +472,7 @@ private[scache] object LoadingCache {
 
 
       def remove(key: K): F[F[Option[V]]] = {
-        0.tailRecM { counter0 =>
+        0.tailRecM { counter =>
           ref
             .access
             .flatMap { case (entryRefs, set) =>
@@ -521,7 +521,7 @@ private[scache] object LoadingCache {
                                 .pure[F]
                           }
                       case false =>
-                        (counter0 + 1)
+                        (counter + 1)
                           .asLeft[F[Option[V]]]
                           .pure[F]
                     }
