@@ -153,6 +153,9 @@ private[scache] object LoadingCache {
                                               .asRight[A]
                                           }
 
+                                      // Try putting computed value in the map, if there is no entry with our key.
+                                      // If the map already contains an entry with our key,
+                                      // return its value (or value computation).
                                       def tryPutNewValue: F[Either[A, Either[F[V], V]]] =
                                         0.tailRecM { counter =>
                                           ref
@@ -161,7 +164,7 @@ private[scache] object LoadingCache {
                                               entryRefs
                                                 .get(key)
                                                 .fold {
-                                                  // No entry present in the map, so we add a new one
+                                                  // No entry present in the map, so we try to add a new one
                                                   Ref[F]
                                                     .of[EntryState[F, V]](EntryState.Value(entry))
                                                     .flatMap { entryRef =>
@@ -185,6 +188,9 @@ private[scache] object LoadingCache {
                                                       case state: EntryState.Loading[F, V] =>
                                                         releaseAndReturnLoading(state).map(_.asRight[Int])
 
+                                                      // `Removed` means that this entry won't be present in the map
+                                                      // next time we look the key up (see `remove` flow),
+                                                      // so we just retry.
                                                       case EntryState.Removed =>
                                                         (counter + 1)
                                                           .asLeft[Either[A, Either[F[V], V]]]
@@ -199,7 +205,7 @@ private[scache] object LoadingCache {
                                         .access
                                         .flatMap {
                                           // Entry is still in loading state, containing the same deferred we just completed.
-                                          // It is the only situation in which we actually want to try to put our value.
+                                          // Now we can try to put the computed value in the same entryRef.
                                           case (state: EntryState.Loading[F, V], set) if state.deferred == deferred =>
                                             set(EntryState.Value(entry))
                                               .flatMap {
@@ -208,9 +214,10 @@ private[scache] object LoadingCache {
                                                   a
                                                     .asLeft[Either[F[V], V]]
                                                     .pure[F]
-                                                // Failed to set our value, so we just release it and:
-                                                // - Return another value (computed or ongoing), if found in the ref
-                                                // - Retry our computation, if our entry was removed
+                                                // Failed to set our value, meaning the entry was either:
+                                                // - Updated: in that case we release our computed value, and return
+                                                //   the value (or its computation), giving it the priority
+                                                // - Removed: in that case we try to put our value back in the map
                                                 case false =>
                                                   entryRef
                                                     .get
@@ -311,7 +318,7 @@ private[scache] object LoadingCache {
                                   .map { _.asRight[A] }
 
                               // Deferred was completed by `put` in another fiber before `value` computation completed.
-                              // We return their value, and schedule release of the value that is still being computed.
+                              // We return their value, and schedule release of our value that is still being computed.
                               case Right((fiber, entry)) =>
                                 fiber
                                   .joinWithNever
@@ -341,6 +348,7 @@ private[scache] object LoadingCache {
                       .uncancelable
                   } yield result
                 } { entryRef =>
+                  // Map already contained an entry under our key, so we return that value (or its ongoing computation)
                   entryRef
                     .optEither
                     .map {
@@ -348,6 +356,7 @@ private[scache] object LoadingCache {
                         either
                           .asRight[A]
                           .asRight[Int]
+                      // Entry got removed (see `remove` flow), so we retry expecting to get something else with our key.
                       case None =>
                         (counter + 1)
                           .asLeft[Either[A, Either[F[V], V]]]
@@ -430,7 +439,7 @@ private[scache] object LoadingCache {
                                     .pure[F]
                                     .asRight[Int]
                                     .pure[F]
-                                // Another fiber completed placed their new value before us
+                                // Another fiber placed their new value before us
                                 // so we just release our value and exit.
                                 case false =>
                                   entry
