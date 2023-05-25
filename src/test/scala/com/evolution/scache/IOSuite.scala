@@ -2,7 +2,7 @@ package com.evolution.scache
 
 import cats.effect.unsafe.implicits.global
 import cats.effect.{Clock, IO}
-import com.evolutiongaming.smetrics.MeasureDuration
+import com.evolutiongaming.catshelper.MeasureDuration
 import org.scalactic.source.Position
 import org.scalatest.Succeeded
 import org.scalatest.enablers.Retrying

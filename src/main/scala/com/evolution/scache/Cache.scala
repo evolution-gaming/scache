@@ -7,8 +7,7 @@ import cats.syntax.all.*
 import cats.{Functor, Hash, Monad, MonadThrow, Monoid, Parallel, ~>}
 import cats.kernel.CommutativeMonoid
 import com.evolutiongaming.catshelper.CatsHelper.*
-import com.evolutiongaming.catshelper.Runtime
-import com.evolutiongaming.smetrics.MeasureDuration
+import com.evolutiongaming.catshelper.{MeasureDuration, Runtime}
 
 import scala.util.control.NoStackTrace
 
