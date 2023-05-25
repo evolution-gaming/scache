@@ -39,7 +39,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
       } yield (cache, metrics)
 
     def check(testName: String)(assertions: (Cache[IO, Int, Int], CacheMetricsProbe) => IO[Any]): Unit = test(testName) {
-      cacheAndMetrics.use(assertions.tupled).run()
+      cacheAndMetrics.use(assertions.tupled).run(timeout = 20.seconds)
     }
 
     check(s"get: $name") { (cache, metrics) =>
@@ -833,11 +833,14 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         value    <- value0.joinWithNever
         _        <- IO { value shouldEqual 0.asRight }
         value    <- value1
-        _        <- IO { value shouldEqual 0.some }
+        _        <- IO { value shouldEqual None }
+        // Value is still present in cache, since calculation ended later than remove
+        value    <- cache.get(0)
+        _        <- IO { value shouldEqual Some(0) }
         _        <- metrics.expect(
           metrics.expectedGet(hit = false)     -> 1,
-          metrics.expectedLoad(success = true) -> 1,
-          metrics.expectedLife                 -> 1
+          metrics.expectedGet(hit = true)      -> 1,
+          metrics.expectedLoad(success = true) -> 1
         )
       } yield {}
     }
@@ -849,19 +852,22 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         value1   <- cache.remove(0)
         release  <- Deferred[IO, Unit]
         released <- Ref[IO].of(false)
-        _        <- deferred.complete((0, (release.get *> released.set(true)).some))
+        _        <- deferred.complete((0, (release.get *> released.set(true).void).some))
         value    <- fiber.joinWithNever
         _        <- IO { value shouldEqual 0.asRight }
         value    <- value1.startEnsure
         _        <- release.complete(())
         value    <- value.joinWithNever
         released <- released.get
-        _        <- IO { released shouldEqual true }
-        _        <- IO { value shouldEqual 0.some }
+        _        <- IO { released shouldEqual false }
+        _        <- IO { value shouldEqual None }
+        value    <- cache.get(0)
+        // Value is still present in cache, since calculation ended later than remove
+        _        <- IO { value shouldEqual Some(0) }
         _        <- metrics.expect(
           metrics.expectedGet(hit = false)     -> 1,
-          metrics.expectedLoad(success = true) -> 1,
-          metrics.expectedLife                 -> 1
+          metrics.expectedGet(hit = true)      -> 1,
+          metrics.expectedLoad(success = true) -> 1
         )
       } yield {}
     }
@@ -1159,6 +1165,131 @@ class CacheSpec extends AsyncFunSuite with Matchers {
           metrics.expectedFoldMap              -> 1
         )
       } yield {}
+    }
+
+    check(s"each release performed exactly once during `getOrUpdate1` and `put` race: $name") { (cache, _) =>
+      for {
+        resultRef1 <- Ref[IO].of(0)
+        resultRef2 <- Ref[IO].of(0)
+        n = 100000
+        range = (1 to n).toList
+
+        // For `getOrUpdate*` we don't know how many times the resource will be run,
+        // so we use increment/decrement as a way to check that the resource is released exactly once.
+        valueResource = (i: Int) => Resource.make(resultRef1.update(_ + i).as(i))(_ => resultRef1.update(_ - i))
+        f1 <- range.parTraverse { i => cache.getOrUpdateResource(0)(valueResource(i)) }.start
+
+        // For `put` we know that the resource will be written and released every time,
+        // so we increment on release and check that the final value is equal to the sum of the range.
+        f2 <- range.parTraverse(i => cache.put(0, 0, resultRef2.update(_ + i))).start
+
+        expectedResult = range.sum
+
+        _ <- f1.joinWithNever.void
+        _ <- f2.joinWithNever.flatMap(_.sequence)
+        _ <- cache.clear.flatten
+
+        result1 <- resultRef1.get
+        result2 <- resultRef2.get
+        _ <- IO { result1 shouldEqual 0 }
+        _ <- IO { result2 shouldEqual expectedResult }
+      } yield {}
+    }
+
+    check(s"each release performed exactly once during `put` and `remove` race: $name") { (cache, _) =>
+      for {
+        resultRef <- Ref[IO].of(0)
+        n = 100000
+        range = (1 to n).toList
+
+        f1 <- range.parTraverse(i => cache.put(0, 0, resultRef.update(_ + i))).start
+        f2 <- cache.remove(0).replicateA(n).start
+
+        expectedResult = range.sum
+
+        _ <- f1.joinWithNever.flatMap(_.sequence)
+        _ <- f2.joinWithNever.flatMap(_.sequence)
+        _ <- cache.clear.flatten
+
+        result <- resultRef.get
+        _ <- IO { result shouldEqual expectedResult }
+      } yield {}
+    }
+
+    check(s"each release performed exactly once during `getOrUpdate1`, `put` and `remove` race: $name") { (cache, _) =>
+      for {
+        resultRef1 <- Ref[IO].of(0)
+        resultRef2 <- Ref[IO].of(0)
+        n = 100000
+        range = (1 to n).toList
+
+        // For `getOrUpdate*` we don't know how many times the resource will be run,
+        // so we use increment/decrement as a way to check that the resource is released exactly once.
+        valueResource = (i: Int) => Resource.make(resultRef1.update(_ + i).as(i))(_ => resultRef1.update(_ - i))
+        f1 <- range.parTraverse { i => cache.getOrUpdateResource(0)(valueResource(i)) }.start
+
+        // For `put` we know that the resource will be written and released every time,
+        // so we increment on release and check that the final value is equal to the sum of the range.
+        f2 <- range.parTraverse(i => cache.put(0, 0, resultRef2.update(_ + i))).start
+
+        f3 <- cache.remove(0).replicateA(n).start
+
+        expectedResult = range.sum
+
+        _ <- f1.joinWithNever.void
+        _ <- f2.joinWithNever.flatMap(_.sequence)
+        _ <- f3.joinWithNever.flatMap(_.sequence)
+        _ <- cache.clear.flatten
+
+        result1 <- resultRef1.get
+        result2 <- resultRef2.get
+        _ <- IO { result1 shouldEqual 0 }
+        _ <- IO { result2 shouldEqual expectedResult }
+      } yield {}
+    }
+
+    check(s"failing loads don't interfere with releases during `getOrUpdate1`, `put` and `remove` race: $name") { (cache, _) =>
+      for {
+        resultRef1 <- Ref[IO].of(0)
+        resultRef2 <- Ref[IO].of(0)
+        resultRef3 <- Ref[IO].of(0)
+        n = 100000
+        range = (1 to n).toList
+
+        // For `getOrUpdate*` we don't know how many times the resource will be run,
+        // so we use increment/decrement as a way to check that the resource is released exactly once.
+        valueResource = (i: Int) => Resource.make(resultRef1.update(_ + i).as(i))(_ => resultRef1.update(_ - i))
+        f1 <- range.parTraverse { i =>
+          cache.getOrUpdateResource(0)(valueResource(i)).recover { case _ => -1 }
+        }.start
+
+        failingResource = (i: Int) =>
+          Resource.make(new Exception("Boom").raiseError[IO, Int])(_ => resultRef2.update(_ - i))
+        f2 <- range.parTraverse { i =>
+          cache.getOrUpdateResource(0)(failingResource(i)).recover { case _ => -1 }
+        }.start
+
+        // For `put` we know that the resource will be written and released every time,
+        // so we increment on release and check that the final value is equal to the sum of the range.
+        f3 <- range.parTraverse(i => cache.put(0, 0, resultRef3.update(_ + i))).start
+
+        f4 <- cache.remove(0).parReplicateA(n).start
+
+        expectedResult = range.sum
+
+        _ <- f1.joinWithNever.void
+        _ <- f2.joinWithNever.void
+        _ <- f3.joinWithNever.flatMap(_.sequence)
+        _ <- f4.joinWithNever.flatMap(_.sequence)
+        _ <- cache.clear.flatten
+
+        result1 <- resultRef1.get
+        result2 <- resultRef2.get
+        result3 <- resultRef3.get
+        _ <- IO { result1 shouldEqual 0 }
+        _ <- IO { result2 shouldEqual 0 }
+        _ <- IO { result3 shouldEqual expectedResult }
+      } yield ()
     }
   }
 }

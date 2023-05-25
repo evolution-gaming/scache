@@ -5,6 +5,7 @@ import cats.effect.syntax.all.*
 import cats.kernel.CommutativeMonoid
 import cats.syntax.all.*
 import cats.{Applicative, Monad, MonadThrow, Monoid}
+import com.evolution.scache.LoadingCache.EntryState
 import com.evolutiongaming.catshelper.ClockHelper.*
 import com.evolutiongaming.catshelper.Schedule
 
@@ -40,16 +41,17 @@ object ExpiringCache {
       def removeExpired(key: K, entryRef: LoadingCache.EntryRef[F, Entry[V]]) = {
         entryRef
           .get
-          .flatMap { entry =>
-            entry.foldMapM { entry =>
+          .flatMap {
+            case state: EntryState.Value[F, Entry[V]] =>
               for {
                 now               <- Clock[F].millis
-                expiredAfterRead   = expireAfterReadMs + entry.value.touched < now
-                expiredAfterWrite  = () => expireAfterWriteMs.exists { _ + entry.value.created < now }
+                expiredAfterRead   = expireAfterReadMs + state.entry.value.touched < now
+                expiredAfterWrite  = () => expireAfterWriteMs.exists { _ + state.entry.value.created < now }
                 expired            = expiredAfterRead || expiredAfterWrite()
                 result            <- if (expired) remove(key) else ().pure[F]
               } yield result
-            }
+            case _: EntryState.Loading[F, Entry[V]] => ().pure[F]
+            case EntryState.Removed => ().pure[F]
           }
       }
 
@@ -66,8 +68,9 @@ object ExpiringCache {
                 entryRef
                   .get
                   .map {
-                    case Right(a) => Elem(key, a.value.touched) :: result
-                    case Left(_)  => result
+                    case state: EntryState.Value[F, Entry[V]] => Elem(key, state.entry.value.touched) :: result
+                    case _: EntryState.Loading[F, Entry[V]] => result
+                    case EntryState.Removed => result
                   }
               }
             }
@@ -105,8 +108,8 @@ object ExpiringCache {
           entryRefs.foldMapM { case (key, entryRef) =>
             entryRef
               .get
-              .flatMap { value =>
-                value.foldMapM { _ =>
+              .flatMap {
+                case _: EntryState.Value[F, Entry[V]] =>
                   refresh
                     .value(key)
                     .flatMap {
@@ -114,7 +117,8 @@ object ExpiringCache {
                       case None        => cache.remove(key).void
                     }
                     .handleError { _ => () }
-                }
+                case _: EntryState.Loading[F, Entry[V]] => ().pure[F]
+                case EntryState.Removed => ().pure[F]
               }
           }
         }
