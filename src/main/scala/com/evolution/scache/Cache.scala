@@ -5,8 +5,7 @@ import cats.syntax.all._
 import cats.kernel.{CommutativeMonoid, Hash, Monoid}
 import cats.{Functor, Monad, MonadThrow, Parallel, ~>}
 import com.evolutiongaming.catshelper.CatsHelper._
-import com.evolutiongaming.catshelper.Runtime
-import com.evolutiongaming.smetrics.MeasureDuration
+import com.evolutiongaming.catshelper.{MeasureDuration, Runtime}
 
 import scala.util.control.NoStackTrace
 
