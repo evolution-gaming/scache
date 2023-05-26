@@ -6,6 +6,7 @@ import cats.effect.syntax.all.*
 import cats.syntax.all.*
 import cats.{Functor, Hash, Monad, MonadThrow, Monoid, Parallel, ~>}
 import cats.kernel.CommutativeMonoid
+import com.evolution.scache.Cache.Modification
 import com.evolutiongaming.catshelper.CatsHelper.*
 import com.evolutiongaming.catshelper.{MeasureDuration, Runtime}
 
@@ -220,6 +221,8 @@ trait Cache[F[_], K, V] {
     */
   def put(key: K, value: V, release: Option[Release]): F[F[Option[V]]]
 
+  def modify[A](key: K, f: Option[V] => (A, Modification[F, V])): F[A]
+
   /** Checks if the value for the key is present in the cache.
     *
     * @return
@@ -348,6 +351,13 @@ trait Cache[F[_], K, V] {
 
 object Cache {
 
+  sealed trait Modification[+F[_], +V]
+  object Modification {
+    final case class Put[F[_], V](value: V, release: Option[F[Unit]]) extends Modification[F, V]
+    final case object Keep extends Modification[Nothing, Nothing]
+    final case object Remove extends Modification[Nothing, Nothing]
+  }
+
   /** Creates an always-empty implementation of cache.
     *
     * The implementation *almost* always returns [[scala.None]] regardess the
@@ -378,6 +388,8 @@ object Cache {
       def getOrUpdateOpt(key: K)(value: => F[Option[V]]) = value
 
       def put(key: K, value: V, release: Option[F[Unit]]) = none[V].pure[F].pure[F]
+
+      def modify[A](key: K, f: Option[V] => (A, Modification[F, V])): F[A] = f(None)._1.pure[F]
 
       def contains(key: K) = false.pure[F]
 
@@ -678,6 +690,18 @@ object Cache {
             self
               .put(key, value)
               .map { a => fg(a) }
+          }
+        }
+
+        def modify[A](key: K, f: Option[V] => (A, Modification[G, V])): G[A] = {
+          val adaptedF: Option[V] => (A, Modification[F, V]) = f(_) match {
+            case (a, put: Modification.Put[G, V]) => (a, Modification.Put(put.value, put.release.map(gf(_))))
+            case (a, Modification.Keep) => (a, Modification.Keep)
+            case (a, Modification.Remove) => (a, Modification.Remove)
+          }
+          fg {
+            self
+              .modify(key, adaptedF)
           }
         }
 

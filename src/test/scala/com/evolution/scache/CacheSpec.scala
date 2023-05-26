@@ -4,6 +4,7 @@ import cats.Monad
 import cats.effect.implicits.*
 import cats.effect.*
 import cats.syntax.all.*
+import com.evolution.scache.CacheMetrics.Modification
 import com.evolutiongaming.catshelper.CatsHelper.*
 import com.evolution.scache.IOSuite.*
 import org.scalatest.Assertion
@@ -1310,6 +1311,8 @@ object CacheSpec {
     def expectedLoad(success: Boolean): String = s"load(time=..., success=$success)"
     val expectedLife: String = "life(time=...)"
     val expectedPut: String = "put"
+    def expectedModify(existingEntry: Boolean, modification: Modification): String =
+      s"modify(existing=$existingEntry, modification=$modification"
     def expectedSize(size: Int): String = s"size(size=$size)"
     val expectedSize: String = "size(latency=...)"
     val expectedValues: String = "values(latency=...)"
@@ -1321,6 +1324,8 @@ object CacheSpec {
     def load(time: FiniteDuration, success: Boolean): IO[Unit] = inc(expectedLoad(success))
     def life(time: FiniteDuration): IO[Unit] = inc(expectedLife)
     def put: IO[Unit] = inc(expectedPut)
+    def modify(entryExisted: Boolean, modification: Modification): IO[Unit] =
+      inc(expectedModify(entryExisted, modification))
     def size(size: Int): IO[Unit] = inc(expectedSize(size))
     def size(latency: FiniteDuration): IO[Unit] = inc(expectedSize)
     def values(latency: FiniteDuration): IO[Unit] = inc(expectedValues)

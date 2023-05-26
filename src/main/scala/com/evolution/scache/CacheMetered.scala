@@ -3,6 +3,7 @@ package com.evolution.scache
 import cats.effect.{Resource, Temporal}
 import cats.kernel.CommutativeMonoid
 import cats.syntax.all.*
+import com.evolution.scache.Cache.Modification
 import com.evolutiongaming.catshelper.{MeasureDuration, Schedule}
 
 import scala.concurrent.duration.*
@@ -91,6 +92,26 @@ object CacheMetered {
             value    <- cache.put(key, value, release1.some)
           } yield value
         }
+
+        def modify[A](key: K, f: Option[V] => (A, Modification[F, V])): F[A] = {
+          def getAdaptedF(duration: F[FiniteDuration]): Option[V] => ((A, F[Unit]), Modification[F, V]) = entry =>
+            f(entry) match {
+              case (a, put: Modification.Put[F, V]) =>
+                ((a, metrics.modify(entry.nonEmpty, CacheMetrics.Modification.Put)),
+                  Modification.Put(put.value, releaseMetered(duration, put.release.getOrElse(().pure[F])).some))
+              case (a, Modification.Keep) =>
+                ((a, metrics.modify(entry.nonEmpty, CacheMetrics.Modification.Keep)), Modification.Keep)
+              case (a, Modification.Remove) =>
+                ((a, metrics.modify(entry.nonEmpty, CacheMetrics.Modification.Remove)), Modification.Remove)
+            }
+          for {
+            duration <- MeasureDuration[F].start
+            adaptedF = getAdaptedF(duration)
+            (a, runMetrics) <- cache.modify(key, adaptedF)
+            _ <- runMetrics
+          } yield a
+        }
+
 
         def contains(key: K) = cache.contains(key)
 

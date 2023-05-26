@@ -47,6 +47,12 @@ object PartitionedCache {
           .put(key, value, release)
       }
 
+      def modify[A](key: K, f: Option[V] => (A, Cache.Modification[F, V])): F[A] = {
+        partitions
+          .get(key)
+          .modify(key, f)
+      }
+
       def contains(key: K) = {
         partitions
           .get(key)

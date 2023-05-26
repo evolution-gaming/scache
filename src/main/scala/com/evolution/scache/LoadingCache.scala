@@ -6,6 +6,7 @@ import cats.effect.{Concurrent, Deferred, Fiber, GenConcurrent, Outcome, Ref, Re
 import cats.kernel.CommutativeMonoid
 import com.evolutiongaming.catshelper.ParallelHelper.*
 import cats.syntax.all.*
+import com.evolution.scache.Cache.Modification
 
 private[scache] object LoadingCache {
 
@@ -476,6 +477,158 @@ private[scache] object LoadingCache {
                           }
                     }
                     .uncancelable
+                }
+            }
+        }
+      }
+
+      override def modify[A](key: K, f: Option[V] => (A, Modification[F, V])): F[A] = {
+        0.tailRecM { counter =>
+          ref
+            .access
+            .flatMap { case (entryRefs, setMap) =>
+              entryRefs
+                .get(key)
+                .fold {
+                  f(None) match {
+                    case (a, put: Modification.Put[F, V]) =>
+                      // No entry present in the map, so we add a new one
+                      Ref[F]
+                        .of[EntryState[F, V]](EntryState.Value(entryOf(put.value, put.release)))
+                        .flatMap { entryRef =>
+                          setMap(entryRefs.updated(key, entryRef)).map {
+                            case true =>
+                              a
+                                .asRight[Int]
+                            case false =>
+                              (counter + 1)
+                                .asLeft[A]
+                          }
+                        }
+                    case (a, Modification.Keep | Modification.Remove) =>
+                      a
+                        .asRight[Int]
+                        .pure[F]
+                  }
+                } { entryRef =>
+                  0.tailRecM { counter1 =>
+                    entryRef
+                      .access
+                      .flatMap {
+                        // A computed value is already present in the map, so we are replacing it with our value.
+                        case (state: EntryState.Value[F, V], setRef) =>
+                          f(state.entry.value.some) match {
+                            case (a, put: Modification.Put[F, V]) =>
+                              setRef(EntryState.Value(entryOf(put.value, put.release)))
+                                .flatMap {
+                                  // Successfully replaced the entryRef with our value,
+                                  // now we are responsible for releasing the old value.
+                                  case true =>
+                                    state
+                                      .entry
+                                      .release
+                                      .traverse { _.start }
+                                      .as {
+                                        a
+                                          .asRight[Int]
+                                          .asRight[Int]
+                                      }
+                                  // Failed to set the entryRef to our value
+                                  // so we just release our value and exit.
+                                  case false =>
+                                    (counter1 + 1)
+                                     .asLeft[Either[Int, A]]
+                                     .pure[F]
+                                }
+                            case (a, Modification.Keep) =>
+                              a
+                                .asRight[Int]
+                                .asRight[Int]
+                                .pure[F]
+                            case (a, Modification.Remove) =>
+                              setRef(EntryState.Removed)
+                                .flatMap {
+                                  case true =>
+                                    ref
+                                      .update { entryRefs =>
+                                        entryRefs.get(key) match {
+                                          case Some(`entryRef`) => entryRefs - key
+                                          case _ => entryRefs
+                                        }
+                                      }
+                                      .flatMap { _ =>
+                                        state
+                                          .entry
+                                          .release
+                                          .traverse { _.start }
+                                          .as {
+                                            a
+                                              .asRight[Int]
+                                              .asRight[Int]
+                                          }
+                                      }
+                                  case false =>
+                                    (counter1 + 1)
+                                      .asLeft[Either[Int, A]]
+                                      .pure[F]
+                                }
+                          }
+
+                        // The value is still loading, so we first try to complete the deferred with it,
+                        // and then replace it with our value.
+                        case (state: EntryState.Loading[F, V], setRef) =>
+                          f(None) match {
+                            case (a, put: Modification.Put[F, V]) =>
+                              val entry = entryOf(put.value, put.release)
+                              state
+                                .deferred
+                                .complete(entry.asRight)
+                                .flatMap {
+                                  // We successfully completed the deferred, now trying to set the value.
+                                  case true =>
+                                    setRef(EntryState.Value(entry)).map {
+                                      // We successfully replaced the entry with our value, so we are done.
+                                      case true =>
+                                        a
+                                          .asRight[Int]
+                                          .asRight[Int]
+                                      // Another fiber placed their new value (only Removed should be possible)
+                                      // before us so we retry accessing the entry.
+                                      case false =>
+                                        (counter1 + 1)
+                                          .asLeft[Either[Int, A]]
+                                    }
+                                  // Someone just completed the deferred we saw
+                                  // so we just release our value and exit.
+                                  case false =>
+                                    (counter1 + 1)
+                                      .asLeft[Either[Int, A]]
+                                      .pure[F]
+                                }
+                            case (a, Modification.Keep | Modification.Remove) =>
+                              a
+                                .asRight[Int]
+                                .asRight[Int]
+                                .pure[F]
+                          }
+
+                        // The key was just removed from the map, so just release the value and exit.
+                        case (EntryState.Removed, _) =>
+                          f(None) match {
+                            case (_, _: Modification.Put[F, V]) =>
+                              (counter + 1)
+                                .asLeft[A]
+                                .asRight[Int]
+                                .pure[F]
+                            case (a, Modification.Keep | Modification.Remove) =>
+                              a
+                                .asRight[Int]
+                                .asRight[Int]
+                                .pure[F]
+                          }
+                      }
+                      .uncancelable
+                  }
                 }
             }
         }

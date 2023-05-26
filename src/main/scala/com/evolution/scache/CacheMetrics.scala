@@ -3,6 +3,7 @@ package com.evolution.scache
 import cats.{Applicative, Monad}
 import cats.effect.Resource
 import cats.syntax.all.*
+import com.evolution.scache.CacheMetrics.Modification
 import com.evolutiongaming.smetrics.MetricsHelper.*
 import com.evolutiongaming.smetrics.{CollectorRegistry, LabelNames, Quantile, Quantiles}
 
@@ -17,6 +18,8 @@ trait CacheMetrics[F[_]] {
   def life(time: FiniteDuration): F[Unit]
 
   def put: F[Unit]
+
+  def modify(entryExisted: Boolean, modification: Modification): F[Unit]
 
   def size(size: Int): F[Unit]
 
@@ -46,6 +49,8 @@ object CacheMetrics {
 
     val put = unit
 
+    def modify(entryExisted: Boolean, modification: Modification): F[Unit] = unit
+
     def size(size: Int) = unit
 
     def size(latency: FiniteDuration) = unit
@@ -59,6 +64,18 @@ object CacheMetrics {
     def foldMap(latency: FiniteDuration) = unit
   }
 
+  sealed trait Modification {
+    override def toString: Prefix = this match {
+      case Modification.Put => "put"
+      case Modification.Keep => "keep"
+      case Modification.Remove => "remove"
+    }
+  }
+  object Modification {
+    final case object Put extends Modification
+    final case object Keep extends Modification
+    final case object Remove extends Modification
+  }
 
   type Name = String
 
@@ -83,6 +100,12 @@ object CacheMetrics {
       name = s"${ prefix }_put",
       help = "Put",
       labels = LabelNames("name"))
+
+    val modifyCounter = collectorRegistry.counter(
+      name = s"${ prefix }_modify",
+      help = "Modify, labeled by modification input (entry was present or not), and output (put, keep, or remove)",
+      labels = LabelNames("existing_entry", "result")
+    )
 
     val loadResultCounter = collectorRegistry.counter(
       name = s"${ prefix }_load_result",
@@ -119,6 +142,7 @@ object CacheMetrics {
     for {
       getsCounter       <- getCounter
       putCounter        <- putCounter
+      modifyCounter     <- modifyCounter
       loadResultCounter <- loadResultCounter
       loadTimeSummary   <- loadTimeSummary
       lifeTimeSummary   <- lifeTimeSummary
@@ -174,6 +198,10 @@ object CacheMetrics {
           }
 
           val put = putCounter1.inc()
+
+          def modify(entryExisted: Boolean, modification: Modification): F[Unit] = {
+            modifyCounter.labels(entryExisted.toString, modification.toString).inc()
+          }
 
           def size(size: Int) = {
             sizeGauge.labels(name).set(size.toDouble)
