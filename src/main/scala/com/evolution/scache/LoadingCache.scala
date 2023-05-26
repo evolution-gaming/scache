@@ -482,7 +482,7 @@ private[scache] object LoadingCache {
         }
       }
 
-      override def modify[A](key: K, f: Option[V] => (A, Modification[F, V])): F[A] = {
+      override def modify[A](key: K, f: Option[V] => (A, Modification[F, V])): F[(A, Option[F[Unit]])] = {
         0.tailRecM { counter =>
           ref
             .access
@@ -498,15 +498,15 @@ private[scache] object LoadingCache {
                         .flatMap { entryRef =>
                           setMap(entryRefs.updated(key, entryRef)).map {
                             case true =>
-                              a
+                              (a, none[F[Unit]])
                                 .asRight[Int]
                             case false =>
                               (counter + 1)
-                                .asLeft[A]
+                                .asLeft[(A, Option[F[Unit]])]
                           }
                         }
                     case (a, Modification.Keep | Modification.Remove) =>
-                      a
+                      (a, none[F[Unit]])
                         .asRight[Int]
                         .pure[F]
                   }
@@ -528,18 +528,18 @@ private[scache] object LoadingCache {
                                       .entry
                                       .release
                                       .traverse { _.start }
-                                      .as {
-                                        a
+                                      .map { maybeRelease =>
+                                        (a, maybeRelease.map(_.joinWithNever))
                                           .asRight[Int]
                                           .asRight[Int]
                                       }
                                   case false =>
                                     (counter1 + 1)
-                                     .asLeft[Either[Int, A]]
+                                     .asLeft[Either[Int, (A, Option[F[Unit]])]]
                                      .pure[F]
                                 }
                             case (a, Modification.Keep) =>
-                              a
+                              (a, none[F[Unit]])
                                 .asRight[Int]
                                 .asRight[Int]
                                 .pure[F]
@@ -556,18 +556,18 @@ private[scache] object LoadingCache {
                                       }
                                       .flatMap { _ =>
                                         state
-                                          .entry
-                                          .release
-                                          .traverse { _.start }
-                                          .as {
-                                            a
-                                              .asRight[Int]
-                                              .asRight[Int]
-                                          }
+                                        .entry
+                                        .release
+                                        .traverse { _.start }
+                                        .map { maybeRelease =>
+                                          (a, maybeRelease.map(_.joinWithNever))
+                                            .asRight[Int]
+                                            .asRight[Int]
+                                        }
                                       }
                                   case false =>
                                     (counter1 + 1)
-                                      .asLeft[Either[Int, A]]
+                                      .asLeft[Either[Int, (A, Option[F[Unit]])]]
                                       .pure[F]
                                 }
                           }
@@ -585,22 +585,22 @@ private[scache] object LoadingCache {
                                     setRef(EntryState.Value(entry)).map {
                                       // We successfully replaced the entry with our value, so we are done.
                                       case true =>
-                                        a
+                                        (a, none[F[Unit]])
                                           .asRight[Int]
                                           .asRight[Int]
                                       // Another fiber placed their new value (only Removed should be possible)
                                       // before us so we retry accessing the entry.
                                       case false =>
                                         (counter1 + 1)
-                                          .asLeft[Either[Int, A]]
+                                          .asLeft[Either[Int, (A, Option[F[Unit]])]]
                                     }
                                   case false =>
                                     (counter1 + 1)
-                                      .asLeft[Either[Int, A]]
+                                      .asLeft[Either[Int, (A, Option[F[Unit]])]]
                                       .pure[F]
                                 }
                             case (a, Modification.Keep | Modification.Remove) =>
-                              a
+                              (a, none[F[Unit]])
                                 .asRight[Int]
                                 .asRight[Int]
                                 .pure[F]
@@ -610,11 +610,11 @@ private[scache] object LoadingCache {
                           f(None) match {
                             case (_, _: Modification.Put[F, V]) =>
                               (counter + 1)
-                                .asLeft[A]
+                                .asLeft[(A, Option[F[Unit]])]
                                 .asRight[Int]
                                 .pure[F]
                             case (a, Modification.Keep | Modification.Remove) =>
-                              a
+                              (a, none[F[Unit]])
                                 .asRight[Int]
                                 .asRight[Int]
                                 .pure[F]

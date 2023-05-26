@@ -221,7 +221,7 @@ trait Cache[F[_], K, V] {
     */
   def put(key: K, value: V, release: Option[Release]): F[F[Option[V]]]
 
-  def modify[A](key: K, f: Option[V] => (A, Modification[F, V])): F[A]
+  def modify[A](key: K, f: Option[V] => (A, Modification[F, V])): F[(A, Option[F[Unit]])]
 
   /** Checks if the value for the key is present in the cache.
     *
@@ -389,7 +389,8 @@ object Cache {
 
       def put(key: K, value: V, release: Option[F[Unit]]) = none[V].pure[F].pure[F]
 
-      def modify[A](key: K, f: Option[V] => (A, Modification[F, V])): F[A] = f(None)._1.pure[F]
+      def modify[A](key: K, f: Option[V] => (A, Modification[F, V])): F[(A, Option[F[Unit]])] =
+        (f(None)._1, none[F[Unit]]).pure[F]
 
       def contains(key: K) = false.pure[F]
 
@@ -693,7 +694,7 @@ object Cache {
           }
         }
 
-        def modify[A](key: K, f: Option[V] => (A, Modification[G, V])): G[A] = {
+        def modify[A](key: K, f: Option[V] => (A, Modification[G, V])): G[(A, Option[G[Unit]])] = {
           val adaptedF: Option[V] => (A, Modification[F, V]) = f(_) match {
             case (a, put: Modification.Put[G, V]) => (a, Modification.Put(put.value, put.release.map(gf(_))))
             case (a, Modification.Keep) => (a, Modification.Keep)
@@ -702,6 +703,7 @@ object Cache {
           fg {
             self
               .modify(key, adaptedF)
+              .map { case (a, maybeRelease) => (a, maybeRelease.map(fg(_)))}
           }
         }
 

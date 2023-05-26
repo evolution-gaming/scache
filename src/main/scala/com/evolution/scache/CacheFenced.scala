@@ -52,7 +52,7 @@ object CacheFenced {
           .productR { cache.put(key, value, release) }
       }
 
-      def modify[A](key: K, f: Option[V] => (A, Cache.Modification[F, V])): F[A] =
+      def modify[A](key: K, f: Option[V] => (A, Cache.Modification[F, V])): F[(A, Option[F[Unit]])] =
         fence.flatMap(_ => cache.modify(key, f)) // TODO: this doesn't guarantee a race, though
 
       def contains(key: K) = cache.contains(key)

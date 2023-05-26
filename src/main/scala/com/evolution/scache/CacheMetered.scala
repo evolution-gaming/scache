@@ -93,7 +93,7 @@ object CacheMetered {
           } yield value
         }
 
-        def modify[A](key: K, f: Option[V] => (A, Modification[F, V])): F[A] = {
+        def modify[A](key: K, f: Option[V] => (A, Modification[F, V])): F[(A, Option[F[Unit]])] = {
           def getAdaptedF(duration: F[FiniteDuration]): Option[V] => ((A, F[Unit]), Modification[F, V]) = entry =>
             f(entry) match {
               case (a, put: Modification.Put[F, V]) =>
@@ -107,9 +107,9 @@ object CacheMetered {
           for {
             duration <- MeasureDuration[F].start
             adaptedF = getAdaptedF(duration)
-            (a, runMetrics) <- cache.modify(key, adaptedF)
+            ((a, runMetrics), maybeRelease) <- cache.modify(key, adaptedF)
             _ <- runMetrics
-          } yield a
+          } yield (a, maybeRelease)
         }
 
 

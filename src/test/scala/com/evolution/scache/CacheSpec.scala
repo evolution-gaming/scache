@@ -1249,7 +1249,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
 
         _ <- f1.joinWithNever.void
         _ <- f2.joinWithNever.flatMap(_.sequence)
-        _ <- f3.joinWithNever.void
+        _ <- f3.joinWithNever.flatMap(_.flatMap(_._2).sequence_)
         _ <- f4.joinWithNever.flatMap(_.sequence)
         _ <- cache.clear.flatten
 
@@ -1304,7 +1304,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         _ <- f1.joinWithNever.void
         _ <- f2.joinWithNever.void
         _ <- f3.joinWithNever.flatMap(_.sequence)
-        _ <- f4.joinWithNever.void
+        _ <- f4.joinWithNever.flatMap(_.flatMap(_._2).sequence_)
         _ <- f5.joinWithNever.flatMap(_.sequence)
         _ <- cache.clear.flatten
 
@@ -1325,14 +1325,17 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         case None => -1 -> Modification.Keep
       }
       for {
-        a <- cache.modify(0, modify)
+        (a, release1) <- cache.modify(0, modify)
         _ <- IO { a shouldEqual -1 }
         _ <- cache.put(0, 1)
-        a <- cache.modify(0, modify)
+        (a, release2) <- cache.modify(0, modify)
         _ <- IO { a shouldEqual 1 }
         value <- cache.get(0)
         _ <- IO { value shouldBe 2.some }
-        _ <- cache.remove(0)
+        release3 <- cache.remove(0)
+
+        _ <- List(release1, release2, release3.void.some).flatten.sequence_
+
         _ <- metrics.expect(
           metrics.expectedPut -> 1,
           metrics.expectedModify(entryExisted = false, CacheMetrics.Modification.Keep) -> 1,
@@ -1346,13 +1349,14 @@ class CacheSpec extends AsyncFunSuite with Matchers {
     check(s"modify keeps existing entry: $name") { (cache, metrics) =>
       val modify: Option[Int] => (Int, Modification[IO, Int]) = i => i.getOrElse(-1) -> Modification.Keep
       for {
-        a <- cache.modify(0, modify)
+        (a, release1) <- cache.modify(0, modify)
         _ <- IO { a shouldEqual -1 }
         _ <- cache.put(0, 1)
-        a <- cache.modify(0, modify)
+        (a, release2) <- cache.modify(0, modify)
         _ <- IO { a shouldEqual 1 }
         value <- cache.get(0)
         _ <- IO { value shouldBe 1.some }
+        _ <- List(release1, release2).flatten.sequence_
         _ <- metrics.expect(
           metrics.expectedPut -> 1,
           metrics.expectedModify(entryExisted = false, CacheMetrics.Modification.Keep) -> 1,
@@ -1368,13 +1372,14 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         case None => -1 -> Modification.Keep
       }
       for {
-        a <- cache.modify(0, modify)
+        (a, release1) <- cache.modify(0, modify)
         _ <- IO { a shouldEqual -1 }
         _ <- cache.put(0, 1)
-        a <- cache.modify(0, modify)
+        (a, release2) <- cache.modify(0, modify)
         _ <- IO { a shouldEqual 1 }
         value <- cache.get(0)
         _ <- IO { value shouldBe None }
+        _ <- List(release1, release2).flatten.sequence_
         _ <- metrics.expect(
           metrics.expectedPut -> 1,
           metrics.expectedModify(entryExisted = false, CacheMetrics.Modification.Keep) -> 1,
@@ -1391,18 +1396,118 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         case None => 1 -> Modification.Put(1, None)
       }
       for {
-        a <- cache.modify(0, modify)
+        (a, release1) <- cache.modify(0, modify)
         _ <- IO { a shouldEqual 1 }
-        a <- cache.modify(0, modify)
+        (a, release2) <- cache.modify(0, modify)
         _ <- IO { a shouldEqual 1 }
         value <- cache.get(0)
         _ <- IO { value shouldBe Some(1) }
+        _ <- List(release1, release2).flatten.sequence_
         _ <- metrics.expect(
           metrics.expectedModify(entryExisted = false, CacheMetrics.Modification.Put) -> 1,
           metrics.expectedModify(entryExisted = true, CacheMetrics.Modification.Keep) -> 1,
           metrics.expectedGet(true) -> 1,
         )
       } yield ()
+    }
+
+    check(s"modify guarantees updated value write concurrently accessing single key: $name") {
+      (cache, metrics) =>
+        def modify(releaseCounter: Ref[IO, Int]): Option[Int] => (Int, Modification[IO, Int]) = {
+          case Some(i) => i -> Modification.Put(i + 1, releaseCounter.update(_ + i + 1).some)
+          case None => 0 -> Modification.Put(1, releaseCounter.update(_ + 1).some)
+        }
+        for {
+          releaseCounter <- Ref[IO].of(0)
+          n = 100000
+          range = (1 to n).toList
+
+          f1 <- range.parTraverse(_ => cache.modify(0, modify(releaseCounter))).start
+
+          expectedResult = range.sum
+
+          results <- f1.joinWithNever
+          _ <- IO { results.map(_._1).sum shouldEqual (expectedResult - n) }
+
+          // Waiting for releases
+          _ <- results.flatMap(_._2).sequence_
+
+          lastWrittenValue <- cache.get(0)
+          (lastValueRemoved, lastRelease) <- cache.modify(0, lastValue => (lastValue, Modification.Remove))
+          _ <- lastRelease.sequence_
+          releasedValuesSum <- releaseCounter.get
+
+          _ <- IO { releasedValuesSum shouldEqual expectedResult }
+          _ <- IO { lastWrittenValue shouldBe n.some }
+          _ <- IO { lastValueRemoved shouldBe n.some }
+
+          _ <- metrics.expect(
+            metrics.expectedModify(entryExisted = false, CacheMetrics.Modification.Put) -> 1,
+            metrics.expectedModify(entryExisted = true, CacheMetrics.Modification.Put) -> (n - 1),
+            metrics.expectedModify(entryExisted = true, CacheMetrics.Modification.Remove) -> 1,
+            metrics.expectedGet(true) -> 1,
+            metrics.expectedLife -> n,
+          )
+        } yield ()
+    }
+
+    check(s"modify guarantees updated value write concurrently accessing multiple keys: $name") {
+      (cache, metrics) =>
+        def modify(releaseCounter: Ref[IO, Int]): Option[Int] => (Int, Modification[IO, Int]) = {
+          case Some(i) => i -> Modification.Put(i + 1, releaseCounter.update(_ + i + 1).some)
+          case None => 0 -> Modification.Put(1, releaseCounter.update(_ + 1).some)
+        }
+        for {
+          releaseCounter <- Ref[IO].of(0)
+          n = 100000
+          range = (1 to n).toList
+
+          f0 <- range.parTraverse(_ => cache.modify(0, modify(releaseCounter))).start
+          f1 <- range.parTraverse(_ => cache.modify(1, modify(releaseCounter))).start
+          f2 <- range.parTraverse(_ => cache.modify(2, modify(releaseCounter))).start
+          f3 <- range.parTraverse(_ => cache.modify(3, modify(releaseCounter))).start
+
+          expectedResult = range.sum
+
+          results <- List(f0, f1, f2, f3).flatTraverse(_.joinWithNever)
+          _ <- IO { results.map(_._1).sum shouldEqual (expectedResult - n) * 4 }
+
+          // Waiting for releases
+          _ <- results.flatMap(_._2).sequence_
+
+          lastWrittenValue0 <- cache.get(0)
+          lastWrittenValue1 <- cache.get(1)
+          lastWrittenValue2 <- cache.get(2)
+          lastWrittenValue3 <- cache.get(3)
+
+          (lastValueRemoved0, lastRelease0) <- cache.modify(0, lastValue => (lastValue, Modification.Remove))
+          (lastValueRemoved1, lastRelease1) <- cache.modify(1, lastValue => (lastValue, Modification.Remove))
+          (lastValueRemoved2, lastRelease2) <- cache.modify(2, lastValue => (lastValue, Modification.Remove))
+          (lastValueRemoved3, lastRelease3) <- cache.modify(3, lastValue => (lastValue, Modification.Remove))
+          _ <- List(lastRelease0, lastRelease1, lastRelease2, lastRelease2).flatten.sequence_
+
+          releasedValuesSum <- releaseCounter.get
+
+          _ <- IO { releasedValuesSum shouldEqual expectedResult * 4 }
+
+          _ <- IO { lastWrittenValue0 shouldBe n.some }
+          _ <- IO { lastWrittenValue1 shouldBe n.some }
+          _ <- IO { lastWrittenValue2 shouldBe n.some }
+          _ <- IO { lastWrittenValue3 shouldBe n.some }
+
+          _ <- IO { lastValueRemoved0 shouldBe n.some }
+          _ <- IO { lastValueRemoved1 shouldBe n.some }
+          _ <- IO { lastValueRemoved2 shouldBe n.some }
+          _ <- IO { lastValueRemoved3 shouldBe n.some }
+
+          _ <- metrics.expect(
+            metrics.expectedModify(entryExisted = false, CacheMetrics.Modification.Put) -> 4,
+            metrics.expectedModify(entryExisted = true, CacheMetrics.Modification.Put) -> (n - 1) * 4,
+            metrics.expectedModify(entryExisted = true, CacheMetrics.Modification.Remove) -> 4,
+            metrics.expectedGet(true) -> 4,
+            metrics.expectedLife -> n * 4,
+          )
+        } yield ()
     }
   }
 }

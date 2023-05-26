@@ -271,7 +271,7 @@ object ExpiringCache {
       }
 
       // Modifying existing entry creates a new one, since the old one will be released.
-      def modify[A](key: K, f: Option[V] => (A, Modification[F, V])): F[A] =
+      def modify[A](key: K, f: Option[V] => (A, Modification[F, V])): F[(A, Option[F[Unit]])] =
         Clock[F]
           .millis
           .flatMap { timestamp =>
