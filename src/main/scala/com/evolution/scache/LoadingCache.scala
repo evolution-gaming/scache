@@ -533,8 +533,6 @@ private[scache] object LoadingCache {
                                           .asRight[Int]
                                           .asRight[Int]
                                       }
-                                  // Failed to set the entryRef to our value
-                                  // so we just release our value and exit.
                                   case false =>
                                     (counter1 + 1)
                                      .asLeft[Either[Int, A]]
@@ -574,8 +572,6 @@ private[scache] object LoadingCache {
                                 }
                           }
 
-                        // The value is still loading, so we first try to complete the deferred with it,
-                        // and then replace it with our value.
                         case (state: EntryState.Loading[F, V], setRef) =>
                           f(None) match {
                             case (a, put: Modification.Put[F, V]) =>
@@ -598,8 +594,6 @@ private[scache] object LoadingCache {
                                         (counter1 + 1)
                                           .asLeft[Either[Int, A]]
                                     }
-                                  // Someone just completed the deferred we saw
-                                  // so we just release our value and exit.
                                   case false =>
                                     (counter1 + 1)
                                       .asLeft[Either[Int, A]]
@@ -612,7 +606,6 @@ private[scache] object LoadingCache {
                                 .pure[F]
                           }
 
-                        // The key was just removed from the map, so just release the value and exit.
                         case (EntryState.Removed, _) =>
                           f(None) match {
                             case (_, _: Modification.Put[F, V]) =>
