@@ -9,7 +9,7 @@ object Dependencies {
   val betterMonadicFor = "com.olegpy"          %% "better-monadic-for" % "0.3.1"
 
   object Cats {
-    val core   = "org.typelevel" %% "cats-core"   % "2.8.0"
+    val core   = "org.typelevel" %% "cats-core"   % "2.9.0"
     val effect = "org.typelevel" %% "cats-effect" % "3.4.11"
   }
 }
