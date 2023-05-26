@@ -3,8 +3,7 @@ package com.evolution.scache
 import cats.effect.{Resource, Temporal}
 import cats.kernel.CommutativeMonoid
 import cats.syntax.all.*
-import com.evolutiongaming.catshelper.Schedule
-import com.evolutiongaming.smetrics.MeasureDuration
+import com.evolutiongaming.catshelper.{MeasureDuration, Schedule}
 
 import scala.concurrent.duration.*
 
