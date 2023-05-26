@@ -52,11 +52,8 @@ object CacheFenced {
           .productR { cache.put(key, value, release) }
       }
 
-      /* Modify is not allowed for fenced cache as we don't have an way
-       * to ensure that fence is open before adding a new entry with release.
-       */
       def modify[A](key: K, f: Option[V] => (A, Cache.Modification[F, V])): F[A] =
-        new NotImplementedError("`modify` is not allowed on fenced cache").raiseError[F, A]
+        fence.flatMap(_ => cache.modify(key, f)) // TODO: this doesn't guarantee a race, though
 
       def contains(key: K) = cache.contains(key)
 

@@ -4,7 +4,7 @@ import cats.Monad
 import cats.effect.implicits.*
 import cats.effect.*
 import cats.syntax.all.*
-import com.evolution.scache.CacheMetrics.Modification
+import com.evolution.scache.Cache.Modification
 import com.evolutiongaming.catshelper.CatsHelper.*
 import com.evolution.scache.IOSuite.*
 import org.scalatest.Assertion
@@ -1217,10 +1217,18 @@ class CacheSpec extends AsyncFunSuite with Matchers {
       } yield {}
     }
 
-    check(s"each release performed exactly once during `getOrUpdate1`, `put` and `remove` race: $name") { (cache, _) =>
+    check(s"each release performed exactly once during " +
+      s"`getOrUpdate1`, `put`, `modify` and `remove` race: $name") { (cache, _) =>
+
+      def modify(releaseCounter: Ref[IO, Int]): Option[Int] => (Int, Modification[IO, Int]) = {
+        case Some(i) => i -> Modification.Put(i, releaseCounter.update(_ + 1).some)
+        case None => -2 -> Modification.Put(-2, releaseCounter.update(_ + 1).some)
+      }
+
       for {
         resultRef1 <- Ref[IO].of(0)
         resultRef2 <- Ref[IO].of(0)
+        resultRef3 <- Ref[IO].of(0)
         n = 100000
         range = (1 to n).toList
 
@@ -1233,27 +1241,40 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         // so we increment on release and check that the final value is equal to the sum of the range.
         f2 <- range.parTraverse(i => cache.put(0, 0, resultRef2.update(_ + i))).start
 
-        f3 <- cache.remove(0).replicateA(n).start
+        f3 <- range.parTraverse(_ => cache.modify(0, modify(resultRef3))).start
+
+        f4 <- cache.remove(0).replicateA(n).start
 
         expectedResult = range.sum
 
         _ <- f1.joinWithNever.void
         _ <- f2.joinWithNever.flatMap(_.sequence)
-        _ <- f3.joinWithNever.flatMap(_.sequence)
+        _ <- f3.joinWithNever.void
+        _ <- f4.joinWithNever.flatMap(_.sequence)
         _ <- cache.clear.flatten
 
         result1 <- resultRef1.get
         result2 <- resultRef2.get
+        result3 <- resultRef3.get
         _ <- IO { result1 shouldEqual 0 }
         _ <- IO { result2 shouldEqual expectedResult }
+        _ <- IO { result3 shouldEqual n }
       } yield {}
     }
 
-    check(s"failing loads don't interfere with releases during `getOrUpdate1`, `put` and `remove` race: $name") { (cache, _) =>
+    check(s"failing loads don't interfere with releases during " +
+      s"`getOrUpdate1`, `put`, `modify` and `remove` race: $name") { (cache, _) =>
+
+      def modify(releaseCounter: Ref[IO, Int]): Option[Int] => (Int, Modification[IO, Int]) = {
+        case Some(i) => i -> Modification.Put(i, releaseCounter.update(_ + 1).some)
+        case None => -2 -> Modification.Put(-2, releaseCounter.update(_ + 1).some)
+      }
+
       for {
         resultRef1 <- Ref[IO].of(0)
         resultRef2 <- Ref[IO].of(0)
         resultRef3 <- Ref[IO].of(0)
+        resultRef4 <- Ref[IO].of(0)
         n = 100000
         range = (1 to n).toList
 
@@ -1274,22 +1295,113 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         // so we increment on release and check that the final value is equal to the sum of the range.
         f3 <- range.parTraverse(i => cache.put(0, 0, resultRef3.update(_ + i))).start
 
-        f4 <- cache.remove(0).parReplicateA(n).start
+        f4 <- range.parTraverse(_ => cache.modify(0, modify(resultRef4))).start
+
+        f5 <- cache.remove(0).parReplicateA(n).start
 
         expectedResult = range.sum
 
         _ <- f1.joinWithNever.void
         _ <- f2.joinWithNever.void
         _ <- f3.joinWithNever.flatMap(_.sequence)
-        _ <- f4.joinWithNever.flatMap(_.sequence)
+        _ <- f4.joinWithNever.void
+        _ <- f5.joinWithNever.flatMap(_.sequence)
         _ <- cache.clear.flatten
 
         result1 <- resultRef1.get
         result2 <- resultRef2.get
         result3 <- resultRef3.get
+        result4 <- resultRef4.get
         _ <- IO { result1 shouldEqual 0 }
         _ <- IO { result2 shouldEqual 0 }
         _ <- IO { result3 shouldEqual expectedResult }
+        _ <- IO { result4 shouldEqual n }
+      } yield ()
+    }
+
+    check(s"modify modifies existing entry: $name") { (cache, metrics) =>
+      val modify: Option[Int] => (Int, Modification[IO, Int]) = {
+        case Some(i) => i -> Modification.Put(i + 1, None)
+        case None => -1 -> Modification.Keep
+      }
+      for {
+        a <- cache.modify(0, modify)
+        _ <- IO { a shouldEqual -1 }
+        _ <- cache.put(0, 1)
+        a <- cache.modify(0, modify)
+        _ <- IO { a shouldEqual 1 }
+        value <- cache.get(0)
+        _ <- IO { value shouldBe 2.some }
+        _ <- cache.remove(0)
+        _ <- metrics.expect(
+          metrics.expectedPut -> 1,
+          metrics.expectedModify(entryExisted = false, CacheMetrics.Modification.Keep) -> 1,
+          metrics.expectedModify(entryExisted = true, CacheMetrics.Modification.Put) -> 1,
+          metrics.expectedGet(true) -> 1,
+          metrics.expectedLife -> 2,
+        )
+      } yield ()
+    }
+
+    check(s"modify keeps existing entry: $name") { (cache, metrics) =>
+      val modify: Option[Int] => (Int, Modification[IO, Int]) = i => i.getOrElse(-1) -> Modification.Keep
+      for {
+        a <- cache.modify(0, modify)
+        _ <- IO { a shouldEqual -1 }
+        _ <- cache.put(0, 1)
+        a <- cache.modify(0, modify)
+        _ <- IO { a shouldEqual 1 }
+        value <- cache.get(0)
+        _ <- IO { value shouldBe 1.some }
+        _ <- metrics.expect(
+          metrics.expectedPut -> 1,
+          metrics.expectedModify(entryExisted = false, CacheMetrics.Modification.Keep) -> 1,
+          metrics.expectedModify(entryExisted = true, CacheMetrics.Modification.Keep) -> 1,
+          metrics.expectedGet(true) -> 1,
+        )
+      } yield ()
+    }
+
+    check(s"modify removes existing entry: $name") { (cache, metrics) =>
+      val modify: Option[Int] => (Int, Modification[IO, Int]) = {
+        case Some(i) => i -> Modification.Remove
+        case None => -1 -> Modification.Keep
+      }
+      for {
+        a <- cache.modify(0, modify)
+        _ <- IO { a shouldEqual -1 }
+        _ <- cache.put(0, 1)
+        a <- cache.modify(0, modify)
+        _ <- IO { a shouldEqual 1 }
+        value <- cache.get(0)
+        _ <- IO { value shouldBe None }
+        _ <- metrics.expect(
+          metrics.expectedPut -> 1,
+          metrics.expectedModify(entryExisted = false, CacheMetrics.Modification.Keep) -> 1,
+          metrics.expectedModify(entryExisted = true, CacheMetrics.Modification.Remove) -> 1,
+          metrics.expectedGet(false) -> 1,
+          metrics.expectedLife -> 1,
+        )
+      } yield ()
+    }
+
+    check(s"modify adds entry when absent: $name") { (cache, metrics) =>
+      val modify: Option[Int] => (Int, Modification[IO, Int]) = {
+        case Some(i) => i -> Modification.Keep
+        case None => 1 -> Modification.Put(1, None)
+      }
+      for {
+        a <- cache.modify(0, modify)
+        _ <- IO { a shouldEqual 1 }
+        a <- cache.modify(0, modify)
+        _ <- IO { a shouldEqual 1 }
+        value <- cache.get(0)
+        _ <- IO { value shouldBe Some(1) }
+        _ <- metrics.expect(
+          metrics.expectedModify(entryExisted = false, CacheMetrics.Modification.Put) -> 1,
+          metrics.expectedModify(entryExisted = true, CacheMetrics.Modification.Keep) -> 1,
+          metrics.expectedGet(true) -> 1,
+        )
       } yield ()
     }
   }
@@ -1311,8 +1423,8 @@ object CacheSpec {
     def expectedLoad(success: Boolean): String = s"load(time=..., success=$success)"
     val expectedLife: String = "life(time=...)"
     val expectedPut: String = "put"
-    def expectedModify(existingEntry: Boolean, modification: Modification): String =
-      s"modify(existing=$existingEntry, modification=$modification"
+    def expectedModify(entryExisted: Boolean, modification: CacheMetrics.Modification): String =
+      s"modify(existed=$entryExisted, modification=$modification"
     def expectedSize(size: Int): String = s"size(size=$size)"
     val expectedSize: String = "size(latency=...)"
     val expectedValues: String = "values(latency=...)"
@@ -1324,7 +1436,7 @@ object CacheSpec {
     def load(time: FiniteDuration, success: Boolean): IO[Unit] = inc(expectedLoad(success))
     def life(time: FiniteDuration): IO[Unit] = inc(expectedLife)
     def put: IO[Unit] = inc(expectedPut)
-    def modify(entryExisted: Boolean, modification: Modification): IO[Unit] =
+    def modify(entryExisted: Boolean, modification: CacheMetrics.Modification): IO[Unit] =
       inc(expectedModify(entryExisted, modification))
     def size(size: Int): IO[Unit] = inc(expectedSize(size))
     def size(latency: FiniteDuration): IO[Unit] = inc(expectedSize)
