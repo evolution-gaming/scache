@@ -491,8 +491,8 @@ private[scache] object LoadingCache {
                 .get(key)
                 .fold {
                   f(None) match {
+                    // No entry present in the map, and we want to add a new one
                     case (a, put: Directive.Put[F, V]) =>
-                      // No entry present in the map, so we add a new one
                       Ref[F]
                         .of[EntryState[F, V]](EntryState.Value(entryOf(put.value, put.release)))
                         .flatMap { entryRef =>
@@ -500,11 +500,13 @@ private[scache] object LoadingCache {
                             case true =>
                               (a, none[F[Unit]])
                                 .asRight[Int]
+                            // Failed adding new entry to the map, retrying
                             case false =>
                               (counter + 1)
                                 .asLeft[(A, Option[F[Unit]])]
                           }
                         }
+                    // No entry present in the map, and we don't want to have any, so exiting
                     case (a, Directive.Ignore | Directive.Remove) =>
                       (a, none[F[Unit]])
                         .asRight[Int]
@@ -515,7 +517,7 @@ private[scache] object LoadingCache {
                     entryRef
                       .access
                       .flatMap {
-                        // A computed value is already present in the map, so we are replacing it with our value.
+                        // A value is already present in the map
                         case (state: EntryState.Value[F, V], setRef) =>
                           f(state.entry.value.some) match {
                             case (a, put: Directive.Put[F, V]) =>
@@ -533,19 +535,24 @@ private[scache] object LoadingCache {
                                           .asRight[Int]
                                           .asRight[Int]
                                       }
+                                  // Failed updating entryRef, retrying
                                   case false =>
                                     (counter1 + 1)
                                      .asLeft[Either[Int, (A, Option[F[Unit]])]]
                                      .pure[F]
                                 }
+                            // Keeping the value intact and exiting
                             case (a, Directive.Ignore) =>
                               (a, none[F[Unit]])
                                 .asRight[Int]
                                 .asRight[Int]
                                 .pure[F]
+                            // Removing the value
                             case (a, Directive.Remove) =>
                               setRef(EntryState.Removed)
                                 .flatMap {
+                                  // Successfully set the entryRef to `Removed` state, now removing it from the map.
+                                  // Only removing the key if it still contains this entry, otherwise noop.
                                   case true =>
                                     ref
                                       .update { entryRefs =>
@@ -555,16 +562,18 @@ private[scache] object LoadingCache {
                                         }
                                       }
                                       .flatMap { _ =>
+                                        // Releasing the value regardless of the map update result.
                                         state
-                                        .entry
-                                        .release
-                                        .traverse { _.start }
-                                        .map { release =>
-                                          (a, release.map(_.joinWithNever))
-                                            .asRight[Int]
-                                            .asRight[Int]
-                                        }
+                                          .entry
+                                          .release
+                                          .traverse { _.start }
+                                          .map { release =>
+                                            (a, release.map(_.joinWithNever))
+                                              .asRight[Int]
+                                              .asRight[Int]
+                                          }
                                       }
+                                  // Failed updating entryRef, retrying
                                   case false =>
                                     (counter1 + 1)
                                       .asLeft[Either[Int, (A, Option[F[Unit]])]]
@@ -572,8 +581,10 @@ private[scache] object LoadingCache {
                                 }
                           }
 
+                        // Entry in the map is still loading
                         case (state: EntryState.Loading[F, V], setRef) =>
                           f(None) match {
+                            // Trying to replace it with our value
                             case (a, put: Directive.Put[F, V]) =>
                               val entry = entryOf(put.value, put.release)
                               state
@@ -594,11 +605,14 @@ private[scache] object LoadingCache {
                                         (counter1 + 1)
                                           .asLeft[Either[Int, (A, Option[F[Unit]])]]
                                     }
+                                  // Failed to complete the deferred, meaning someone else completed it, and will
+                                  // now set the new value in the entryRef. Retrying the lookup.
                                   case false =>
                                     (counter1 + 1)
                                       .asLeft[Either[Int, (A, Option[F[Unit]])]]
                                       .pure[F]
                                 }
+                            // Noop decision, exiting
                             case (a, Directive.Ignore | Directive.Remove) =>
                               (a, none[F[Unit]])
                                 .asRight[Int]
@@ -606,13 +620,17 @@ private[scache] object LoadingCache {
                                 .pure[F]
                           }
 
+                        // Entry was just removed, it soon will be gone from the map.
                         case (EntryState.Removed, _) =>
                           f(None) match {
+                            // We want to place the new value;
+                            // Retrying the map lookup, expecting a different result for our key.
                             case (_, _: Directive.Put[F, V]) =>
                               (counter + 1)
                                 .asLeft[(A, Option[F[Unit]])]
                                 .asRight[Int]
                                 .pure[F]
+                            // Noop decision, exiting
                             case (a, Directive.Ignore | Directive.Remove) =>
                               (a, none[F[Unit]])
                                 .asRight[Int]
