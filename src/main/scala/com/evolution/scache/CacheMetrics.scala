@@ -3,7 +3,7 @@ package com.evolution.scache
 import cats.{Applicative, Monad}
 import cats.effect.Resource
 import cats.syntax.all.*
-import com.evolution.scache.CacheMetrics.Modification
+import com.evolution.scache.CacheMetrics.ModifyResult
 import com.evolutiongaming.smetrics.MetricsHelper.*
 import com.evolutiongaming.smetrics.{CollectorRegistry, LabelNames, Quantile, Quantiles}
 
@@ -19,7 +19,7 @@ trait CacheMetrics[F[_]] {
 
   def put: F[Unit]
 
-  def modify(entryExisted: Boolean, modification: Modification): F[Unit]
+  def modify(entryExisted: Boolean, modifyResult: ModifyResult): F[Unit]
 
   def size(size: Int): F[Unit]
 
@@ -49,7 +49,7 @@ object CacheMetrics {
 
     val put = unit
 
-    def modify(entryExisted: Boolean, modification: Modification): F[Unit] = unit
+    def modify(entryExisted: Boolean, modifyResult: ModifyResult): F[Unit] = unit
 
     def size(size: Int) = unit
 
@@ -64,17 +64,17 @@ object CacheMetrics {
     def foldMap(latency: FiniteDuration) = unit
   }
 
-  sealed trait Modification {
+  sealed trait ModifyResult {
     override def toString: Prefix = this match {
-      case Modification.Put => "put"
-      case Modification.Keep => "keep"
-      case Modification.Remove => "remove"
+      case ModifyResult.Put => "put"
+      case ModifyResult.Ignore => "ignore"
+      case ModifyResult.Remove => "remove"
     }
   }
-  object Modification {
-    final case object Put extends Modification
-    final case object Keep extends Modification
-    final case object Remove extends Modification
+  object ModifyResult {
+    final case object Put extends ModifyResult
+    final case object Ignore extends ModifyResult
+    final case object Remove extends ModifyResult
   }
 
   type Name = String
@@ -182,7 +182,7 @@ object CacheMetrics {
           def get(hit: Boolean) = {
             val counter = if (hit) hitCounter else missCounter
             counter.inc()
-          }                               
+          }
 
           def load(time: FiniteDuration, success: Boolean) = {
             val resultCounter = if (success) successCounter else failureCounter
@@ -199,8 +199,8 @@ object CacheMetrics {
 
           val put = putCounter1.inc()
 
-          def modify(entryExisted: Boolean, modification: Modification): F[Unit] = {
-            modifyCounter.labels(entryExisted.toString, modification.toString).inc()
+          def modify(entryExisted: Boolean, modifyResult: ModifyResult): F[Unit] = {
+            modifyCounter.labels(entryExisted.toString, modifyResult.toString).inc()
           }
 
           def size(size: Int) = {

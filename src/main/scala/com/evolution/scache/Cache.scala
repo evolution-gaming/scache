@@ -6,7 +6,7 @@ import cats.effect.syntax.all.*
 import cats.syntax.all.*
 import cats.{Functor, Hash, Monad, MonadThrow, Monoid, Parallel, ~>}
 import cats.kernel.CommutativeMonoid
-import com.evolution.scache.Cache.Modification
+import com.evolution.scache.Cache.Directive
 import com.evolutiongaming.catshelper.CatsHelper.*
 import com.evolutiongaming.catshelper.{MeasureDuration, Runtime}
 
@@ -221,7 +221,7 @@ trait Cache[F[_], K, V] {
     */
   def put(key: K, value: V, release: Option[Release]): F[F[Option[V]]]
 
-  def modify[A](key: K, f: Option[V] => (A, Modification[F, V])): F[(A, Option[F[Unit]])]
+  def modify[A](key: K, f: Option[V] => (A, Directive[F, V])): F[(A, Option[F[Unit]])]
 
   /** Checks if the value for the key is present in the cache.
     *
@@ -351,11 +351,11 @@ trait Cache[F[_], K, V] {
 
 object Cache {
 
-  sealed trait Modification[+F[_], +V]
-  object Modification {
-    final case class Put[F[_], V](value: V, release: Option[F[Unit]]) extends Modification[F, V]
-    final case object Keep extends Modification[Nothing, Nothing]
-    final case object Remove extends Modification[Nothing, Nothing]
+  sealed trait Directive[+F[_], +V]
+  object Directive {
+    final case class Put[F[_], V](value: V, release: Option[F[Unit]]) extends Directive[F, V]
+    final case object Remove extends Directive[Nothing, Nothing]
+    final case object Ignore extends Directive[Nothing, Nothing]
   }
 
   /** Creates an always-empty implementation of cache.
@@ -389,7 +389,7 @@ object Cache {
 
       def put(key: K, value: V, release: Option[F[Unit]]) = none[V].pure[F].pure[F]
 
-      def modify[A](key: K, f: Option[V] => (A, Modification[F, V])): F[(A, Option[F[Unit]])] =
+      def modify[A](key: K, f: Option[V] => (A, Directive[F, V])): F[(A, Option[F[Unit]])] =
         (f(None)._1, none[F[Unit]]).pure[F]
 
       def contains(key: K) = false.pure[F]
@@ -694,16 +694,16 @@ object Cache {
           }
         }
 
-        def modify[A](key: K, f: Option[V] => (A, Modification[G, V])): G[(A, Option[G[Unit]])] = {
-          val adaptedF: Option[V] => (A, Modification[F, V]) = f(_) match {
-            case (a, put: Modification.Put[G, V]) => (a, Modification.Put(put.value, put.release.map(gf(_))))
-            case (a, Modification.Keep) => (a, Modification.Keep)
-            case (a, Modification.Remove) => (a, Modification.Remove)
+        def modify[A](key: K, f: Option[V] => (A, Directive[G, V])): G[(A, Option[G[Unit]])] = {
+          val adaptedF: Option[V] => (A, Directive[F, V]) = f(_) match {
+            case (a, put: Directive.Put[G, V]) => (a, Directive.Put(put.value, put.release.map(gf(_))))
+            case (a, Directive.Ignore) => (a, Directive.Ignore)
+            case (a, Directive.Remove) => (a, Directive.Remove)
           }
           fg {
             self
               .modify(key, adaptedF)
-              .map { case (a, maybeRelease) => (a, maybeRelease.map(fg(_)))}
+              .map { case (a, release) => (a, release.map(fg(_)))}
           }
         }
 

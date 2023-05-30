@@ -4,7 +4,8 @@ import cats.Monad
 import cats.effect.implicits.*
 import cats.effect.*
 import cats.syntax.all.*
-import com.evolution.scache.Cache.Modification
+import com.evolution.scache.Cache.Directive
+import com.evolution.scache.CacheMetrics.ModifyResult
 import com.evolutiongaming.catshelper.CatsHelper.*
 import com.evolution.scache.IOSuite.*
 import org.scalatest.Assertion
@@ -1220,9 +1221,9 @@ class CacheSpec extends AsyncFunSuite with Matchers {
     check(s"each release performed exactly once during " +
       s"`getOrUpdate1`, `put`, `modify` and `remove` race: $name") { (cache, _) =>
 
-      def modify(releaseCounter: Ref[IO, Int]): Option[Int] => (Int, Modification[IO, Int]) = {
-        case Some(i) => i -> Modification.Put(i, releaseCounter.update(_ + 1).some)
-        case None => -2 -> Modification.Put(-2, releaseCounter.update(_ + 1).some)
+      def modify(releaseCounter: Ref[IO, Int]): Option[Int] => (Int, Directive[IO, Int]) = {
+        case Some(i) => i -> Directive.Put(i, releaseCounter.update(_ + 1).some)
+        case None => -2 -> Directive.Put(-2, releaseCounter.update(_ + 1).some)
       }
 
       for {
@@ -1265,9 +1266,9 @@ class CacheSpec extends AsyncFunSuite with Matchers {
     check(s"failing loads don't interfere with releases during " +
       s"`getOrUpdate1`, `put`, `modify` and `remove` race: $name") { (cache, _) =>
 
-      def modify(releaseCounter: Ref[IO, Int]): Option[Int] => (Int, Modification[IO, Int]) = {
-        case Some(i) => i -> Modification.Put(i, releaseCounter.update(_ + 1).some)
-        case None => -2 -> Modification.Put(-2, releaseCounter.update(_ + 1).some)
+      def modify(releaseCounter: Ref[IO, Int]): Option[Int] => (Int, Directive[IO, Int]) = {
+        case Some(i) => i -> Directive.Put(i, releaseCounter.update(_ + 1).some)
+        case None => -2 -> Directive.Put(-2, releaseCounter.update(_ + 1).some)
       }
 
       for {
@@ -1320,9 +1321,9 @@ class CacheSpec extends AsyncFunSuite with Matchers {
     }
 
     check(s"modify modifies existing entry: $name") { (cache, metrics) =>
-      val modify: Option[Int] => (Int, Modification[IO, Int]) = {
-        case Some(i) => i -> Modification.Put(i + 1, None)
-        case None => -1 -> Modification.Keep
+      val modify: Option[Int] => (Int, Directive[IO, Int]) = {
+        case Some(i) => i -> Directive.Put(i + 1, None)
+        case None => -1 -> Directive.Ignore
       }
       for {
         (a, release1) <- cache.modify(0, modify)
@@ -1338,8 +1339,8 @@ class CacheSpec extends AsyncFunSuite with Matchers {
 
         _ <- metrics.expect(
           metrics.expectedPut -> 1,
-          metrics.expectedModify(entryExisted = false, CacheMetrics.Modification.Keep) -> 1,
-          metrics.expectedModify(entryExisted = true, CacheMetrics.Modification.Put) -> 1,
+          metrics.expectedModify(entryExisted = false, ModifyResult.Ignore) -> 1,
+          metrics.expectedModify(entryExisted = true, ModifyResult.Put) -> 1,
           metrics.expectedGet(true) -> 1,
           metrics.expectedLife -> 2,
         )
@@ -1347,7 +1348,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
     }
 
     check(s"modify keeps existing entry: $name") { (cache, metrics) =>
-      val modify: Option[Int] => (Int, Modification[IO, Int]) = i => i.getOrElse(-1) -> Modification.Keep
+      val modify: Option[Int] => (Int, Directive[IO, Int]) = i => i.getOrElse(-1) -> Directive.Ignore
       for {
         (a, release1) <- cache.modify(0, modify)
         _ <- IO { a shouldEqual -1 }
@@ -1359,17 +1360,17 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         _ <- List(release1, release2).flatten.sequence_
         _ <- metrics.expect(
           metrics.expectedPut -> 1,
-          metrics.expectedModify(entryExisted = false, CacheMetrics.Modification.Keep) -> 1,
-          metrics.expectedModify(entryExisted = true, CacheMetrics.Modification.Keep) -> 1,
+          metrics.expectedModify(entryExisted = false, ModifyResult.Ignore) -> 1,
+          metrics.expectedModify(entryExisted = true, ModifyResult.Ignore) -> 1,
           metrics.expectedGet(true) -> 1,
         )
       } yield ()
     }
 
     check(s"modify removes existing entry: $name") { (cache, metrics) =>
-      val modify: Option[Int] => (Int, Modification[IO, Int]) = {
-        case Some(i) => i -> Modification.Remove
-        case None => -1 -> Modification.Keep
+      val modify: Option[Int] => (Int, Directive[IO, Int]) = {
+        case Some(i) => i -> Directive.Remove
+        case None => -1 -> Directive.Ignore
       }
       for {
         (a, release1) <- cache.modify(0, modify)
@@ -1382,8 +1383,8 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         _ <- List(release1, release2).flatten.sequence_
         _ <- metrics.expect(
           metrics.expectedPut -> 1,
-          metrics.expectedModify(entryExisted = false, CacheMetrics.Modification.Keep) -> 1,
-          metrics.expectedModify(entryExisted = true, CacheMetrics.Modification.Remove) -> 1,
+          metrics.expectedModify(entryExisted = false, ModifyResult.Ignore) -> 1,
+          metrics.expectedModify(entryExisted = true, ModifyResult.Remove) -> 1,
           metrics.expectedGet(false) -> 1,
           metrics.expectedLife -> 1,
         )
@@ -1391,9 +1392,9 @@ class CacheSpec extends AsyncFunSuite with Matchers {
     }
 
     check(s"modify adds entry when absent: $name") { (cache, metrics) =>
-      val modify: Option[Int] => (Int, Modification[IO, Int]) = {
-        case Some(i) => i -> Modification.Keep
-        case None => 1 -> Modification.Put(1, None)
+      val modify: Option[Int] => (Int, Directive[IO, Int]) = {
+        case Some(i) => i -> Directive.Ignore
+        case None => 1 -> Directive.Put(1, None)
       }
       for {
         (a, release1) <- cache.modify(0, modify)
@@ -1404,8 +1405,8 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         _ <- IO { value shouldBe Some(1) }
         _ <- List(release1, release2).flatten.sequence_
         _ <- metrics.expect(
-          metrics.expectedModify(entryExisted = false, CacheMetrics.Modification.Put) -> 1,
-          metrics.expectedModify(entryExisted = true, CacheMetrics.Modification.Keep) -> 1,
+          metrics.expectedModify(entryExisted = false, ModifyResult.Put) -> 1,
+          metrics.expectedModify(entryExisted = true, ModifyResult.Ignore) -> 1,
           metrics.expectedGet(true) -> 1,
         )
       } yield ()
@@ -1413,9 +1414,9 @@ class CacheSpec extends AsyncFunSuite with Matchers {
 
     check(s"modify guarantees updated value write concurrently accessing single key: $name") {
       (cache, metrics) =>
-        def modify(releaseCounter: Ref[IO, Int]): Option[Int] => (Int, Modification[IO, Int]) = {
-          case Some(i) => i -> Modification.Put(i + 1, releaseCounter.update(_ + i + 1).some)
-          case None => 0 -> Modification.Put(1, releaseCounter.update(_ + 1).some)
+        def modify(releaseCounter: Ref[IO, Int]): Option[Int] => (Int, Directive[IO, Int]) = {
+          case Some(i) => i -> Directive.Put(i + 1, releaseCounter.update(_ + i + 1).some)
+          case None => 0 -> Directive.Put(1, releaseCounter.update(_ + 1).some)
         }
         for {
           releaseCounter <- Ref[IO].of(0)
@@ -1433,7 +1434,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
           _ <- results.flatMap(_._2).sequence_
 
           lastWrittenValue <- cache.get(0)
-          (lastValueRemoved, lastRelease) <- cache.modify(0, lastValue => (lastValue, Modification.Remove))
+          (lastValueRemoved, lastRelease) <- cache.modify(0, lastValue => (lastValue, Directive.Remove))
           _ <- lastRelease.sequence_
           releasedValuesSum <- releaseCounter.get
 
@@ -1442,9 +1443,9 @@ class CacheSpec extends AsyncFunSuite with Matchers {
           _ <- IO { lastValueRemoved shouldBe n.some }
 
           _ <- metrics.expect(
-            metrics.expectedModify(entryExisted = false, CacheMetrics.Modification.Put) -> 1,
-            metrics.expectedModify(entryExisted = true, CacheMetrics.Modification.Put) -> (n - 1),
-            metrics.expectedModify(entryExisted = true, CacheMetrics.Modification.Remove) -> 1,
+            metrics.expectedModify(entryExisted = false, ModifyResult.Put) -> 1,
+            metrics.expectedModify(entryExisted = true, ModifyResult.Put) -> (n - 1),
+            metrics.expectedModify(entryExisted = true, ModifyResult.Remove) -> 1,
             metrics.expectedGet(true) -> 1,
             metrics.expectedLife -> n,
           )
@@ -1453,9 +1454,9 @@ class CacheSpec extends AsyncFunSuite with Matchers {
 
     check(s"modify guarantees updated value write concurrently accessing multiple keys: $name") {
       (cache, metrics) =>
-        def modify(releaseCounter: Ref[IO, Int]): Option[Int] => (Int, Modification[IO, Int]) = {
-          case Some(i) => i -> Modification.Put(i + 1, releaseCounter.update(_ + i + 1).some)
-          case None => 0 -> Modification.Put(1, releaseCounter.update(_ + 1).some)
+        def modify(releaseCounter: Ref[IO, Int]): Option[Int] => (Int, Directive[IO, Int]) = {
+          case Some(i) => i -> Directive.Put(i + 1, releaseCounter.update(_ + i + 1).some)
+          case None => 0 -> Directive.Put(1, releaseCounter.update(_ + 1).some)
         }
         for {
           releaseCounter <- Ref[IO].of(0)
@@ -1480,10 +1481,10 @@ class CacheSpec extends AsyncFunSuite with Matchers {
           lastWrittenValue2 <- cache.get(2)
           lastWrittenValue3 <- cache.get(3)
 
-          (lastValueRemoved0, lastRelease0) <- cache.modify(0, lastValue => (lastValue, Modification.Remove))
-          (lastValueRemoved1, lastRelease1) <- cache.modify(1, lastValue => (lastValue, Modification.Remove))
-          (lastValueRemoved2, lastRelease2) <- cache.modify(2, lastValue => (lastValue, Modification.Remove))
-          (lastValueRemoved3, lastRelease3) <- cache.modify(3, lastValue => (lastValue, Modification.Remove))
+          (lastValueRemoved0, lastRelease0) <- cache.modify(0, lastValue => (lastValue, Directive.Remove))
+          (lastValueRemoved1, lastRelease1) <- cache.modify(1, lastValue => (lastValue, Directive.Remove))
+          (lastValueRemoved2, lastRelease2) <- cache.modify(2, lastValue => (lastValue, Directive.Remove))
+          (lastValueRemoved3, lastRelease3) <- cache.modify(3, lastValue => (lastValue, Directive.Remove))
           _ <- List(lastRelease0, lastRelease1, lastRelease2, lastRelease2).flatten.sequence_
 
           releasedValuesSum <- releaseCounter.get
@@ -1501,9 +1502,9 @@ class CacheSpec extends AsyncFunSuite with Matchers {
           _ <- IO { lastValueRemoved3 shouldBe n.some }
 
           _ <- metrics.expect(
-            metrics.expectedModify(entryExisted = false, CacheMetrics.Modification.Put) -> 4,
-            metrics.expectedModify(entryExisted = true, CacheMetrics.Modification.Put) -> (n - 1) * 4,
-            metrics.expectedModify(entryExisted = true, CacheMetrics.Modification.Remove) -> 4,
+            metrics.expectedModify(entryExisted = false, ModifyResult.Put) -> 4,
+            metrics.expectedModify(entryExisted = true, ModifyResult.Put) -> (n - 1) * 4,
+            metrics.expectedModify(entryExisted = true, ModifyResult.Remove) -> 4,
             metrics.expectedGet(true) -> 4,
             metrics.expectedLife -> n * 4,
           )
@@ -1528,8 +1529,8 @@ object CacheSpec {
     def expectedLoad(success: Boolean): String = s"load(time=..., success=$success)"
     val expectedLife: String = "life(time=...)"
     val expectedPut: String = "put"
-    def expectedModify(entryExisted: Boolean, modification: CacheMetrics.Modification): String =
-      s"modify(existed=$entryExisted, modification=$modification"
+    def expectedModify(entryExisted: Boolean, modification: ModifyResult): String =
+      s"modify(existed=$entryExisted, modifyResult=$modification"
     def expectedSize(size: Int): String = s"size(size=$size)"
     val expectedSize: String = "size(latency=...)"
     val expectedValues: String = "values(latency=...)"
@@ -1541,8 +1542,8 @@ object CacheSpec {
     def load(time: FiniteDuration, success: Boolean): IO[Unit] = inc(expectedLoad(success))
     def life(time: FiniteDuration): IO[Unit] = inc(expectedLife)
     def put: IO[Unit] = inc(expectedPut)
-    def modify(entryExisted: Boolean, modification: CacheMetrics.Modification): IO[Unit] =
-      inc(expectedModify(entryExisted, modification))
+    def modify(entryExisted: Boolean, modifyResult: ModifyResult): IO[Unit] =
+      inc(expectedModify(entryExisted, modifyResult))
     def size(size: Int): IO[Unit] = inc(expectedSize(size))
     def size(latency: FiniteDuration): IO[Unit] = inc(expectedSize)
     def values(latency: FiniteDuration): IO[Unit] = inc(expectedValues)

@@ -5,7 +5,7 @@ import cats.effect.syntax.all.*
 import cats.kernel.CommutativeMonoid
 import cats.syntax.all.*
 import cats.{Applicative, Monad, MonadThrow, Monoid}
-import com.evolution.scache.Cache.Modification
+import com.evolution.scache.Cache.Directive
 import com.evolution.scache.LoadingCache.EntryState
 import com.evolutiongaming.catshelper.ClockHelper.*
 import com.evolutiongaming.catshelper.Schedule
@@ -271,15 +271,15 @@ object ExpiringCache {
       }
 
       // Modifying existing entry creates a new one, since the old one will be released.
-      def modify[A](key: K, f: Option[V] => (A, Modification[F, V])): F[(A, Option[F[Unit]])] =
+      def modify[A](key: K, f: Option[V] => (A, Directive[F, V])): F[(A, Option[F[Unit]])] =
         Clock[F]
           .millis
           .flatMap { timestamp =>
-            val adaptedF: Option[Entry[V]] => (A, Modification[F, Entry[V]]) = entry => f(entry.map(_.value)) match {
-              case (a, put: Modification.Put[F, V]) =>
-                (a, Modification.Put(Entry(put.value, timestamp, none), put.release))
-              case (a, Modification.Keep) => (a, Modification.Keep)
-              case (a, Modification.Remove) => (a, Modification.Remove)
+            val adaptedF: Option[Entry[V]] => (A, Directive[F, Entry[V]]) = entry => f(entry.map(_.value)) match {
+              case (a, put: Directive.Put[F, V]) =>
+                (a, Directive.Put(Entry(put.value, timestamp, none), put.release))
+              case (a, Directive.Ignore) => (a, Directive.Ignore)
+              case (a, Directive.Remove) => (a, Directive.Remove)
             }
             cache.modify(key, adaptedF)
           }

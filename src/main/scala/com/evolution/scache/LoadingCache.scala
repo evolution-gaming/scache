@@ -6,7 +6,7 @@ import cats.effect.{Concurrent, Deferred, Fiber, GenConcurrent, Outcome, Ref, Re
 import cats.kernel.CommutativeMonoid
 import com.evolutiongaming.catshelper.ParallelHelper.*
 import cats.syntax.all.*
-import com.evolution.scache.Cache.Modification
+import com.evolution.scache.Cache.Directive
 
 private[scache] object LoadingCache {
 
@@ -482,7 +482,7 @@ private[scache] object LoadingCache {
         }
       }
 
-      override def modify[A](key: K, f: Option[V] => (A, Modification[F, V])): F[(A, Option[F[Unit]])] = {
+      override def modify[A](key: K, f: Option[V] => (A, Directive[F, V])): F[(A, Option[F[Unit]])] = {
         0.tailRecM { counter =>
           ref
             .access
@@ -491,7 +491,7 @@ private[scache] object LoadingCache {
                 .get(key)
                 .fold {
                   f(None) match {
-                    case (a, put: Modification.Put[F, V]) =>
+                    case (a, put: Directive.Put[F, V]) =>
                       // No entry present in the map, so we add a new one
                       Ref[F]
                         .of[EntryState[F, V]](EntryState.Value(entryOf(put.value, put.release)))
@@ -505,7 +505,7 @@ private[scache] object LoadingCache {
                                 .asLeft[(A, Option[F[Unit]])]
                           }
                         }
-                    case (a, Modification.Keep | Modification.Remove) =>
+                    case (a, Directive.Ignore | Directive.Remove) =>
                       (a, none[F[Unit]])
                         .asRight[Int]
                         .pure[F]
@@ -518,7 +518,7 @@ private[scache] object LoadingCache {
                         // A computed value is already present in the map, so we are replacing it with our value.
                         case (state: EntryState.Value[F, V], setRef) =>
                           f(state.entry.value.some) match {
-                            case (a, put: Modification.Put[F, V]) =>
+                            case (a, put: Directive.Put[F, V]) =>
                               setRef(EntryState.Value(entryOf(put.value, put.release)))
                                 .flatMap {
                                   // Successfully replaced the entryRef with our value,
@@ -528,8 +528,8 @@ private[scache] object LoadingCache {
                                       .entry
                                       .release
                                       .traverse { _.start }
-                                      .map { maybeRelease =>
-                                        (a, maybeRelease.map(_.joinWithNever))
+                                      .map { release =>
+                                        (a, release.map(_.joinWithNever))
                                           .asRight[Int]
                                           .asRight[Int]
                                       }
@@ -538,12 +538,12 @@ private[scache] object LoadingCache {
                                      .asLeft[Either[Int, (A, Option[F[Unit]])]]
                                      .pure[F]
                                 }
-                            case (a, Modification.Keep) =>
+                            case (a, Directive.Ignore) =>
                               (a, none[F[Unit]])
                                 .asRight[Int]
                                 .asRight[Int]
                                 .pure[F]
-                            case (a, Modification.Remove) =>
+                            case (a, Directive.Remove) =>
                               setRef(EntryState.Removed)
                                 .flatMap {
                                   case true =>
@@ -559,8 +559,8 @@ private[scache] object LoadingCache {
                                         .entry
                                         .release
                                         .traverse { _.start }
-                                        .map { maybeRelease =>
-                                          (a, maybeRelease.map(_.joinWithNever))
+                                        .map { release =>
+                                          (a, release.map(_.joinWithNever))
                                             .asRight[Int]
                                             .asRight[Int]
                                         }
@@ -574,7 +574,7 @@ private[scache] object LoadingCache {
 
                         case (state: EntryState.Loading[F, V], setRef) =>
                           f(None) match {
-                            case (a, put: Modification.Put[F, V]) =>
+                            case (a, put: Directive.Put[F, V]) =>
                               val entry = entryOf(put.value, put.release)
                               state
                                 .deferred
@@ -599,7 +599,7 @@ private[scache] object LoadingCache {
                                       .asLeft[Either[Int, (A, Option[F[Unit]])]]
                                       .pure[F]
                                 }
-                            case (a, Modification.Keep | Modification.Remove) =>
+                            case (a, Directive.Ignore | Directive.Remove) =>
                               (a, none[F[Unit]])
                                 .asRight[Int]
                                 .asRight[Int]
@@ -608,12 +608,12 @@ private[scache] object LoadingCache {
 
                         case (EntryState.Removed, _) =>
                           f(None) match {
-                            case (_, _: Modification.Put[F, V]) =>
+                            case (_, _: Directive.Put[F, V]) =>
                               (counter + 1)
                                 .asLeft[(A, Option[F[Unit]])]
                                 .asRight[Int]
                                 .pure[F]
-                            case (a, Modification.Keep | Modification.Remove) =>
+                            case (a, Directive.Ignore | Directive.Remove) =>
                               (a, none[F[Unit]])
                                 .asRight[Int]
                                 .asRight[Int]

@@ -47,7 +47,7 @@ object PartitionedCache {
           .put(key, value, release)
       }
 
-      def modify[A](key: K, f: Option[V] => (A, Cache.Modification[F, V])): F[(A, Option[F[Unit]])] = {
+      def modify[A](key: K, f: Option[V] => (A, Cache.Directive[F, V])): F[(A, Option[F[Unit]])] = {
         partitions
           .get(key)
           .modify(key, f)

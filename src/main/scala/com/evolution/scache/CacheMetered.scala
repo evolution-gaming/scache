@@ -3,7 +3,8 @@ package com.evolution.scache
 import cats.effect.{Resource, Temporal}
 import cats.kernel.CommutativeMonoid
 import cats.syntax.all.*
-import com.evolution.scache.Cache.Modification
+import com.evolution.scache.Cache.Directive
+import com.evolution.scache.CacheMetrics.ModifyResult
 import com.evolutiongaming.catshelper.{MeasureDuration, Schedule}
 
 import scala.concurrent.duration.*
@@ -93,23 +94,23 @@ object CacheMetered {
           } yield value
         }
 
-        def modify[A](key: K, f: Option[V] => (A, Modification[F, V])): F[(A, Option[F[Unit]])] = {
-          def getAdaptedF(duration: F[FiniteDuration]): Option[V] => ((A, F[Unit]), Modification[F, V]) = entry =>
+        def modify[A](key: K, f: Option[V] => (A, Directive[F, V])): F[(A, Option[F[Unit]])] = {
+          def getAdaptedF(duration: F[FiniteDuration]): Option[V] => ((A, F[Unit]), Directive[F, V]) = entry =>
             f(entry) match {
-              case (a, put: Modification.Put[F, V]) =>
-                ((a, metrics.modify(entry.nonEmpty, CacheMetrics.Modification.Put)),
-                  Modification.Put(put.value, releaseMetered(duration, put.release.getOrElse(().pure[F])).some))
-              case (a, Modification.Keep) =>
-                ((a, metrics.modify(entry.nonEmpty, CacheMetrics.Modification.Keep)), Modification.Keep)
-              case (a, Modification.Remove) =>
-                ((a, metrics.modify(entry.nonEmpty, CacheMetrics.Modification.Remove)), Modification.Remove)
+              case (a, put: Directive.Put[F, V]) =>
+                ((a, metrics.modify(entry.nonEmpty, ModifyResult.Put)),
+                  Directive.Put(put.value, releaseMetered(duration, put.release.getOrElse(().pure[F])).some))
+              case (a, Directive.Ignore) =>
+                ((a, metrics.modify(entry.nonEmpty, ModifyResult.Ignore)), Directive.Ignore)
+              case (a, Directive.Remove) =>
+                ((a, metrics.modify(entry.nonEmpty, ModifyResult.Remove)), Directive.Remove)
             }
           for {
             duration <- MeasureDuration[F].start
             adaptedF = getAdaptedF(duration)
-            ((a, runMetrics), maybeRelease) <- cache.modify(key, adaptedF)
+            ((a, runMetrics), release) <- cache.modify(key, adaptedF)
             _ <- runMetrics
-          } yield (a, maybeRelease)
+          } yield (a, release)
         }
 
 
