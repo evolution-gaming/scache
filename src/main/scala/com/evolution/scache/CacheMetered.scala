@@ -4,7 +4,6 @@ import cats.effect.{Resource, Temporal}
 import cats.kernel.CommutativeMonoid
 import cats.syntax.all.*
 import com.evolution.scache.Cache.Directive
-import com.evolution.scache.CacheMetrics.ModifyResult
 import com.evolutiongaming.catshelper.{MeasureDuration, Schedule}
 
 import scala.concurrent.duration.*
@@ -94,24 +93,22 @@ object CacheMetered {
           } yield value
         }
 
-        def modify[A](key: K, f: Option[V] => (A, Directive[F, V])): F[(A, Option[F[Unit]])] = {
-          def getAdaptedF(duration: F[FiniteDuration]): Option[V] => ((A, F[Unit]), Directive[F, V]) = entry =>
-            f(entry) match {
-              case (a, put: Directive.Put[F, V]) =>
-                ((a, metrics.modify(entry.nonEmpty, ModifyResult.Put)),
-                  Directive.Put(put.value, releaseMetered(duration, put.release.getOrElse(().pure[F])).some))
-              case (a, Directive.Ignore) =>
-                ((a, metrics.modify(entry.nonEmpty, ModifyResult.Ignore)), Directive.Ignore)
-              case (a, Directive.Remove) =>
-                ((a, metrics.modify(entry.nonEmpty, ModifyResult.Remove)), Directive.Remove)
-            }
+        def modify[A](key: K)(f: Option[V] => (A, Directive[F, V])): F[(A, Option[F[Unit]])] =
           for {
             duration <- MeasureDuration[F].start
-            adaptedF = getAdaptedF(duration)
-            ((a, runMetrics), release) <- cache.modify(key, adaptedF)
-            _ <- runMetrics
+            ((a, entryExisted, directive), release) <- cache.modify(key) { entry =>
+              f(entry) match {
+                case (a, put: Directive.Put[F, V]) =>
+                  ((a, entry.nonEmpty, CacheMetrics.Directive.Put),
+                    Directive.Put(put.value, releaseMetered(duration, put.release.getOrElse(().pure[F])).some))
+                case (a, Directive.Ignore) =>
+                  ((a, entry.nonEmpty, CacheMetrics.Directive.Ignore), Directive.Ignore)
+                case (a, Directive.Remove) =>
+                  ((a, entry.nonEmpty, CacheMetrics.Directive.Remove), Directive.Remove)
+              }
+            }
+            _ <- metrics.modify(entryExisted, directive)
           } yield (a, release)
-        }
 
 
         def contains(key: K) = cache.contains(key)

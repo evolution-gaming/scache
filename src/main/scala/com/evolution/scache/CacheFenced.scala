@@ -52,8 +52,8 @@ object CacheFenced {
           .productR { cache.put(key, value, release) }
       }
 
-      def modify[A](key: K, f: Option[V] => (A, Cache.Directive[F, V])): F[(A, Option[F[Unit]])] =
-        fence.flatMap(_ => cache.modify(key, f)) // TODO: this doesn't guarantee a race, though
+      def modify[A](key: K)(f: Option[V] => (A, Cache.Directive[F, V])): F[(A, Option[F[Unit]])] =
+        fence.flatMap(_ => cache.modify(key)(f))
 
       def contains(key: K) = cache.contains(key)
 

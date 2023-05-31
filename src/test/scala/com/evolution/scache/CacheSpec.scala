@@ -5,7 +5,6 @@ import cats.effect.implicits.*
 import cats.effect.*
 import cats.syntax.all.*
 import com.evolution.scache.Cache.Directive
-import com.evolution.scache.CacheMetrics.ModifyResult
 import com.evolutiongaming.catshelper.CatsHelper.*
 import com.evolution.scache.IOSuite.*
 import org.scalatest.Assertion
@@ -1242,7 +1241,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         // so we increment on release and check that the final value is equal to the sum of the range.
         f2 <- range.parTraverse(i => cache.put(0, 0, resultRef2.update(_ + i))).start
 
-        f3 <- range.parTraverse(_ => cache.modify(0, modify(resultRef3))).start
+        f3 <- range.parTraverse(_ => cache.modify(0)(modify(resultRef3))).start
 
         f4 <- cache.remove(0).replicateA(n).start
 
@@ -1296,7 +1295,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         // so we increment on release and check that the final value is equal to the sum of the range.
         f3 <- range.parTraverse(i => cache.put(0, 0, resultRef3.update(_ + i))).start
 
-        f4 <- range.parTraverse(_ => cache.modify(0, modify(resultRef4))).start
+        f4 <- range.parTraverse(_ => cache.modify(0)(modify(resultRef4))).start
 
         f5 <- cache.remove(0).parReplicateA(n).start
 
@@ -1326,10 +1325,10 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         case None => -1 -> Directive.Ignore
       }
       for {
-        (a, release1) <- cache.modify(0, modify)
+        (a, release1) <- cache.modify(0)(modify)
         _ <- IO { a shouldEqual -1 }
         _ <- cache.put(0, 1)
-        (a, release2) <- cache.modify(0, modify)
+        (a, release2) <- cache.modify(0)(modify)
         _ <- IO { a shouldEqual 1 }
         value <- cache.get(0)
         _ <- IO { value shouldBe 2.some }
@@ -1339,8 +1338,8 @@ class CacheSpec extends AsyncFunSuite with Matchers {
 
         _ <- metrics.expect(
           metrics.expectedPut -> 1,
-          metrics.expectedModify(entryExisted = false, ModifyResult.Ignore) -> 1,
-          metrics.expectedModify(entryExisted = true, ModifyResult.Put) -> 1,
+          metrics.expectedModify(entryExisted = false, CacheMetrics.Directive.Ignore) -> 1,
+          metrics.expectedModify(entryExisted = true, CacheMetrics.Directive.Put) -> 1,
           metrics.expectedGet(true) -> 1,
           metrics.expectedLife -> 2,
         )
@@ -1350,18 +1349,18 @@ class CacheSpec extends AsyncFunSuite with Matchers {
     check(s"modify keeps existing entry: $name") { (cache, metrics) =>
       val modify: Option[Int] => (Int, Directive[IO, Int]) = i => i.getOrElse(-1) -> Directive.Ignore
       for {
-        (a, release1) <- cache.modify(0, modify)
+        (a, release1) <- cache.modify(0)(modify)
         _ <- IO { a shouldEqual -1 }
         _ <- cache.put(0, 1)
-        (a, release2) <- cache.modify(0, modify)
+        (a, release2) <- cache.modify(0)(modify)
         _ <- IO { a shouldEqual 1 }
         value <- cache.get(0)
         _ <- IO { value shouldBe 1.some }
         _ <- List(release1, release2).flatten.sequence_
         _ <- metrics.expect(
           metrics.expectedPut -> 1,
-          metrics.expectedModify(entryExisted = false, ModifyResult.Ignore) -> 1,
-          metrics.expectedModify(entryExisted = true, ModifyResult.Ignore) -> 1,
+          metrics.expectedModify(entryExisted = false, CacheMetrics.Directive.Ignore) -> 1,
+          metrics.expectedModify(entryExisted = true, CacheMetrics.Directive.Ignore) -> 1,
           metrics.expectedGet(true) -> 1,
         )
       } yield ()
@@ -1373,18 +1372,18 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         case None => -1 -> Directive.Ignore
       }
       for {
-        (a, release1) <- cache.modify(0, modify)
+        (a, release1) <- cache.modify(0)(modify)
         _ <- IO { a shouldEqual -1 }
         _ <- cache.put(0, 1)
-        (a, release2) <- cache.modify(0, modify)
+        (a, release2) <- cache.modify(0)(modify)
         _ <- IO { a shouldEqual 1 }
         value <- cache.get(0)
         _ <- IO { value shouldBe None }
         _ <- List(release1, release2).flatten.sequence_
         _ <- metrics.expect(
           metrics.expectedPut -> 1,
-          metrics.expectedModify(entryExisted = false, ModifyResult.Ignore) -> 1,
-          metrics.expectedModify(entryExisted = true, ModifyResult.Remove) -> 1,
+          metrics.expectedModify(entryExisted = false, CacheMetrics.Directive.Ignore) -> 1,
+          metrics.expectedModify(entryExisted = true, CacheMetrics.Directive.Remove) -> 1,
           metrics.expectedGet(false) -> 1,
           metrics.expectedLife -> 1,
         )
@@ -1397,16 +1396,16 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         case None => 1 -> Directive.Put(1, None)
       }
       for {
-        (a, release1) <- cache.modify(0, modify)
+        (a, release1) <- cache.modify(0)(modify)
         _ <- IO { a shouldEqual 1 }
-        (a, release2) <- cache.modify(0, modify)
+        (a, release2) <- cache.modify(0)(modify)
         _ <- IO { a shouldEqual 1 }
         value <- cache.get(0)
         _ <- IO { value shouldBe Some(1) }
         _ <- List(release1, release2).flatten.sequence_
         _ <- metrics.expect(
-          metrics.expectedModify(entryExisted = false, ModifyResult.Put) -> 1,
-          metrics.expectedModify(entryExisted = true, ModifyResult.Ignore) -> 1,
+          metrics.expectedModify(entryExisted = false, CacheMetrics.Directive.Put) -> 1,
+          metrics.expectedModify(entryExisted = true, CacheMetrics.Directive.Ignore) -> 1,
           metrics.expectedGet(true) -> 1,
         )
       } yield ()
@@ -1423,7 +1422,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
           n = 100000
           range = (1 to n).toList
 
-          f1 <- range.parTraverse(_ => cache.modify(0, modify(releaseCounter))).start
+          f1 <- range.parTraverse(_ => cache.modify(0)(modify(releaseCounter))).start
 
           expectedResult = range.sum
 
@@ -1434,7 +1433,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
           _ <- results.flatMap(_._2).sequence_
 
           lastWrittenValue <- cache.get(0)
-          (lastValueRemoved, lastRelease) <- cache.modify(0, lastValue => (lastValue, Directive.Remove))
+          (lastValueRemoved, lastRelease) <- cache.modify(0)(lastValue => (lastValue, Directive.Remove))
           _ <- lastRelease.sequence_
           releasedValuesSum <- releaseCounter.get
 
@@ -1443,9 +1442,9 @@ class CacheSpec extends AsyncFunSuite with Matchers {
           _ <- IO { lastValueRemoved shouldBe n.some }
 
           _ <- metrics.expect(
-            metrics.expectedModify(entryExisted = false, ModifyResult.Put) -> 1,
-            metrics.expectedModify(entryExisted = true, ModifyResult.Put) -> (n - 1),
-            metrics.expectedModify(entryExisted = true, ModifyResult.Remove) -> 1,
+            metrics.expectedModify(entryExisted = false, CacheMetrics.Directive.Put) -> 1,
+            metrics.expectedModify(entryExisted = true, CacheMetrics.Directive.Put) -> (n - 1),
+            metrics.expectedModify(entryExisted = true, CacheMetrics.Directive.Remove) -> 1,
             metrics.expectedGet(true) -> 1,
             metrics.expectedLife -> n,
           )
@@ -1463,10 +1462,10 @@ class CacheSpec extends AsyncFunSuite with Matchers {
           n = 100000
           range = (1 to n).toList
 
-          f0 <- range.parTraverse(_ => cache.modify(0, modify(releaseCounter))).start
-          f1 <- range.parTraverse(_ => cache.modify(1, modify(releaseCounter))).start
-          f2 <- range.parTraverse(_ => cache.modify(2, modify(releaseCounter))).start
-          f3 <- range.parTraverse(_ => cache.modify(3, modify(releaseCounter))).start
+          f0 <- range.parTraverse(_ => cache.modify(0)(modify(releaseCounter))).start
+          f1 <- range.parTraverse(_ => cache.modify(1)(modify(releaseCounter))).start
+          f2 <- range.parTraverse(_ => cache.modify(2)(modify(releaseCounter))).start
+          f3 <- range.parTraverse(_ => cache.modify(3)(modify(releaseCounter))).start
 
           expectedResult = range.sum
 
@@ -1481,10 +1480,10 @@ class CacheSpec extends AsyncFunSuite with Matchers {
           lastWrittenValue2 <- cache.get(2)
           lastWrittenValue3 <- cache.get(3)
 
-          (lastValueRemoved0, lastRelease0) <- cache.modify(0, lastValue => (lastValue, Directive.Remove))
-          (lastValueRemoved1, lastRelease1) <- cache.modify(1, lastValue => (lastValue, Directive.Remove))
-          (lastValueRemoved2, lastRelease2) <- cache.modify(2, lastValue => (lastValue, Directive.Remove))
-          (lastValueRemoved3, lastRelease3) <- cache.modify(3, lastValue => (lastValue, Directive.Remove))
+          (lastValueRemoved0, lastRelease0) <- cache.modify(0)(lastValue => (lastValue, Directive.Remove))
+          (lastValueRemoved1, lastRelease1) <- cache.modify(1)(lastValue => (lastValue, Directive.Remove))
+          (lastValueRemoved2, lastRelease2) <- cache.modify(2)(lastValue => (lastValue, Directive.Remove))
+          (lastValueRemoved3, lastRelease3) <- cache.modify(3)(lastValue => (lastValue, Directive.Remove))
           _ <- List(lastRelease0, lastRelease1, lastRelease2, lastRelease2).flatten.sequence_
 
           releasedValuesSum <- releaseCounter.get
@@ -1502,9 +1501,9 @@ class CacheSpec extends AsyncFunSuite with Matchers {
           _ <- IO { lastValueRemoved3 shouldBe n.some }
 
           _ <- metrics.expect(
-            metrics.expectedModify(entryExisted = false, ModifyResult.Put) -> 4,
-            metrics.expectedModify(entryExisted = true, ModifyResult.Put) -> (n - 1) * 4,
-            metrics.expectedModify(entryExisted = true, ModifyResult.Remove) -> 4,
+            metrics.expectedModify(entryExisted = false, CacheMetrics.Directive.Put) -> 4,
+            metrics.expectedModify(entryExisted = true, CacheMetrics.Directive.Put) -> (n - 1) * 4,
+            metrics.expectedModify(entryExisted = true, CacheMetrics.Directive.Remove) -> 4,
             metrics.expectedGet(true) -> 4,
             metrics.expectedLife -> n * 4,
           )
@@ -1529,8 +1528,8 @@ object CacheSpec {
     def expectedLoad(success: Boolean): String = s"load(time=..., success=$success)"
     val expectedLife: String = "life(time=...)"
     val expectedPut: String = "put"
-    def expectedModify(entryExisted: Boolean, modification: ModifyResult): String =
-      s"modify(existed=$entryExisted, modifyResult=$modification"
+    def expectedModify(entryExisted: Boolean, directive: CacheMetrics.Directive): String =
+      s"modify(existed=$entryExisted, directive=$directive"
     def expectedSize(size: Int): String = s"size(size=$size)"
     val expectedSize: String = "size(latency=...)"
     val expectedValues: String = "values(latency=...)"
@@ -1542,8 +1541,8 @@ object CacheSpec {
     def load(time: FiniteDuration, success: Boolean): IO[Unit] = inc(expectedLoad(success))
     def life(time: FiniteDuration): IO[Unit] = inc(expectedLife)
     def put: IO[Unit] = inc(expectedPut)
-    def modify(entryExisted: Boolean, modifyResult: ModifyResult): IO[Unit] =
-      inc(expectedModify(entryExisted, modifyResult))
+    def modify(entryExisted: Boolean, directive: CacheMetrics.Directive): IO[Unit] =
+      inc(expectedModify(entryExisted, directive))
     def size(size: Int): IO[Unit] = inc(expectedSize(size))
     def size(latency: FiniteDuration): IO[Unit] = inc(expectedSize)
     def values(latency: FiniteDuration): IO[Unit] = inc(expectedValues)

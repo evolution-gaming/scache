@@ -482,7 +482,7 @@ private[scache] object LoadingCache {
         }
       }
 
-      override def modify[A](key: K, f: Option[V] => (A, Directive[F, V])): F[(A, Option[F[Unit]])] = {
+      override def modify[A](key: K)(f: Option[V] => (A, Directive[F, V])): F[(A, Option[F[Unit]])] = {
         0.tailRecM { counter =>
           ref
             .access
@@ -500,7 +500,7 @@ private[scache] object LoadingCache {
                             case true =>
                               (a, none[F[Unit]])
                                 .asRight[Int]
-                            // Failed adding new entry to the map, retrying
+                            // Failed adding new entry to the map, retrying accessing the map
                             case false =>
                               (counter + 1)
                                 .asLeft[(A, Option[F[Unit]])]

@@ -3,7 +3,7 @@ package com.evolution.scache
 import cats.{Applicative, Monad}
 import cats.effect.Resource
 import cats.syntax.all.*
-import com.evolution.scache.CacheMetrics.ModifyResult
+import com.evolution.scache.CacheMetrics.Directive
 import com.evolutiongaming.smetrics.MetricsHelper.*
 import com.evolutiongaming.smetrics.{CollectorRegistry, LabelNames, Quantile, Quantiles}
 
@@ -19,7 +19,7 @@ trait CacheMetrics[F[_]] {
 
   def put: F[Unit]
 
-  def modify(entryExisted: Boolean, modifyResult: ModifyResult): F[Unit]
+  def modify(entryExisted: Boolean, directive: Directive): F[Unit]
 
   def size(size: Int): F[Unit]
 
@@ -49,7 +49,7 @@ object CacheMetrics {
 
     val put = unit
 
-    def modify(entryExisted: Boolean, modifyResult: ModifyResult): F[Unit] = unit
+    def modify(entryExisted: Boolean, directive: Directive): F[Unit] = unit
 
     def size(size: Int) = unit
 
@@ -64,17 +64,17 @@ object CacheMetrics {
     def foldMap(latency: FiniteDuration) = unit
   }
 
-  sealed trait ModifyResult {
+  sealed trait Directive {
     override def toString: Prefix = this match {
-      case ModifyResult.Put => "put"
-      case ModifyResult.Ignore => "ignore"
-      case ModifyResult.Remove => "remove"
+      case Directive.Put => "put"
+      case Directive.Ignore => "ignore"
+      case Directive.Remove => "remove"
     }
   }
-  object ModifyResult {
-    final case object Put extends ModifyResult
-    final case object Ignore extends ModifyResult
-    final case object Remove extends ModifyResult
+  object Directive {
+    final case object Put extends Directive
+    final case object Ignore extends Directive
+    final case object Remove extends Directive
   }
 
   type Name = String
@@ -199,8 +199,8 @@ object CacheMetrics {
 
           val put = putCounter1.inc()
 
-          def modify(entryExisted: Boolean, modifyResult: ModifyResult): F[Unit] = {
-            modifyCounter.labels(entryExisted.toString, modifyResult.toString).inc()
+          def modify(entryExisted: Boolean, directive: Directive): F[Unit] = {
+            modifyCounter.labels(entryExisted.toString, directive.toString).inc()
           }
 
           def size(size: Int) = {
