@@ -3,6 +3,7 @@ package com.evolution.scache
 import cats.effect.{Resource, Temporal}
 import cats.kernel.CommutativeMonoid
 import cats.syntax.all.*
+import com.evolution.scache.Cache.Directive
 import com.evolutiongaming.catshelper.{MeasureDuration, Schedule}
 import com.evolutiongaming.smetrics
 
@@ -102,6 +103,24 @@ object CacheMetered {
             value    <- cache.put(key, value, release1.some)
           } yield value
         }
+
+        def modify[A](key: K)(f: Option[V] => (A, Directive[F, V])): F[(A, Option[F[Unit]])] =
+          for {
+            duration <- MeasureDuration[F].start
+            ((a, entryExisted, directive), release) <- cache.modify(key) { entry =>
+              f(entry) match {
+                case (a, put: Directive.Put[F, V]) =>
+                  ((a, entry.nonEmpty, CacheMetrics.Directive.Put),
+                    Directive.Put(put.value, releaseMetered(duration, put.release.getOrElse(().pure[F])).some))
+                case (a, Directive.Ignore) =>
+                  ((a, entry.nonEmpty, CacheMetrics.Directive.Ignore), Directive.Ignore)
+                case (a, Directive.Remove) =>
+                  ((a, entry.nonEmpty, CacheMetrics.Directive.Remove), Directive.Remove)
+              }
+            }
+            _ <- metrics.modify(entryExisted, directive)
+          } yield (a, release)
+
 
         def contains(key: K) = cache.contains(key)
 
