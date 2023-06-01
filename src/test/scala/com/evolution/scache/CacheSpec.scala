@@ -4,6 +4,7 @@ import cats.Monad
 import cats.effect.implicits.*
 import cats.effect.*
 import cats.syntax.all.*
+import com.evolution.scache.Cache.Directive
 import com.evolutiongaming.catshelper.CatsHelper.*
 import com.evolution.scache.IOSuite.*
 import org.scalatest.Assertion
@@ -1216,10 +1217,18 @@ class CacheSpec extends AsyncFunSuite with Matchers {
       } yield {}
     }
 
-    check(s"each release performed exactly once during `getOrUpdate1`, `put` and `remove` race: $name") { (cache, _) =>
+    check(s"each release performed exactly once during " +
+      s"`getOrUpdate1`, `put`, `modify` and `remove` race: $name") { (cache, _) =>
+
+      def modify(releaseCounter: Ref[IO, Int]): Option[Int] => (Int, Directive[IO, Int]) = {
+        case Some(i) => i -> Directive.Put(i, releaseCounter.update(_ + 1).some)
+        case None => -2 -> Directive.Put(-2, releaseCounter.update(_ + 1).some)
+      }
+
       for {
         resultRef1 <- Ref[IO].of(0)
         resultRef2 <- Ref[IO].of(0)
+        resultRef3 <- Ref[IO].of(0)
         n = 100000
         range = (1 to n).toList
 
@@ -1232,27 +1241,40 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         // so we increment on release and check that the final value is equal to the sum of the range.
         f2 <- range.parTraverse(i => cache.put(0, 0, resultRef2.update(_ + i))).start
 
-        f3 <- cache.remove(0).replicateA(n).start
+        f3 <- range.parTraverse(_ => cache.modify(0)(modify(resultRef3))).start
+
+        f4 <- cache.remove(0).replicateA(n).start
 
         expectedResult = range.sum
 
         _ <- f1.joinWithNever.void
         _ <- f2.joinWithNever.flatMap(_.sequence)
-        _ <- f3.joinWithNever.flatMap(_.sequence)
+        _ <- f3.joinWithNever.flatMap(_.flatMap(_._2).sequence_)
+        _ <- f4.joinWithNever.flatMap(_.sequence)
         _ <- cache.clear.flatten
 
         result1 <- resultRef1.get
         result2 <- resultRef2.get
+        result3 <- resultRef3.get
         _ <- IO { result1 shouldEqual 0 }
         _ <- IO { result2 shouldEqual expectedResult }
+        _ <- IO { result3 shouldEqual n }
       } yield {}
     }
 
-    check(s"failing loads don't interfere with releases during `getOrUpdate1`, `put` and `remove` race: $name") { (cache, _) =>
+    check(s"failing loads don't interfere with releases during " +
+      s"`getOrUpdate1`, `put`, `modify` and `remove` race: $name") { (cache, _) =>
+
+      def modify(releaseCounter: Ref[IO, Int]): Option[Int] => (Int, Directive[IO, Int]) = {
+        case Some(i) => i -> Directive.Put(i, releaseCounter.update(_ + 1).some)
+        case None => -2 -> Directive.Put(-2, releaseCounter.update(_ + 1).some)
+      }
+
       for {
         resultRef1 <- Ref[IO].of(0)
         resultRef2 <- Ref[IO].of(0)
         resultRef3 <- Ref[IO].of(0)
+        resultRef4 <- Ref[IO].of(0)
         n = 100000
         range = (1 to n).toList
 
@@ -1273,23 +1295,219 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         // so we increment on release and check that the final value is equal to the sum of the range.
         f3 <- range.parTraverse(i => cache.put(0, 0, resultRef3.update(_ + i))).start
 
-        f4 <- cache.remove(0).parReplicateA(n).start
+        f4 <- range.parTraverse(_ => cache.modify(0)(modify(resultRef4))).start
+
+        f5 <- cache.remove(0).parReplicateA(n).start
 
         expectedResult = range.sum
 
         _ <- f1.joinWithNever.void
         _ <- f2.joinWithNever.void
         _ <- f3.joinWithNever.flatMap(_.sequence)
-        _ <- f4.joinWithNever.flatMap(_.sequence)
+        _ <- f4.joinWithNever.flatMap(_.flatMap(_._2).sequence_)
+        _ <- f5.joinWithNever.flatMap(_.sequence)
         _ <- cache.clear.flatten
 
         result1 <- resultRef1.get
         result2 <- resultRef2.get
         result3 <- resultRef3.get
+        result4 <- resultRef4.get
         _ <- IO { result1 shouldEqual 0 }
         _ <- IO { result2 shouldEqual 0 }
         _ <- IO { result3 shouldEqual expectedResult }
+        _ <- IO { result4 shouldEqual n }
       } yield ()
+    }
+
+    check(s"modify modifies existing entry: $name") { (cache, metrics) =>
+      val modify: Option[Int] => (Int, Directive[IO, Int]) = {
+        case Some(i) => i -> Directive.Put(i + 1, None)
+        case None => -1 -> Directive.Ignore
+      }
+      for {
+        (a, release1) <- cache.modify(0)(modify)
+        _ <- IO { a shouldEqual -1 }
+        _ <- cache.put(0, 1)
+        (a, release2) <- cache.modify(0)(modify)
+        _ <- IO { a shouldEqual 1 }
+        value <- cache.get(0)
+        _ <- IO { value shouldBe 2.some }
+        release3 <- cache.remove(0)
+
+        _ <- List(release1, release2, release3.void.some).flatten.sequence_
+
+        _ <- metrics.expect(
+          metrics.expectedPut -> 1,
+          metrics.expectedModify(entryExisted = false, CacheMetrics.Directive.Ignore) -> 1,
+          metrics.expectedModify(entryExisted = true, CacheMetrics.Directive.Put) -> 1,
+          metrics.expectedGet(true) -> 1,
+          metrics.expectedLife -> 2,
+        )
+      } yield ()
+    }
+
+    check(s"modify keeps existing entry: $name") { (cache, metrics) =>
+      val modify: Option[Int] => (Int, Directive[IO, Int]) = i => i.getOrElse(-1) -> Directive.Ignore
+      for {
+        (a, release1) <- cache.modify(0)(modify)
+        _ <- IO { a shouldEqual -1 }
+        _ <- cache.put(0, 1)
+        (a, release2) <- cache.modify(0)(modify)
+        _ <- IO { a shouldEqual 1 }
+        value <- cache.get(0)
+        _ <- IO { value shouldBe 1.some }
+        _ <- List(release1, release2).flatten.sequence_
+        _ <- metrics.expect(
+          metrics.expectedPut -> 1,
+          metrics.expectedModify(entryExisted = false, CacheMetrics.Directive.Ignore) -> 1,
+          metrics.expectedModify(entryExisted = true, CacheMetrics.Directive.Ignore) -> 1,
+          metrics.expectedGet(true) -> 1,
+        )
+      } yield ()
+    }
+
+    check(s"modify removes existing entry: $name") { (cache, metrics) =>
+      val modify: Option[Int] => (Int, Directive[IO, Int]) = {
+        case Some(i) => i -> Directive.Remove
+        case None => -1 -> Directive.Ignore
+      }
+      for {
+        (a, release1) <- cache.modify(0)(modify)
+        _ <- IO { a shouldEqual -1 }
+        _ <- cache.put(0, 1)
+        (a, release2) <- cache.modify(0)(modify)
+        _ <- IO { a shouldEqual 1 }
+        value <- cache.get(0)
+        _ <- IO { value shouldBe None }
+        _ <- List(release1, release2).flatten.sequence_
+        _ <- metrics.expect(
+          metrics.expectedPut -> 1,
+          metrics.expectedModify(entryExisted = false, CacheMetrics.Directive.Ignore) -> 1,
+          metrics.expectedModify(entryExisted = true, CacheMetrics.Directive.Remove) -> 1,
+          metrics.expectedGet(false) -> 1,
+          metrics.expectedLife -> 1,
+        )
+      } yield ()
+    }
+
+    check(s"modify adds entry when absent: $name") { (cache, metrics) =>
+      val modify: Option[Int] => (Int, Directive[IO, Int]) = {
+        case Some(i) => i -> Directive.Ignore
+        case None => 1 -> Directive.Put(1, None)
+      }
+      for {
+        (a, release1) <- cache.modify(0)(modify)
+        _ <- IO { a shouldEqual 1 }
+        (a, release2) <- cache.modify(0)(modify)
+        _ <- IO { a shouldEqual 1 }
+        value <- cache.get(0)
+        _ <- IO { value shouldBe Some(1) }
+        _ <- List(release1, release2).flatten.sequence_
+        _ <- metrics.expect(
+          metrics.expectedModify(entryExisted = false, CacheMetrics.Directive.Put) -> 1,
+          metrics.expectedModify(entryExisted = true, CacheMetrics.Directive.Ignore) -> 1,
+          metrics.expectedGet(true) -> 1,
+        )
+      } yield ()
+    }
+
+    check(s"modify guarantees updated value write concurrently accessing single key: $name") {
+      (cache, metrics) =>
+        def modify(releaseCounter: Ref[IO, Int]): Option[Int] => (Int, Directive[IO, Int]) = {
+          case Some(i) => i -> Directive.Put(i + 1, releaseCounter.update(_ + i + 1).some)
+          case None => 0 -> Directive.Put(1, releaseCounter.update(_ + 1).some)
+        }
+        for {
+          releaseCounter <- Ref[IO].of(0)
+          n = 100000
+          range = (1 to n).toList
+
+          f1 <- range.parTraverse(_ => cache.modify(0)(modify(releaseCounter))).start
+
+          expectedResult = range.sum
+
+          results <- f1.joinWithNever
+          _ <- IO { results.map(_._1).sum shouldEqual (expectedResult - n) }
+
+          // Waiting for releases
+          _ <- results.flatMap(_._2).sequence_
+
+          lastWrittenValue <- cache.get(0)
+          (lastValueRemoved, lastRelease) <- cache.modify(0)(lastValue => (lastValue, Directive.Remove))
+          _ <- lastRelease.sequence_
+          releasedValuesSum <- releaseCounter.get
+
+          _ <- IO { releasedValuesSum shouldEqual expectedResult }
+          _ <- IO { lastWrittenValue shouldBe n.some }
+          _ <- IO { lastValueRemoved shouldBe n.some }
+
+          _ <- metrics.expect(
+            metrics.expectedModify(entryExisted = false, CacheMetrics.Directive.Put) -> 1,
+            metrics.expectedModify(entryExisted = true, CacheMetrics.Directive.Put) -> (n - 1),
+            metrics.expectedModify(entryExisted = true, CacheMetrics.Directive.Remove) -> 1,
+            metrics.expectedGet(true) -> 1,
+            metrics.expectedLife -> n,
+          )
+        } yield ()
+    }
+
+    check(s"modify guarantees updated value write concurrently accessing multiple keys: $name") {
+      (cache, metrics) =>
+        def modify(releaseCounter: Ref[IO, Int]): Option[Int] => (Int, Directive[IO, Int]) = {
+          case Some(i) => i -> Directive.Put(i + 1, releaseCounter.update(_ + i + 1).some)
+          case None => 0 -> Directive.Put(1, releaseCounter.update(_ + 1).some)
+        }
+        for {
+          releaseCounter <- Ref[IO].of(0)
+          n = 100000
+          range = (1 to n).toList
+
+          f0 <- range.parTraverse(_ => cache.modify(0)(modify(releaseCounter))).start
+          f1 <- range.parTraverse(_ => cache.modify(1)(modify(releaseCounter))).start
+          f2 <- range.parTraverse(_ => cache.modify(2)(modify(releaseCounter))).start
+          f3 <- range.parTraverse(_ => cache.modify(3)(modify(releaseCounter))).start
+
+          expectedResult = range.sum
+
+          results <- List(f0, f1, f2, f3).flatTraverse(_.joinWithNever)
+          _ <- IO { results.map(_._1).sum shouldEqual (expectedResult - n) * 4 }
+
+          // Waiting for releases
+          _ <- results.flatMap(_._2).sequence_
+
+          lastWrittenValue0 <- cache.get(0)
+          lastWrittenValue1 <- cache.get(1)
+          lastWrittenValue2 <- cache.get(2)
+          lastWrittenValue3 <- cache.get(3)
+
+          (lastValueRemoved0, lastRelease0) <- cache.modify(0)(lastValue => (lastValue, Directive.Remove))
+          (lastValueRemoved1, lastRelease1) <- cache.modify(1)(lastValue => (lastValue, Directive.Remove))
+          (lastValueRemoved2, lastRelease2) <- cache.modify(2)(lastValue => (lastValue, Directive.Remove))
+          (lastValueRemoved3, lastRelease3) <- cache.modify(3)(lastValue => (lastValue, Directive.Remove))
+          _ <- List(lastRelease0, lastRelease1, lastRelease2, lastRelease2).flatten.sequence_
+
+          releasedValuesSum <- releaseCounter.get
+
+          _ <- IO { releasedValuesSum shouldEqual expectedResult * 4 }
+
+          _ <- IO { lastWrittenValue0 shouldBe n.some }
+          _ <- IO { lastWrittenValue1 shouldBe n.some }
+          _ <- IO { lastWrittenValue2 shouldBe n.some }
+          _ <- IO { lastWrittenValue3 shouldBe n.some }
+
+          _ <- IO { lastValueRemoved0 shouldBe n.some }
+          _ <- IO { lastValueRemoved1 shouldBe n.some }
+          _ <- IO { lastValueRemoved2 shouldBe n.some }
+          _ <- IO { lastValueRemoved3 shouldBe n.some }
+
+          _ <- metrics.expect(
+            metrics.expectedModify(entryExisted = false, CacheMetrics.Directive.Put) -> 4,
+            metrics.expectedModify(entryExisted = true, CacheMetrics.Directive.Put) -> (n - 1) * 4,
+            metrics.expectedModify(entryExisted = true, CacheMetrics.Directive.Remove) -> 4,
+            metrics.expectedGet(true) -> 4,
+            metrics.expectedLife -> n * 4,
+          )
+        } yield ()
     }
   }
 }
@@ -1310,6 +1528,8 @@ object CacheSpec {
     def expectedLoad(success: Boolean): String = s"load(time=..., success=$success)"
     val expectedLife: String = "life(time=...)"
     val expectedPut: String = "put"
+    def expectedModify(entryExisted: Boolean, directive: CacheMetrics.Directive): String =
+      s"modify(existed=$entryExisted, directive=$directive"
     def expectedSize(size: Int): String = s"size(size=$size)"
     val expectedSize: String = "size(latency=...)"
     val expectedValues: String = "values(latency=...)"
@@ -1321,6 +1541,8 @@ object CacheSpec {
     def load(time: FiniteDuration, success: Boolean): IO[Unit] = inc(expectedLoad(success))
     def life(time: FiniteDuration): IO[Unit] = inc(expectedLife)
     def put: IO[Unit] = inc(expectedPut)
+    def modify(entryExisted: Boolean, directive: CacheMetrics.Directive): IO[Unit] =
+      inc(expectedModify(entryExisted, directive))
     def size(size: Int): IO[Unit] = inc(expectedSize(size))
     def size(latency: FiniteDuration): IO[Unit] = inc(expectedSize)
     def values(latency: FiniteDuration): IO[Unit] = inc(expectedValues)
