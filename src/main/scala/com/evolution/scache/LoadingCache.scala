@@ -6,6 +6,7 @@ import cats.effect.syntax.all._
 import cats.effect.{Concurrent, Fiber, Resource}
 import cats.kernel.CommutativeMonoid
 import cats.syntax.all._
+import com.evolution.scache.Cache.Directive
 import com.evolutiongaming.catshelper.CatsHelper._
 import com.evolutiongaming.catshelper.ParallelHelper._
 
@@ -478,6 +479,169 @@ private[scache] object LoadingCache {
                           }
                     }
                     .uncancelable
+                }
+            }
+        }
+      }
+
+      override def modify[A](key: K)(f: Option[V] => (A, Directive[F, V])): F[(A, Option[F[Unit]])] = {
+        0.tailRecM { counter =>
+          ref
+            .access
+            .flatMap { case (entryRefs, setMap) =>
+              entryRefs
+                .get(key)
+                .fold {
+                  f(None) match {
+                    // No entry present in the map, and we want to add a new one
+                    case (a, put: Directive.Put[F, V]) =>
+                      Ref[F]
+                        .of[EntryState[F, V]](EntryState.Value(entryOf(put.value, put.release)))
+                        .flatMap { entryRef =>
+                          setMap(entryRefs.updated(key, entryRef)).map {
+                            case true =>
+                              (a, none[F[Unit]])
+                                .asRight[Int]
+                            // Failed adding new entry to the map, retrying accessing the map
+                            case false =>
+                              (counter + 1)
+                                .asLeft[(A, Option[F[Unit]])]
+                          }
+                        }
+                    // No entry present in the map, and we don't want to have any, so exiting
+                    case (a, Directive.Ignore | Directive.Remove) =>
+                      (a, none[F[Unit]])
+                        .asRight[Int]
+                        .pure[F]
+                  }
+                } { entryRef =>
+                  0.tailRecM { counter1 =>
+                    entryRef
+                      .access
+                      .flatMap {
+                        // A value is already present in the map
+                        case (state: EntryState.Value[F, V], setRef) =>
+                          f(state.entry.value.some) match {
+                            case (a, put: Directive.Put[F, V]) =>
+                              setRef(EntryState.Value(entryOf(put.value, put.release)))
+                                .flatMap {
+                                  // Successfully replaced the entryRef with our value,
+                                  // now we are responsible for releasing the old value.
+                                  case true =>
+                                    state
+                                      .entry
+                                      .release
+                                      .traverse { _.start }
+                                      .map { release =>
+                                        (a, release.map(_.join))
+                                          .asRight[Int]
+                                          .asRight[Int]
+                                      }
+                                  // Failed updating entryRef, retrying
+                                  case false =>
+                                    (counter1 + 1)
+                                     .asLeft[Either[Int, (A, Option[F[Unit]])]]
+                                     .pure[F]
+                                }
+                            // Keeping the value intact and exiting
+                            case (a, Directive.Ignore) =>
+                              (a, none[F[Unit]])
+                                .asRight[Int]
+                                .asRight[Int]
+                                .pure[F]
+                            // Removing the value
+                            case (a, Directive.Remove) =>
+                              setRef(EntryState.Removed)
+                                .flatMap {
+                                  // Successfully set the entryRef to `Removed` state, now removing it from the map.
+                                  // Only removing the key if it still contains this entry, otherwise noop.
+                                  case true =>
+                                    ref
+                                      .update { entryRefs =>
+                                        entryRefs.get(key) match {
+                                          case Some(`entryRef`) => entryRefs - key
+                                          case _ => entryRefs
+                                        }
+                                      }
+                                      .flatMap { _ =>
+                                        // Releasing the value regardless of the map update result.
+                                        state
+                                          .entry
+                                          .release
+                                          .traverse { _.start }
+                                          .map { release =>
+                                            (a, release.map(_.join))
+                                              .asRight[Int]
+                                              .asRight[Int]
+                                          }
+                                      }
+                                  // Failed updating entryRef, retrying
+                                  case false =>
+                                    (counter1 + 1)
+                                      .asLeft[Either[Int, (A, Option[F[Unit]])]]
+                                      .pure[F]
+                                }
+                          }
+
+                        // Entry in the map is still loading
+                        case (state: EntryState.Loading[F, V], setRef) =>
+                          f(None) match {
+                            // Trying to replace it with our value
+                            case (a, put: Directive.Put[F, V]) =>
+                              val entry = entryOf(put.value, put.release)
+                              state
+                                .deferred
+                                .complete1(entry.asRight)
+                                .flatMap {
+                                  // We successfully completed the deferred, now trying to set the value.
+                                  case true =>
+                                    setRef(EntryState.Value(entry)).map {
+                                      // We successfully replaced the entry with our value, so we are done.
+                                      case true =>
+                                        (a, none[F[Unit]])
+                                          .asRight[Int]
+                                          .asRight[Int]
+                                      // Another fiber placed their new value (only Removed should be possible)
+                                      // before us so we retry accessing the entry.
+                                      case false =>
+                                        (counter1 + 1)
+                                          .asLeft[Either[Int, (A, Option[F[Unit]])]]
+                                    }
+                                  // Failed to complete the deferred, meaning someone else completed it, and will
+                                  // now set the new value in the entryRef. Retrying the lookup.
+                                  case false =>
+                                    (counter1 + 1)
+                                      .asLeft[Either[Int, (A, Option[F[Unit]])]]
+                                      .pure[F]
+                                }
+                            // Noop decision, exiting
+                            case (a, Directive.Ignore | Directive.Remove) =>
+                              (a, none[F[Unit]])
+                                .asRight[Int]
+                                .asRight[Int]
+                                .pure[F]
+                          }
+
+                        // Entry was just removed, it soon will be gone from the map.
+                        case (EntryState.Removed, _) =>
+                          f(None) match {
+                            // We want to place the new value;
+                            // Retrying the map lookup, expecting a different result for our key.
+                            case (_, _: Directive.Put[F, V]) =>
+                              (counter + 1)
+                                .asLeft[(A, Option[F[Unit]])]
+                                .asRight[Int]
+                                .pure[F]
+                            // Noop decision, exiting
+                            case (a, Directive.Ignore | Directive.Remove) =>
+                              (a, none[F[Unit]])
+                                .asRight[Int]
+                                .asRight[Int]
+                                .pure[F]
+                          }
+                      }
+                      .uncancelable
+                  }
                 }
             }
         }

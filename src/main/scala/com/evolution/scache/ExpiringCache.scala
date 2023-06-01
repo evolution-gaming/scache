@@ -5,6 +5,7 @@ import cats.effect.{Clock, Concurrent, Resource, Timer}
 import cats.kernel.CommutativeMonoid
 import cats.syntax.all._
 import cats.{Applicative, Monad, MonadThrow, Monoid, Parallel}
+import com.evolution.scache.Cache.Directive
 import com.evolution.scache.LoadingCache.EntryState
 import com.evolutiongaming.catshelper.CatsHelper._
 import com.evolutiongaming.catshelper.ClockHelper._
@@ -19,7 +20,7 @@ object ExpiringCache {
   private[scache] def of[F[_]: Concurrent: Timer: Parallel, K, V](
     config: Config[F, K, V]
   ): Resource[F, Cache[F, K, V]] = {
-    
+
     type E = Entry[V]
 
     val cooldown           = config.expireAfterRead.toMillis / 5
@@ -269,6 +270,20 @@ object ExpiringCache {
               .map { _.map { _.map { _.value } } }
           }
       }
+
+      // Modifying existing entry creates a new one, since the old one will be released.
+      def modify[A](key: K)(f: Option[V] => (A, Directive[F, V])): F[(A, Option[F[Unit]])] =
+        Clock[F]
+          .millis
+          .flatMap { timestamp =>
+            val adaptedF: Option[Entry[V]] => (A, Directive[F, Entry[V]]) = entry => f(entry.map(_.value)) match {
+              case (a, put: Directive.Put[F, V]) =>
+                (a, Directive.Put(Entry(put.value, timestamp, none), put.release))
+              case (a, Directive.Ignore) => (a, Directive.Ignore)
+              case (a, Directive.Remove) => (a, Directive.Remove)
+            }
+            cache.modify(key)(adaptedF)
+          }
 
       def contains(key: K) = cache.contains(key)
 
