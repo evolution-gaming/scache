@@ -7,8 +7,8 @@ import cats.syntax.all.*
 import cats.{Functor, Hash, Monad, MonadThrow, Monoid, Parallel, ~>}
 import cats.kernel.CommutativeMonoid
 import com.evolutiongaming.catshelper.CatsHelper.*
-import com.evolutiongaming.catshelper.Runtime
-import com.evolutiongaming.smetrics.MeasureDuration
+import com.evolutiongaming.catshelper.{MeasureDuration, Runtime}
+import com.evolutiongaming.smetrics
 
 import scala.util.control.NoStackTrace
 
@@ -639,12 +639,22 @@ object Cache {
 
   implicit class CacheOps[F[_], K, V](val self: Cache[F, K, V]) extends AnyVal {
 
+    @deprecated("use `withMetrics1` instead", "4.5.0")
     def withMetrics(
+      metrics: CacheMetrics[F])(implicit
+      temporal: Temporal[F],
+      measureDuration: smetrics.MeasureDuration[F]
+    ): Resource[F, Cache[F, K, V]] = {
+      implicit val md: MeasureDuration[F] = measureDuration.toCatsHelper
+      withMetrics1(metrics)
+    }
+
+    def withMetrics1(
       metrics: CacheMetrics[F])(implicit
       temporal: Temporal[F],
       measureDuration: MeasureDuration[F]
     ): Resource[F, Cache[F, K, V]] = {
-      CacheMetered(self, metrics)
+      CacheMetered.apply1(self, metrics)
     }
 
     def mapK[G[_]](fg: F ~> G, gf: G ~> F)(implicit F: Functor[F]): Cache[G, K, V] = {
