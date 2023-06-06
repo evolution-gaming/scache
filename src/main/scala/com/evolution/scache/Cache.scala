@@ -645,7 +645,7 @@ object Cache {
       temporal: Temporal[F],
       measureDuration: MeasureDuration[F]
     ): Resource[F, Cache[F, K, V]] = {
-      CacheMetered(self, metrics)
+      withMetrics1(metrics)
     }
 
     def withMetrics1(
