@@ -639,12 +639,20 @@ object Cache {
 
   implicit class CacheOps[F[_], K, V](val self: Cache[F, K, V]) extends AnyVal {
 
+    @deprecated("use `withMetrics1` instead", "4.5.0")
     def withMetrics(
       metrics: CacheMetrics[F])(implicit
       temporal: Temporal[F],
       measureDuration: MeasureDuration[F]
     ): Resource[F, Cache[F, K, V]] = {
       CacheMetered(self, metrics)
+    }
+
+    def withMetrics1(
+      metrics: CacheMetrics[F])(implicit
+      temporal: Temporal[F],
+    ): Resource[F, Cache[F, K, V]] = {
+      CacheMetered.apply1(self, metrics)
     }
 
     def mapK[G[_]](fg: F ~> G, gf: G ~> F)(implicit F: Functor[F]): Cache[G, K, V] = {
