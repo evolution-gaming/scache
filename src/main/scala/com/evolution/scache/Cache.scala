@@ -7,8 +7,8 @@ import cats.syntax.all.*
 import cats.{Functor, Hash, Monad, MonadThrow, Monoid, Parallel, ~>}
 import cats.kernel.CommutativeMonoid
 import com.evolutiongaming.catshelper.CatsHelper.*
-import com.evolutiongaming.catshelper.Runtime
-import com.evolutiongaming.smetrics.MeasureDuration
+import com.evolutiongaming.catshelper.{MeasureDuration, Runtime}
+import com.evolutiongaming.smetrics
 
 import scala.util.control.NoStackTrace
 
@@ -643,14 +643,16 @@ object Cache {
     def withMetrics(
       metrics: CacheMetrics[F])(implicit
       temporal: Temporal[F],
-      measureDuration: MeasureDuration[F]
+      measureDuration: smetrics.MeasureDuration[F]
     ): Resource[F, Cache[F, K, V]] = {
+      implicit val md: MeasureDuration[F] = measureDuration.toCatsHelper
       withMetrics1(metrics)
     }
 
     def withMetrics1(
       metrics: CacheMetrics[F])(implicit
       temporal: Temporal[F],
+      measureDuration: MeasureDuration[F]
     ): Resource[F, Cache[F, K, V]] = {
       CacheMetered.apply1(self, metrics)
     }
