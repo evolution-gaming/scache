@@ -30,7 +30,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
       for {
         cache   <- cache0
         metrics <- CacheMetricsProbe.of.toResource
-        cache   <- cache.withMetrics(metrics)
+        cache   <- cache.withMetrics1(metrics)
         cache   <- cache.withFence
       } yield (cache, metrics)
 
