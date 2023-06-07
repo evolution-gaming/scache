@@ -4,8 +4,9 @@ import cats.effect.kernel.MonadCancel
 import cats.effect.{Concurrent, Resource, Temporal}
 import cats.effect.syntax.all.*
 import cats.syntax.all.*
-import cats.{Functor, Hash, Monad, MonadThrow, Monoid, Parallel, ~>}
+import cats.{Applicative, Functor, Hash, Monad, MonadThrow, Monoid, Parallel, ~>}
 import cats.kernel.CommutativeMonoid
+import com.evolution.scache.Cache.Directive
 import com.evolutiongaming.catshelper.CatsHelper.*
 import com.evolutiongaming.catshelper.{MeasureDuration, Runtime}
 import com.evolutiongaming.smetrics
@@ -221,6 +222,30 @@ trait Cache[F[_], K, V] {
     */
   def put(key: K, value: V, release: Option[Release]): F[F[Option[V]]]
 
+  /** Atomically modify a value under specific key.
+    *
+    * Allows to make a decision regarding value update based on the present value (or its absence),
+    * and express it as either `Put`, `Ignore`, or `Remove` directive.
+    *
+    * It will try to calculate `f` and apply resulting directive until it succeeds.
+    *
+    * In case of `Put` directive, it is guaranteed that the value is written in cache,
+    * and that it replaced exactly the value passed to `f`.
+    *
+    * In case of `Remove` directive, it is guaranteed that the key was removed
+    * when it contained exactly the value passed to `f`.
+    *
+    * @param key
+    *    The key to modify value for.
+    * @param f
+    *    Function that accepts current value found in cache (or None, if it's absent), and returns
+    *    a directive expressing a desired operation on the value, as well as an arbitrary output value of type `A`
+    * @return
+    *    Output value returned by `f`, and an optional effect representing an ongoing release of the value
+    *    that was removed from cache as a result of the modification (e.g.: in case of `Put` or `Remove` directives).
+    */
+  def modify[A](key: K)(f: Option[V] => (A, Directive[F, V])): F[(A, Option[F[Unit]])]
+
   /** Checks if the value for the key is present in the cache.
     *
     * @return
@@ -349,6 +374,13 @@ trait Cache[F[_], K, V] {
 
 object Cache {
 
+  sealed trait Directive[+F[_], +V]
+  object Directive {
+    final case class Put[F[_], V](value: V, release: Option[F[Unit]]) extends Directive[F, V]
+    final case object Remove extends Directive[Nothing, Nothing]
+    final case object Ignore extends Directive[Nothing, Nothing]
+  }
+
   /** Creates an always-empty implementation of cache.
     *
     * The implementation *almost* always returns [[scala.None]] regardess the
@@ -379,6 +411,9 @@ object Cache {
       def getOrUpdateOpt(key: K)(value: => F[Option[V]]) = value
 
       def put(key: K, value: V, release: Option[F[Unit]]) = none[V].pure[F].pure[F]
+
+      def modify[A](key: K)(f: Option[V] => (A, Directive[F, V])): F[(A, Option[F[Unit]])] =
+        (f(None)._1, none[F[Unit]]).pure[F]
 
       def contains(key: K) = false.pure[F]
 
@@ -692,6 +727,19 @@ object Cache {
           }
         }
 
+        def modify[A](key: K)(f: Option[V] => (A, Directive[G, V])): G[(A, Option[G[Unit]])] = {
+          val adaptedF: Option[V] => (A, Directive[F, V]) = f(_) match {
+            case (a, put: Directive.Put[G, V]) => (a, Directive.Put(put.value, put.release.map(gf(_))))
+            case (a, Directive.Ignore) => (a, Directive.Ignore)
+            case (a, Directive.Remove) => (a, Directive.Remove)
+          }
+          fg {
+            self
+              .modify(key)(adaptedF)
+              .map { case (a, release) => (a, release.map(fg(_)))}
+          }
+        }
+
         def put(key: K, value: V, release: Release) = {
           fg {
             self
@@ -929,5 +977,58 @@ object Cache {
           case None                  => none[V].pure[F]
         }
     }
+
+    /** Like `modify`, but doesn't pass through any return value.
+     *
+     * @return
+     *   If this `update` replaced an existing value,
+     *   will return `Some` containing an effect representing release of that value.
+     */
+    def update(key: K)(f: Option[V] => Directive[F, V])(implicit F: Functor[F]): F[Option[F[Unit]]] =
+      self.modify(key)(() -> f(_)).map(_._2)
+
+    /** Like `modify`, but `f` is only applied if there is a value present in cache,
+     * and the result is always replacing the old value.
+     *
+     * @return
+     *   `true` if value was present, and was subsequently replaced.
+     *   `false` if there was no value present.
+     */
+    def updatePresent(key: K)(f: V => V)(implicit F: Functor[F]): F[Boolean] =
+      self.modify[Boolean](key) {
+        case Some(value) => (true, Directive.Put(f(value), None))
+        case None => (false, Directive.Ignore)
+      } map(_._1)
+
+    /** Like `update`, but `f` has an option to return `None`, in which case value will not be changed.
+     *
+     * @return
+     *   `true` if value was present and was subsequently replaced.
+     *   `false` if there was no value present, or it was not replaced.
+     */
+    def updatePresentOpt(key: K)(f: V => Option[V])(implicit F: Functor[F]): F[Boolean] =
+      self.modify[Boolean](key) {
+        case Some(value) => f(value).fold[(Boolean, Directive[F, V])](false -> Directive.Ignore)(v => true -> Directive.Put(v, None))
+        case None => (false, Directive.Ignore)
+      } map(_._1)
+
+    /** Like `put`, but based on `modify`, and guarantees that as a result of the operation the value was in fact
+     * written in cache. Will be slower than a regular `put` in situations of high contention.
+     *
+     * @return
+     *   If this `putStrict` replaced an existing value, will return `Some` containing the old value
+     *   and an effect representing release of that value.
+     */
+    def putStrict(key: K, value: V)(implicit F: Applicative[F]): F[Option[(V, F[Unit])]] =
+      self.modify[Option[V]](key)((_, Directive.Put(value, None))).map(_.tupled)
+
+    /** Like `putStrict`, but with `release` part of the new value.
+     *
+     * @return
+     *   If this `putStrict` replaced an existing value, will return `Some` containing the old value
+     *   and an effect representing release of that value.
+     */
+    def putStrict(key: K, value: V, release: self.type#Release)(implicit F: Applicative[F]): F[Option[(V, F[Unit])]] =
+      self.modify[Option[V]](key)((_, Directive.Put(value, release.some))).map(_.tupled)
   }
 }
