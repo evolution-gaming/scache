@@ -2,7 +2,7 @@ package com.evolution.scache
 
 import cats.Parallel
 import cats.effect.{Clock, Concurrent, ContextShift, IO, Timer}
-import com.evolutiongaming.smetrics.MeasureDuration
+import com.evolutiongaming.catshelper.MeasureDuration
 import org.scalactic.source.Position
 import org.scalatest.Succeeded
 import org.scalatest.enablers.Retrying

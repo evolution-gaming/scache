@@ -3,14 +3,24 @@ package com.evolution.scache
 import cats.effect.{Concurrent, Resource, Timer}
 import cats.kernel.CommutativeMonoid
 import cats.syntax.all._
-import com.evolutiongaming.catshelper.Schedule
-import com.evolutiongaming.smetrics.MeasureDuration
+import com.evolutiongaming.catshelper.{MeasureDuration, Schedule}
+import com.evolutiongaming.smetrics
 
 import scala.concurrent.duration._
 
 object CacheMetered {
 
-  def apply[F[_]: MeasureDuration: Concurrent: Timer, K, V](
+  @deprecated("Use `apply1` instead", "3.7.1")
+  def apply[F[_]: smetrics.MeasureDuration: Concurrent: Timer, K, V](
+    cache: Cache[F, K, V],
+    metrics: CacheMetrics[F],
+    interval: FiniteDuration = 1.minute
+  ): Resource[F, Cache[F, K, V]] = {
+    implicit val md: MeasureDuration[F] = smetrics.MeasureDuration[F].toCatsHelper
+    apply1(cache, metrics, interval)
+  }
+
+  def apply1[F[_]: MeasureDuration: Concurrent: Timer, K, V](
     cache: Cache[F, K, V],
     metrics: CacheMetrics[F],
     interval: FiniteDuration = 1.minute
