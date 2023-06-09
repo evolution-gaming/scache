@@ -104,7 +104,7 @@ object CacheMetrics {
     val modifyCounter = collectorRegistry.counter(
       name = s"${ prefix }_modify",
       help = "Modify, labeled by modification input (entry was present or not), and output (put, keep, or remove)",
-      labels = LabelNames("existing_entry", "result")
+      labels = LabelNames("name", "existing_entry", "result")
     )
 
     val loadResultCounter = collectorRegistry.counter(
@@ -200,7 +200,7 @@ object CacheMetrics {
           val put = putCounter1.inc()
 
           def modify(entryExisted: Boolean, directive: Directive): F[Unit] = {
-            modifyCounter.labels(entryExisted.toString, directive.toString).inc()
+            modifyCounter.labels(name, entryExisted.toString, directive.toString).inc()
           }
 
           def size(size: Int) = {
