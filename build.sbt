@@ -23,7 +23,7 @@ organizationHomepage := Some(url("http://evolutiongaming.com"))
 
 scalaVersion := crossScalaVersions.value.head
 
-crossScalaVersions := Seq("2.13.11", /*"3.2.0", */"2.12.17")
+crossScalaVersions := Seq("2.13.11", /*"3.2.0", */"2.12.18")
 
 libraryDependencies ++= crossSettings(
   scalaVersion.value,
