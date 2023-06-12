@@ -14,7 +14,7 @@ organizationHomepage := Some(url("http://evolutiongaming.com"))
 
 scalaVersion := crossScalaVersions.value.head
 
-crossScalaVersions := Seq("2.13.11", "2.12.17")
+crossScalaVersions := Seq("2.13.11", "2.12.18")
 
 libraryDependencies ++= Seq(
   compilerPlugin(betterMonadicFor),
