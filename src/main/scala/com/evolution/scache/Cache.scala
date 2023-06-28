@@ -376,8 +376,8 @@ object Cache {
   sealed trait Directive[+F[_], +V]
   object Directive {
     final case class Put[F[_], V](value: V, release: Option[F[Unit]]) extends Directive[F, V]
-    final case object Remove extends Directive[Nothing, Nothing]
-    final case object Ignore extends Directive[Nothing, Nothing]
+    case object Remove extends Directive[Nothing, Nothing]
+    case object Ignore extends Directive[Nothing, Nothing]
   }
 
   /** Creates an always-empty implementation of cache.

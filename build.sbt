@@ -23,7 +23,7 @@ organizationHomepage := Some(url("http://evolutiongaming.com"))
 
 scalaVersion := crossScalaVersions.value.head
 
-crossScalaVersions := Seq("2.13.11", /*"3.2.0", */"2.12.18")
+crossScalaVersions := Seq("2.13.11", "3.3.0", "2.12.18")
 
 libraryDependencies ++= crossSettings(
   scalaVersion.value,
@@ -36,7 +36,7 @@ libraryDependencies ++= crossSettings(
 
 scalacOptions ++= crossSettings(
   scalaVersion.value,
-  if3 = Seq("-Ykind-projector:underscores", "-language:implicitConversions"),
+  if3 = Seq("-Ykind-projector:underscores", "-language:implicitConversions", "-source:future"),
   if2 = Seq("-Xsource:3", "-P:kind-projector:underscore-placeholders"),
 )
 
