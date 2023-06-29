@@ -882,7 +882,7 @@ private[scache] object LoadingCache {
 
     def getOption(implicit F: Applicative[F]): F[Option[Entry[F, A]]] ={
       self match {
-        case EntryState.Loading(deferred) => deferred.getOption
+        case EntryState.Loading(deferred: Deferred[F, Either[Throwable, Entry[F, A]]]) => deferred.getOption
         case EntryState.Value(entry) => entry.some.pure[F]
         case EntryState.Removed => none[Entry[F, A]].pure[F]
       }}
@@ -894,7 +894,7 @@ private[scache] object LoadingCache {
             .value
             .asRight[F[A]]
             .some
-        case EntryState.Loading(deferred) =>
+        case EntryState.Loading(deferred: Deferred[F, Either[Throwable, Entry[F, A]]]) =>
           deferred
             .getOrError
             .map(_.value)
@@ -929,7 +929,7 @@ private[scache] object LoadingCache {
               .value
               .pure[F]
               .some
-          case EntryState.Loading(deferred) =>
+          case EntryState.Loading(deferred: Deferred[F, Either[Throwable, Entry[F, A]]]) =>
             deferred
               .getOrError
               .map { _.value }

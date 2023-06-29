@@ -1,11 +1,10 @@
 import sbt.librarymanagement.For3Use2_13
 import Dependencies._
 
-def crossSettings[T](scalaVersion: String, if3: Seq[T], if2: Seq[T]) = {
-  CrossVersion.partialVersion(scalaVersion) match {
-    case Some((3, _)) => if3
-    case Some((2, 12 | 13)) => if2
-    case _ => Nil
+def crossSettings[T](scalaVersion: String, if3: T, if2: T) = {
+  scalaVersion match {
+    case version if version.startsWith("3") => if3
+    case _ => if2
   }
 }
 
@@ -24,6 +23,12 @@ organizationHomepage := Some(url("http://evolutiongaming.com"))
 scalaVersion := crossScalaVersions.value.head
 
 crossScalaVersions := Seq("2.13.11", "3.3.0", "2.12.18")
+
+scalacOptsFailOnWarn := crossSettings(
+  scalaVersion.value,
+  if3 = Some(false),
+  if2 = Some(true),
+)
 
 libraryDependencies ++= crossSettings(
   scalaVersion.value,
