@@ -96,7 +96,7 @@ object CacheMetered {
         def modify[A](key: K)(f: Option[V] => (A, Directive[F, V])): F[(A, Option[F[Unit]])] =
           for {
             duration <- MeasureDuration[F].start
-            ((a, entryExisted, directive), release) <- cache.modify(key) { entry =>
+            res <- cache.modify(key) { entry =>
               f(entry) match {
                 case (a, put: Directive.Put[F, V]) =>
                   ((a, entry.nonEmpty, CacheMetrics.Directive.Put),
@@ -107,6 +107,7 @@ object CacheMetered {
                   ((a, entry.nonEmpty, CacheMetrics.Directive.Remove), Directive.Remove)
               }
             }
+            ((a, entryExisted, directive), release) = res
             _ <- metrics.modify(entryExisted, directive)
           } yield (a, release)
 

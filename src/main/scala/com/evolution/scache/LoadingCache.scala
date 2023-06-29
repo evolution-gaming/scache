@@ -880,12 +880,13 @@ private[scache] object LoadingCache {
 
   implicit class EntryStateOps[F[_], A](val self: EntryState[F, A]) extends AnyVal {
 
-    def getOption(implicit F: Applicative[F]): F[Option[Entry[F, A]]] =
+    def getOption(implicit F: Applicative[F]): F[Option[Entry[F, A]]] ={
+      implicit val f: Functor[F] = F
       self match {
-        case EntryState.Loading(deferred) => deferred.getOption
+        case EntryState.Loading(deferred) => deferred.getOption(f)
         case EntryState.Value(entry) => entry.some.pure[F]
         case EntryState.Removed => none[Entry[F, A]].pure[F]
-      }
+      }}
 
     def optEither(implicit F: MonadThrow[F]): Option[Either[F[A], A]] =
       self match {
