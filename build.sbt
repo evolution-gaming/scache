@@ -41,7 +41,7 @@ libraryDependencies ++= crossSettings(
 
 scalacOptions ++= crossSettings(
   scalaVersion.value,
-  if3 = Seq("-Ykind-projector:underscores", "-language:implicitConversions", "-explain"),
+  if3 = Seq("-Ykind-projector:underscores", "-language:implicitConversions", "-source:future"),
   if2 = Seq("-Xsource:3", "-P:kind-projector:underscore-placeholders"),
 )
 

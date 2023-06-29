@@ -10,8 +10,6 @@ import com.evolution.scache.Cache.Directive
 import com.evolutiongaming.catshelper.CatsHelper.*
 import com.evolutiongaming.catshelper.{MeasureDuration, Runtime}
 
-import scala.util.control.NoStackTrace
-
 /** Tagless Final implementation of a cache interface.
   *
   * Most developers using the library may want to use [[Cache#expiring]] to
@@ -372,6 +370,8 @@ trait Cache[F[_], K, V] {
 }
 
 object Cache {
+  import CacheOpsCompat.*
+
 
   sealed trait Directive[+F[_], +V]
   object Directive {
@@ -669,7 +669,6 @@ object Cache {
 
   private sealed abstract class MapK
 
-  private[scache] case object NoneError extends RuntimeException with NoStackTrace
 
   implicit class CacheOps[F[_], K, V](val self: Cache[F, K, V]) extends AnyVal {
 
@@ -878,15 +877,7 @@ object Cache {
       value: => F[Option[(A, V, Option[F[Unit]])]])(implicit
       F: MonadThrow[F]
     ): F[Option[Either[A, Either[F[V], V]]]] = {
-      self
-        .getOrUpdate1(key) {
-          value.flatMap {
-            case Some((a, value, release)) => (a, value, release).pure[F]
-            case None                      => NoneError.raiseError[F, (A, V, Option[F[Unit]])]
-          }
-        }
-        .map { _.some }
-        .recover { case NoneError => none }
+      self.getOrUpdateOpt1Compat(key)(value)
     }
 
     /** Gets a value for specific key, or loads it using the provided function.
@@ -946,25 +937,7 @@ object Cache {
       *   is returned.
       */
     def getOrUpdateResourceOpt(key: K)(value: => Resource[F, Option[V]])(implicit F: MonadCancel[F, Throwable]): F[Option[V]] = {
-      self
-        .getOrUpdateOpt1(key) {
-          value
-            .allocated
-            .flatMap {
-              case (Some(a), release) =>
-                (a, a, release.some)
-                  .some
-                  .pure[F]
-              case (None, release)    =>
-                release.as { none[(V, V, Option[F[Unit]])] }
-            }
-        }
-        .flatMap {
-          case Some(Right(Right(a))) => a.some.pure[F]
-          case Some(Right(Left(a)))  => a.map { _.some }
-          case Some(Left(a))         => a.some.pure[F]
-          case None                  => none[V].pure[F]
-        }
+      self.getOrUpdateResourceOptCompat(key) { value }
     }
 
     /** Like `modify`, but doesn't pass through any return value.
