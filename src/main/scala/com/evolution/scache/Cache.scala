@@ -835,7 +835,7 @@ object Cache {
       */
     def getOrUpdate2[A](
       key: K)(
-      value: => F[(A, V, Option[Cache[F, K, V]#Release])])(implicit
+      value: => F[(A, V, Option[F[Unit]])])(implicit
       F: Monad[F]
     ): F[Either[A, V]] = {
       self
@@ -875,14 +875,14 @@ object Cache {
       *   [[scala.None]].
       */
     def getOrUpdateOpt1[A](key: K)(
-      value: => F[Option[(A, V, Option[Cache[F, K, V]#Release])]])(implicit
+      value: => F[Option[(A, V, Option[F[Unit]])]])(implicit
       F: MonadThrow[F]
     ): F[Option[Either[A, Either[F[V], V]]]] = {
       self
         .getOrUpdate1(key) {
           value.flatMap {
             case Some((a, value, release)) => (a, value, release).pure[F]
-            case None                      => NoneError.raiseError[F, (A, V, Option[Cache[F, K, V]#Release])]
+            case None                      => NoneError.raiseError[F, (A, V, Option[F[Unit]])]
           }
         }
         .map { _.some }

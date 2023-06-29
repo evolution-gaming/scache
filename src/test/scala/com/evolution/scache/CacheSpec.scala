@@ -1607,7 +1607,7 @@ object CacheSpec {
 
     def getOrUpdate1Ensure(
       key: K)(
-      value: => F[(V, Option[Cache[F, K, V]#Release])])(implicit
+      value: => F[(V, Option[F[Unit]])])(implicit
       F: Concurrent[F]
     ): F[Fiber[F, Throwable, Either[Throwable, V]]] = {
       for {
@@ -1632,7 +1632,7 @@ object CacheSpec {
 
     def getOrUpdateOpt1Ensure(
       key: K)(
-      value: => F[Option[(V, Option[Cache[F, K, V]#Release])]])(implicit
+      value: => F[Option[(V, Option[F[Unit]])]])(implicit
       F: Concurrent[F]
     ): F[Fiber[F, Throwable, Option[V]]] = {
       for {
