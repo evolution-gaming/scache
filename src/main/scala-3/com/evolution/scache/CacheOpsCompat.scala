@@ -20,15 +20,16 @@ object CacheOpsCompat {
 
     /** Gets a value for specific key, or tries to load it.
       *
-      * The difference between this method and [[com.evolution.scache.Cache#getOrUpdate1]] is that
-      * this one allows the loading function to fail finding the value, i.e.
-      * return [[scala.None]].
+      * The difference between this method and
+      * [[com.evolution.scache.Cache#getOrUpdate1]] is that this one allows the
+      * loading function to fail finding the value, i.e. return [[scala.None]].
       *
       * Also this method is meant to be used where [[cats.effect.Resource]] is
       * not convenient to use, i.e. when integration with legacy code is
       * required or for internal implementation. For all other cases it is
-      * recommended to use [[com.evolution.scache.Cache.CacheOps#getOrUpdateResourceOpt]] instead as more
-      * human-readable alternative.
+      * recommended to use
+      * [[com.evolution.scache.Cache.CacheOps#getOrUpdateResourceOpt]] instead
+      * as more human-readable alternative.
       *
       * @param key
       *   The key to return the value for.
@@ -40,9 +41,9 @@ object CacheOpsCompat {
       *   cache.
       *
       * @return
-      *   The same semantics applies as in [[com.evolution.scache.Cache#getOrUpdate1]], except that
-      *   the method may return [[scala.None]] in case `value` completes to
-      *   [[scala.None]].
+      *   The same semantics applies as in
+      *   [[com.evolution.scache.Cache#getOrUpdate1]], except that the method
+      *   may return [[scala.None]] in case `value` completes to [[scala.None]].
       */
     def getOrUpdateOpt1Compat[A](
         key: K
@@ -62,9 +63,10 @@ object CacheOpsCompat {
 
     /** Gets a value for specific key, or tries to load it.
       *
-      * The difference between this method and [[com.evolution.scache.Cache.CacheOps#getOrUpdateResource]] is that
-      * this one allows the loading function to fail finding the value,
-      * i.e. return [[scala.None]].
+      * The difference between this method and
+      * [[com.evolution.scache.Cache.CacheOps#getOrUpdateResource]] is that this
+      * one allows the loading function to fail finding the value, i.e. return
+      * [[scala.None]].
       *
       * @param key
       *   The key to return the value for.
@@ -72,8 +74,9 @@ object CacheOpsCompat {
       *   The function to run to load the missing value with.
       *
       * @return
-      *   The same semantics applies as in [[com.evolution.scache.Cache.CacheOps#getOrUpdateResource]], except that
-      *   the method may return [[scala.None]] in case `value` completes to
+      *   The same semantics applies as in
+      *   [[com.evolution.scache.Cache.CacheOps#getOrUpdateResource]], except
+      *   that the method may return [[scala.None]] in case `value` completes to
       *   [[scala.None]]. The resource will be released normally even if `None`
       *   is returned.
       */
