@@ -1,5 +1,6 @@
 import sbt.librarymanagement.For3Use2_13
 import Dependencies._
+import org.scoverage.coveralls.Imports.CoverallsKeys._
 
 def crossSettings[T](scalaVersion: String, if3: T, if2: T) = {
   scalaVersion match {
