@@ -21,11 +21,6 @@ organizationName := "Evolution Gaming"
 
 organizationHomepage := Some(url("http://evolutiongaming.com"))
 coverageExcludedFiles := ".*CacheOpsCompat.*"
-coverallsFailBuildOnError := crossSettings(
-  scalaVersion.value,
-  if3 = false,
-  if2 = true
-)
 
 scalaVersion := crossScalaVersions.value.head
 
