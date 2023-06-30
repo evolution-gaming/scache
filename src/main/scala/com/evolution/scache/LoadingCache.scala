@@ -848,7 +848,7 @@ private[scache] object LoadingCache {
   object EntryState {
     final case class Loading[F[_], A](deferred: Deferred[F, Either[Throwable, Entry[F, A]]]) extends EntryState[F, A]
     final case class Value[F[_], A](entry: Entry[F, A]) extends EntryState[F, A]
-    final case object Removed extends EntryState[Nothing, Nothing]
+    case object Removed extends EntryState[Nothing, Nothing]
   }
 
   type DeferredThrow[F[_], A] = Deferred[F, Either[Throwable, A]]
@@ -880,12 +880,12 @@ private[scache] object LoadingCache {
 
   implicit class EntryStateOps[F[_], A](val self: EntryState[F, A]) extends AnyVal {
 
-    def getOption(implicit F: Applicative[F]): F[Option[Entry[F, A]]] =
+    def getOption(implicit F: Applicative[F]): F[Option[Entry[F, A]]] ={
       self match {
-        case EntryState.Loading(deferred) => deferred.getOption
+        case EntryState.Loading(deferred: Deferred[F, Either[Throwable, Entry[F, A]]]) => deferred.getOption
         case EntryState.Value(entry) => entry.some.pure[F]
         case EntryState.Removed => none[Entry[F, A]].pure[F]
-      }
+      }}
 
     def optEither(implicit F: MonadThrow[F]): Option[Either[F[A], A]] =
       self match {
@@ -894,7 +894,7 @@ private[scache] object LoadingCache {
             .value
             .asRight[F[A]]
             .some
-        case EntryState.Loading(deferred) =>
+        case EntryState.Loading(deferred: Deferred[F, Either[Throwable, Entry[F, A]]]) =>
           deferred
             .getOrError
             .map(_.value)
@@ -929,7 +929,7 @@ private[scache] object LoadingCache {
               .value
               .pure[F]
               .some
-          case EntryState.Loading(deferred) =>
+          case EntryState.Loading(deferred: Deferred[F, Either[Throwable, Entry[F, A]]]) =>
             deferred
               .getOrError
               .map { _.value }

@@ -69,7 +69,7 @@ object CacheMetered {
                 value      <- value.attempt
                 duration   <- start
                 loadSucceed = value match {
-                  case Right(_) | Left(Cache.NoneError) => true
+                  case Right(_) | Left(CacheOpsCompat.NoneError) => true
                   case Left(_)                          => false
                 }
                 _     <- metrics.load(duration, loadSucceed)
