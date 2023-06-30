@@ -7,12 +7,16 @@ import cats.syntax.all.*
 
 import scala.util.control.NoStackTrace
 
+/** Compat is needed because there is a bug in Scala3 compiler, see
+  * https://github.com/lampepfl/dotty/issues/18099. Scala's 2 implementation
+  * crashes Scalas's 3 compiler.
+  */
 object CacheOpsCompat {
   private[scache] case object NoneError
       extends RuntimeException
       with NoStackTrace
 
-  extension [F[_], K, V](self: Cache[F, K, V]) {
+  extension[F[_], K, V](self: Cache[F, K, V]) {
 
     /** Gets a value for specific key, or tries to load it.
       *

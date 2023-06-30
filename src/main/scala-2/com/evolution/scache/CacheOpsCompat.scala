@@ -7,6 +7,10 @@ import cats.syntax.all._
 
 import scala.util.control.NoStackTrace
 
+/** Compat is needed because there is a bug in Scala3 compiler, see
+  * https://github.com/lampepfl/dotty/issues/18099. Scala's 2 implementation
+  * crashes Scalas's 3 compiler.
+  */
 object CacheOpsCompat {
   private[scache] case object NoneError
       extends RuntimeException
