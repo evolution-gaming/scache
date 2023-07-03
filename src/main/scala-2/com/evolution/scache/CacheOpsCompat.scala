@@ -11,7 +11,7 @@ import scala.util.control.NoStackTrace
   * https://github.com/lampepfl/dotty/issues/18099. Scala's 2 implementation
   * crashes Scalas's 3 compiler.
   */
-object CacheOpsCompat {
+private[scache] object CacheOpsCompat {
   private[scache] case object NoneError
       extends RuntimeException
       with NoStackTrace
