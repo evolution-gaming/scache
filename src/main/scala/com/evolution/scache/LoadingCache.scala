@@ -850,7 +850,7 @@ private[scache] object LoadingCache {
   object EntryState {
     final case class Loading[F[_], A](deferred: Deferred[F, Either[Throwable, Entry[F, A]]]) extends EntryState[F, A]
     final case class Value[F[_], A](entry: Entry[F, A]) extends EntryState[F, A]
-    final case object Removed extends EntryState[Nothing, Nothing]
+    case object Removed extends EntryState[Nothing, Nothing]
   }
 
   type DeferredThrow[F[_], A] = Deferred[F, Either[Throwable, A]]

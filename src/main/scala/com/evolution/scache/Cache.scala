@@ -8,8 +8,6 @@ import com.evolution.scache.Cache.Directive
 import com.evolutiongaming.catshelper.CatsHelper._
 import com.evolutiongaming.catshelper.{MeasureDuration, Runtime}
 
-import scala.util.control.NoStackTrace
-
 /** Tagless Final implementation of a cache interface.
   *
   * Most developers using the library may want to use [[Cache#expiring]] to
@@ -370,12 +368,13 @@ trait Cache[F[_], K, V] {
 }
 
 object Cache {
+  import CacheOpsCompat._
 
   sealed trait Directive[+F[_], +V]
   object Directive {
     final case class Put[F[_], V](value: V, release: Option[F[Unit]]) extends Directive[F, V]
-    final case object Remove extends Directive[Nothing, Nothing]
-    final case object Ignore extends Directive[Nothing, Nothing]
+    case object Remove extends Directive[Nothing, Nothing]
+    case object Ignore extends Directive[Nothing, Nothing]
   }
 
   /** Creates an always-empty implementation of cache.
@@ -668,8 +667,6 @@ object Cache {
 
   private sealed abstract class MapK
 
-  private[scache] case object NoneError extends RuntimeException with NoStackTrace
-
   implicit class CacheOps[F[_], K, V](val self: Cache[F, K, V]) extends AnyVal {
 
     def withMetrics(
@@ -835,7 +832,7 @@ object Cache {
       */
     def getOrUpdate2[A](
       key: K)(
-      value: => F[(A, V, Option[Cache[F, K, V]#Release])])(implicit
+      value: => F[(A, V, Option[F[Unit]])])(implicit
       F: Monad[F]
     ): F[Either[A, V]] = {
       self
@@ -875,18 +872,10 @@ object Cache {
       *   [[scala.None]].
       */
     def getOrUpdateOpt1[A](key: K)(
-      value: => F[Option[(A, V, Option[Cache[F, K, V]#Release])]])(implicit
+      value: => F[Option[(A, V, Option[F[Unit]])]])(implicit
       F: MonadThrow[F]
     ): F[Option[Either[A, Either[F[V], V]]]] = {
-      self
-        .getOrUpdate1(key) {
-          value.flatMap {
-            case Some((a, value, release)) => (a, value, release).pure[F]
-            case None                      => NoneError.raiseError[F, (A, V, Option[Cache[F, K, V]#Release])]
-          }
-        }
-        .map { _.some }
-        .recover { case NoneError => none }
+      self.getOrUpdateOpt1Compat(key)(value)
     }
 
     /** Gets a value for specific key, or loads it using the provided function.
@@ -946,25 +935,7 @@ object Cache {
       *   is returned.
       */
     def getOrUpdateResourceOpt(key: K)(value: => Resource[F, Option[V]])(implicit F: BracketThrow[F]): F[Option[V]] = {
-      self
-        .getOrUpdateOpt1(key) {
-          value
-            .allocated
-            .flatMap {
-              case (Some(a), release) =>
-                (a, a, release.some)
-                  .some
-                  .pure[F]
-              case (None, release)    =>
-                release.as { none[(V, V, Option[F[Unit]])] }
-            }
-        }
-        .flatMap {
-          case Some(Right(Right(a))) => a.some.pure[F]
-          case Some(Right(Left(a)))  => a.map { _.some }
-          case Some(Left(a))         => a.some.pure[F]
-          case None                  => none[V].pure[F]
-        }
+      self.getOrUpdateResourceOptCompat(key)(value)
     }
 
     /** Like `modify`, but doesn't pass through any return value.

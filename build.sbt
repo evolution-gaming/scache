@@ -16,6 +16,8 @@ scalaVersion := crossScalaVersions.value.head
 
 crossScalaVersions := Seq("2.13.11", "2.12.18")
 
+coverageExcludedFiles := ".*CacheOpsCompat.*"
+
 libraryDependencies ++= Seq(
   compilerPlugin(betterMonadicFor),
   compilerPlugin(`kind-projector` cross CrossVersion.full)
