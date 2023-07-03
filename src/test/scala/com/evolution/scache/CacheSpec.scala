@@ -1484,7 +1484,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
           (lastValueRemoved1, lastRelease1) <- cache.modify(1)(lastValue => (lastValue, Directive.Remove))
           (lastValueRemoved2, lastRelease2) <- cache.modify(2)(lastValue => (lastValue, Directive.Remove))
           (lastValueRemoved3, lastRelease3) <- cache.modify(3)(lastValue => (lastValue, Directive.Remove))
-          _ <- List(lastRelease0, lastRelease1, lastRelease2, lastRelease2).flatten.sequence_
+          _ <- List(lastRelease0, lastRelease1, lastRelease2, lastRelease3).flatten.sequence_
 
           releasedValuesSum <- releaseCounter.get
 
