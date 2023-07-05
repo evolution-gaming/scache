@@ -72,9 +72,9 @@ object CacheMetrics {
     }
   }
   object Directive {
-    final case object Put extends Directive
-    final case object Ignore extends Directive
-    final case object Remove extends Directive
+    case object Put extends Directive
+    case object Ignore extends Directive
+    case object Remove extends Directive
   }
 
   type Name = String

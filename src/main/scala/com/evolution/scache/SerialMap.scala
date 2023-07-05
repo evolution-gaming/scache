@@ -244,7 +244,10 @@ object SerialMap { self =>
 
   class Apply[F[_]](val F: Concurrent[F]) extends AnyVal {
 
-    def of[K, V](implicit runtime: Runtime[F]): F[SerialMap[F, K, V]] = self.of[F, K, V](F, runtime)
+    def of[K, V](implicit runtime: Runtime[F]): F[SerialMap[F, K, V]] = {
+      implicit val concurrent: Concurrent[F] = F
+      self.of[F, K, V](None)
+    }
   }
 
 
