@@ -13,7 +13,7 @@ import cats.MonadThrow
   * 
   * But this is Cats Effect 2 branch and here it is just for the sake of consistency in sources between branches.
   */
-object CacheOpsCompat {
+private[scache] object CacheOpsCompat {
   private[scache] case object NoneError
       extends RuntimeException
       with NoStackTrace
