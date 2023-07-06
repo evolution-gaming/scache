@@ -15,7 +15,6 @@ object Partitions {
 
   type Partition = Int
 
-
   def const[K, V](value: V): Partitions[K, V] = new Partitions[K, V] {
 
     def get(key: K) = value
@@ -23,22 +22,20 @@ object Partitions {
     val values = List(value)
   }
 
-  def of[F[_] : Monad, K : Hash, V](
-    nrOfPartitions: Int,
-    valueOf: Partition => F[V]
+  def of[F[_]: Monad, K: Hash, V](
+      nrOfPartitions: Int,
+      valueOf: Partition => F[V]
   ): F[Partitions[K, V]] = {
     if (nrOfPartitions <= 1) {
       valueOf(0).map(const)
     } else {
-      (0 until nrOfPartitions)
-        .toVector
+      (0 until nrOfPartitions).toVector
         .traverse { partition => valueOf(partition) }
         .map { partitions => Partitions[K, V](partitions) }
     }
   }
 
-
-  private def apply[K : Hash, V](partitions: Vector[V]): Partitions[K, V] = {
+  private def apply[K: Hash, V](partitions: Vector[V]): Partitions[K, V] = {
 
     val nrOfPartitions = partitions.size
 
