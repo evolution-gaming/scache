@@ -4,7 +4,16 @@ import cats.effect.kernel.MonadCancel
 import cats.effect.{Concurrent, Resource, Temporal}
 import cats.effect.syntax.all.*
 import cats.syntax.all.*
-import cats.{Applicative, Functor, Hash, Monad, MonadThrow, Monoid, Parallel, ~>}
+import cats.{
+  Applicative,
+  Functor,
+  Hash,
+  Monad,
+  MonadThrow,
+  Monoid,
+  Parallel,
+  ~>
+}
 import cats.kernel.CommutativeMonoid
 import com.evolution.scache.Cache.Directive
 import com.evolutiongaming.catshelper.CatsHelper.*
@@ -13,9 +22,9 @@ import com.evolutiongaming.catshelper.{MeasureDuration, Runtime}
 /** Tagless Final implementation of a cache interface.
   *
   * Most developers using the library may want to use [[Cache#expiring]] to
-  * construct the cache, though, if element expiration is not required, then
-  * it might be useful to use
-  * [[Cache#loading[F[_],K,V](partitions:Option[Int])*]] instead.
+  * construct the cache, though, if element expiration is not required, then it
+  * might be useful to use [[Cache#loading[F[_],K,V](partitions:Option[Int])*]]
+  * instead.
   *
   * @tparam F
   *   Effect to be used in effectful methods such as [[#get]].
@@ -134,7 +143,9 @@ trait Cache[F[_], K, V] {
     *   `Either[F[V], V]` that represents loading or loaded value, if `key` is
     *   already in the cache.
     */
-  def getOrUpdate1[A](key: K)(value: => F[(A, V, Option[Release])]): F[Either[A, Either[F[V], V]]]
+  def getOrUpdate1[A](key: K)(
+      value: => F[(A, V, Option[Release])]
+  ): F[Either[A, Either[F[V], V]]]
 
   /** Gets a value for specific key, or tries to load it.
     *
@@ -206,8 +217,8 @@ trait Cache[F[_], K, V] {
     * @param value
     *   The new value to put into the cache.
     * @param release
-    *   The function to call when the value is removed from the cache.
-    *   No function will be called if it is set to [[scala.None]].
+    *   The function to call when the value is removed from the cache. No
+    *   function will be called if it is set to [[scala.None]].
     *
     * @return
     *   A previous value is returned if it was already added into the cache,
@@ -221,27 +232,33 @@ trait Cache[F[_], K, V] {
 
   /** Atomically modify a value under specific key.
     *
-    * Allows to make a decision regarding value update based on the present value (or its absence),
-    * and express it as either `Put`, `Ignore`, or `Remove` directive.
+    * Allows to make a decision regarding value update based on the present
+    * value (or its absence), and express it as either `Put`, `Ignore`, or
+    * `Remove` directive.
     *
-    * It will try to calculate `f` and apply resulting directive until it succeeds.
+    * It will try to calculate `f` and apply resulting directive until it
+    * succeeds.
     *
-    * In case of `Put` directive, it is guaranteed that the value is written in cache,
-    * and that it replaced exactly the value passed to `f`.
+    * In case of `Put` directive, it is guaranteed that the value is written in
+    * cache, and that it replaced exactly the value passed to `f`.
     *
     * In case of `Remove` directive, it is guaranteed that the key was removed
     * when it contained exactly the value passed to `f`.
     *
     * @param key
-    *    The key to modify value for.
+    *   The key to modify value for.
     * @param f
-    *    Function that accepts current value found in cache (or None, if it's absent), and returns
-    *    a directive expressing a desired operation on the value, as well as an arbitrary output value of type `A`
+    *   Function that accepts current value found in cache (or None, if it's
+    *   absent), and returns a directive expressing a desired operation on the
+    *   value, as well as an arbitrary output value of type `A`
     * @return
-    *    Output value returned by `f`, and an optional effect representing an ongoing release of the value
-    *    that was removed from cache as a result of the modification (e.g.: in case of `Put` or `Remove` directives).
+    *   Output value returned by `f`, and an optional effect representing an
+    *   ongoing release of the value that was removed from cache as a result of
+    *   the modification (e.g.: in case of `Put` or `Remove` directives).
     */
-  def modify[A](key: K)(f: Option[V] => (A, Directive[F, V])): F[(A, Option[F[Unit]])]
+  def modify[A](key: K)(
+      f: Option[V] => (A, Directive[F, V])
+  ): F[(A, Option[F[Unit]])]
 
   /** Checks if the value for the key is present in the cache.
     *
@@ -372,10 +389,10 @@ trait Cache[F[_], K, V] {
 object Cache {
   import CacheOpsCompat.*
 
-
   sealed trait Directive[+F[_], +V]
   object Directive {
-    final case class Put[F[_], V](value: V, release: Option[F[Unit]]) extends Directive[F, V]
+    final case class Put[F[_], V](value: V, release: Option[F[Unit]])
+        extends Directive[F, V]
     case object Remove extends Directive[Nothing, Nothing]
     case object Ignore extends Directive[Nothing, Nothing]
   }
@@ -409,9 +426,12 @@ object Cache {
 
       def getOrUpdateOpt(key: K)(value: => F[Option[V]]) = value
 
-      def put(key: K, value: V, release: Option[F[Unit]]) = none[V].pure[F].pure[F]
+      def put(key: K, value: V, release: Option[F[Unit]]) =
+        none[V].pure[F].pure[F]
 
-      def modify[A](key: K)(f: Option[V] => (A, Directive[F, V])): F[(A, Option[F[Unit]])] =
+      def modify[A](key: K)(
+          f: Option[V] => (A, Directive[F, V])
+      ): F[(A, Option[F[Unit]])] =
         (f(None)._1, none[F[Unit]]).pure[F]
 
       def contains(key: K) = false.pure[F]
@@ -428,9 +448,11 @@ object Cache {
 
       def clear = ().pure[F].pure[F]
 
-      def foldMap[A: CommutativeMonoid](f: (K, Either[F[V], V]) => F[A]) = Monoid[A].empty.pure[F]
+      def foldMap[A: CommutativeMonoid](f: (K, Either[F[V], V]) => F[A]) =
+        Monoid[A].empty.pure[F]
 
-      def foldMapPar[A: CommutativeMonoid](f: (K, Either[F[V], V]) => F[A]) = Monoid[A].empty.pure[F]
+      def foldMapPar[A: CommutativeMonoid](f: (K, Either[F[V], V]) => F[A]) =
+        Monoid[A].empty.pure[F]
     }
   }
 
@@ -450,7 +472,8 @@ object Cache {
     *   resource is released to make sure all resources stored in a cache are
     *   also released.
     */
-  def loading[F[_]: Concurrent: Parallel: Runtime, K, V]: Resource[F, Cache[F, K, V]] = {
+  def loading[F[_]: Concurrent: Parallel: Runtime, K, V]
+      : Resource[F, Cache[F, K, V]] = {
     loading(none)
   }
 
@@ -470,7 +493,9 @@ object Cache {
     *   resource is released to make sure all resources stored in a cache are
     *   also released.
     */
-  def loading[F[_]: Concurrent: Parallel: Runtime, K, V](partitions: Int): Resource[F, Cache[F, K, V]] = {
+  def loading[F[_]: Concurrent: Parallel: Runtime, K, V](
+      partitions: Int
+  ): Resource[F, Cache[F, K, V]] = {
     loading(partitions.some)
   }
 
@@ -524,7 +549,9 @@ object Cache {
     *   resource is released to make sure all resources stored in a cache are
     *   also released.
     */
-  def loading[F[_]: Concurrent: Parallel: Runtime, K, V](partitions: Option[Int] = None): Resource[F, Cache[F, K, V]] = {
+  def loading[F[_]: Concurrent: Parallel: Runtime, K, V](
+      partitions: Option[Int] = None
+  ): Resource[F, Cache[F, K, V]] = {
 
     implicit val hash: Hash[K] = Hash.fromUniversalHashCode[K]
 
@@ -533,8 +560,11 @@ object Cache {
         .map { _.pure[F] }
         .getOrElse { NrOfPartitions[F]() }
         .toResource
-      cache           = LoadingCache.of(LoadingCache.EntryRefs.empty[F, K, V])
-      partitions     <- Partitions.of[Resource[F, _], K, Cache[F, K, V]](nrOfPartitions, _ => cache)
+      cache = LoadingCache.of(LoadingCache.EntryRefs.empty[F, K, V])
+      partitions <- Partitions.of[Resource[F, _], K, Cache[F, K, V]](
+        nrOfPartitions,
+        _ => cache
+      )
     } yield {
       fromPartitions(partitions)
     }
@@ -589,8 +619,8 @@ object Cache {
     *   also released.
     */
   def expiring[F[_]: Temporal: Runtime: Parallel, K, V](
-    config: ExpiringCache.Config[F, K, V],
-    partitions: Option[Int] = None
+      config: ExpiringCache.Config[F, K, V],
+      partitions: Option[Int] = None
   ): Resource[F, Cache[F, K, V]] = {
 
     implicit val hash: Hash[K] = Hash.fromUniversalHashCode[K]
@@ -600,15 +630,17 @@ object Cache {
         .map { _.pure[F] }
         .getOrElse { NrOfPartitions[F]() }
         .toResource
-      config1         = config
-        .maxSize
+      config1 = config.maxSize
         .fold {
           config
-        } {
-          maxSize => config.copy(maxSize = (maxSize * 1.1 / nrOfPartitions).toInt.some)
+        } { maxSize =>
+          config.copy(maxSize = (maxSize * 1.1 / nrOfPartitions).toInt.some)
         }
-      cache           = ExpiringCache.of[F, K, V](config1)
-      partitions     <- Partitions.of[Resource[F, _], K, Cache[F, K, V]](nrOfPartitions, _ => cache)
+      cache = ExpiringCache.of[F, K, V](config1)
+      partitions <- Partitions.of[Resource[F, _], K, Cache[F, K, V]](
+        nrOfPartitions,
+        _ => cache
+      )
     } yield {
       fromPartitions(partitions)
     }
@@ -636,18 +668,23 @@ object Cache {
     *   - [[cats.Parallel]] is required for an efficient [[Cache#foldMapPar]]
     *     implementation.
     */
-  def fromPartitions[F[_]: MonadThrow: Parallel, K, V](partitions: Partitions[K, Cache[F, K, V]]): Cache[F, K, V] = {
+  def fromPartitions[F[_]: MonadThrow: Parallel, K, V](
+      partitions: Partitions[K, Cache[F, K, V]]
+  ): Cache[F, K, V] = {
     PartitionedCache(partitions)
   }
 
-  private[scache] abstract class Abstract0[F[_], K, V] extends Cache[F, K, V] { self =>
+  private[scache] abstract class Abstract0[F[_], K, V] extends Cache[F, K, V] {
+    self =>
 
     def put(key: K, value: V) = self.put(key, value, none)
 
-    def put(key: K, value: V, release: Release) = self.put(key, value, release.some)
+    def put(key: K, value: V, release: Release) =
+      self.put(key, value, release.some)
   }
 
-  private[scache] abstract class Abstract1[F[_]: MonadThrow, K, V] extends Abstract0[F, K, V] { self =>
+  private[scache] abstract class Abstract1[F[_]: MonadThrow, K, V]
+      extends Abstract0[F, K, V] { self =>
 
     def getOrUpdateOpt(key: K)(value: => F[Option[V]]) = {
       self
@@ -669,18 +706,18 @@ object Cache {
 
   private sealed abstract class MapK
 
-
   implicit class CacheOps[F[_], K, V](val self: Cache[F, K, V]) extends AnyVal {
 
-    def withMetrics(
-      metrics: CacheMetrics[F])(implicit
-      temporal: Temporal[F],
-      measureDuration: MeasureDuration[F]
+    def withMetrics(metrics: CacheMetrics[F])(implicit
+        temporal: Temporal[F],
+        measureDuration: MeasureDuration[F]
     ): Resource[F, Cache[F, K, V]] = {
       CacheMetered(self, metrics)
     }
 
-    def mapK[G[_]](fg: F ~> G, gf: G ~> F)(implicit F: Functor[F]): Cache[G, K, V] = {
+    def mapK[G[_]](fg: F ~> G, gf: G ~> F)(implicit
+        F: Functor[F]
+    ): Cache[G, K, V] = {
       new MapK with Cache[G, K, V] {
 
         def get(key: K) = fg(self.get(key))
@@ -693,12 +730,18 @@ object Cache {
           }
         }
 
-        def getOrUpdate(key: K)(value: => G[V]) = fg(self.getOrUpdate(key)(gf(value)))
+        def getOrUpdate(key: K)(value: => G[V]) = fg(
+          self.getOrUpdate(key)(gf(value))
+        )
 
         def getOrUpdate1[A](key: K)(value: => G[(A, V, Option[Release])]) = {
           fg {
             self
-              .getOrUpdate1(key) { gf(value).map { case (a, value, release) => (a, value, release.map { a => gf(a) }) } }
+              .getOrUpdate1(key) {
+                gf(value).map { case (a, value, release) =>
+                  (a, value, release.map { a => gf(a) })
+                }
+              }
               .map { _.map { _.leftMap { a => fg(a) } } }
           }
         }
@@ -715,16 +758,19 @@ object Cache {
           }
         }
 
-        def modify[A](key: K)(f: Option[V] => (A, Directive[G, V])): G[(A, Option[G[Unit]])] = {
+        def modify[A](
+            key: K
+        )(f: Option[V] => (A, Directive[G, V])): G[(A, Option[G[Unit]])] = {
           val adaptedF: Option[V] => (A, Directive[F, V]) = f(_) match {
-            case (a, put: Directive.Put[G, V]) => (a, Directive.Put(put.value, put.release.map(gf(_))))
+            case (a, put: Directive.Put[G, V]) =>
+              (a, Directive.Put(put.value, put.release.map(gf(_))))
             case (a, Directive.Ignore) => (a, Directive.Ignore)
             case (a, Directive.Remove) => (a, Directive.Remove)
           }
           fg {
             self
               .modify(key)(adaptedF)
-              .map { case (a, release) => (a, release.map(fg(_)))}
+              .map { case (a, release) => (a, release.map(fg(_))) }
           }
         }
 
@@ -753,8 +799,7 @@ object Cache {
         def values = fg(self.values.map(_.map { case (k, v) => (k, fg(v)) }))
 
         def values1 = fg {
-          self
-            .values1
+          self.values1
             .map { _.map { case (k, v) => (k, v.leftMap { v => fg(v) }) } }
         }
 
@@ -766,7 +811,9 @@ object Cache {
           fg(self.foldMap { case (k, v) => gf(f(k, v.leftMap { v => fg(v) })) })
         }
 
-        def foldMapPar[A: CommutativeMonoid](f: (K, Either[G[V], V]) => G[A]) = {
+        def foldMapPar[A: CommutativeMonoid](
+            f: (K, Either[G[V], V]) => G[A]
+        ) = {
           fg(self.foldMap { case (k, v) => gf(f(k, v.leftMap { v => fg(v) })) })
         }
       }
@@ -777,7 +824,8 @@ object Cache {
       * This may be useful, for example, to prevent dangling cache references to
       * be filled instead of an intended instance.
       */
-    def withFence(implicit F: Concurrent[F]): Resource[F, Cache[F, K, V]] = CacheFenced.of(self)
+    def withFence(implicit F: Concurrent[F]): Resource[F, Cache[F, K, V]] =
+      CacheFenced.of(self)
 
     /** Gets a value for specific key or uses another value.
       *
@@ -832,10 +880,8 @@ object Cache {
       *   in this method `F[_]` will only complete when the value is fully
       *   loaded.
       */
-    def getOrUpdate2[A](
-      key: K)(
-      value: => F[(A, V, Option[F[Unit]])])(implicit
-      F: Monad[F]
+    def getOrUpdate2[A](key: K)(value: => F[(A, V, Option[F[Unit]])])(implicit
+        F: Monad[F]
     ): F[Either[A, V]] = {
       self
         .getOrUpdate1(key) { value }
@@ -851,7 +897,6 @@ object Cache {
       * The difference between this method and [[Cache#getOrUpdate1]] is that
       * this one allows the loading function to fail finding the value, i.e.
       * return [[scala.None]].
-      *
       *
       * Also this method is meant to be used where [[cats.effect.Resource]] is
       * not convenient to use, i.e. when integration with legacy code is
@@ -873,9 +918,10 @@ object Cache {
       *   the method may return [[scala.None]] in case `value` completes to
       *   [[scala.None]].
       */
-    def getOrUpdateOpt1[A](key: K)(
-      value: => F[Option[(A, V, Option[F[Unit]])]])(implicit
-      F: MonadThrow[F]
+    def getOrUpdateOpt1[A](
+        key: K
+    )(value: => F[Option[(A, V, Option[F[Unit]])]])(implicit
+        F: MonadThrow[F]
     ): F[Option[Either[A, Either[F[V], V]]]] = {
       self.getOrUpdateOpt1Compat(key)(value)
     }
@@ -905,11 +951,12 @@ object Cache {
       *     [[#getOrUpdateResource]] call, or implementation-specific refresh),
       *     then `F[_]` will not complete until the value is fully loaded.
       */
-    def getOrUpdateResource(key: K)(value: => Resource[F, V])(implicit F: MonadCancel[F, Throwable]): F[V] = {
+    def getOrUpdateResource(
+        key: K
+    )(value: => Resource[F, V])(implicit F: MonadCancel[F, Throwable]): F[V] = {
       self
         .getOrUpdate1(key) {
-          value
-            .allocated
+          value.allocated
             .map { case (a, release) => (a, a, release.some) }
         }
         .flatMap {
@@ -921,9 +968,9 @@ object Cache {
 
     /** Gets a value for specific key, or tries to load it.
       *
-      * The difference between this method and [[#getOrUpdateResource]] is
-      * that this one allows the loading function to fail finding the value,
-      * i.e. return [[scala.None]].
+      * The difference between this method and [[#getOrUpdateResource]] is that
+      * this one allows the loading function to fail finding the value, i.e.
+      * return [[scala.None]].
       *
       * @param key
       *   The key to return the value for.
@@ -936,61 +983,80 @@ object Cache {
       *   [[scala.None]]. The resource will be released normally even if `None`
       *   is returned.
       */
-    def getOrUpdateResourceOpt(key: K)(value: => Resource[F, Option[V]])(implicit F: MonadCancel[F, Throwable]): F[Option[V]] = {
+    def getOrUpdateResourceOpt(key: K)(
+        value: => Resource[F, Option[V]]
+    )(implicit F: MonadCancel[F, Throwable]): F[Option[V]] = {
       self.getOrUpdateResourceOptCompat(key) { value }
     }
 
     /** Like `modify`, but doesn't pass through any return value.
-     *
-     * @return
-     *   If this `update` replaced an existing value,
-     *   will return `Some` containing an effect representing release of that value.
-     */
-    def update(key: K)(f: Option[V] => Directive[F, V])(implicit F: Functor[F]): F[Option[F[Unit]]] =
+      *
+      * @return
+      *   If this `update` replaced an existing value, will return `Some`
+      *   containing an effect representing release of that value.
+      */
+    def update(key: K)(f: Option[V] => Directive[F, V])(implicit
+        F: Functor[F]
+    ): F[Option[F[Unit]]] =
       self.modify(key)(() -> f(_)).map(_._2)
 
-    /** Like `modify`, but `f` is only applied if there is a value present in cache,
-     * and the result is always replacing the old value.
-     *
-     * @return
-     *   `true` if value was present, and was subsequently replaced.
-     *   `false` if there was no value present.
-     */
+    /** Like `modify`, but `f` is only applied if there is a value present in
+      * cache, and the result is always replacing the old value.
+      *
+      * @return
+      *   `true` if value was present, and was subsequently replaced. `false` if
+      *   there was no value present.
+      */
     def updatePresent(key: K)(f: V => V)(implicit F: Functor[F]): F[Boolean] =
       self.modify[Boolean](key) {
         case Some(value) => (true, Directive.Put(f(value), None))
-        case None => (false, Directive.Ignore)
-      } map(_._1)
+        case None        => (false, Directive.Ignore)
+      } map (_._1)
 
-    /** Like `update`, but `f` has an option to return `None`, in which case value will not be changed.
-     *
-     * @return
-     *   `true` if value was present and was subsequently replaced.
-     *   `false` if there was no value present, or it was not replaced.
-     */
-    def updatePresentOpt(key: K)(f: V => Option[V])(implicit F: Functor[F]): F[Boolean] =
+    /** Like `update`, but `f` has an option to return `None`, in which case
+      * value will not be changed.
+      *
+      * @return
+      *   `true` if value was present and was subsequently replaced. `false` if
+      *   there was no value present, or it was not replaced.
+      */
+    def updatePresentOpt(
+        key: K
+    )(f: V => Option[V])(implicit F: Functor[F]): F[Boolean] =
       self.modify[Boolean](key) {
-        case Some(value) => f(value).fold[(Boolean, Directive[F, V])](false -> Directive.Ignore)(v => true -> Directive.Put(v, None))
+        case Some(value) =>
+          f(value).fold[(Boolean, Directive[F, V])](false -> Directive.Ignore)(
+            v => true -> Directive.Put(v, None)
+          )
         case None => (false, Directive.Ignore)
-      } map(_._1)
+      } map (_._1)
 
-    /** Like `put`, but based on `modify`, and guarantees that as a result of the operation the value was in fact
-     * written in cache. Will be slower than a regular `put` in situations of high contention.
-     *
-     * @return
-     *   If this `putStrict` replaced an existing value, will return `Some` containing the old value
-     *   and an effect representing release of that value.
-     */
-    def putStrict(key: K, value: V)(implicit F: Applicative[F]): F[Option[(V, F[Unit])]] =
+    /** Like `put`, but based on `modify`, and guarantees that as a result of
+      * the operation the value was in fact written in cache. Will be slower
+      * than a regular `put` in situations of high contention.
+      *
+      * @return
+      *   If this `putStrict` replaced an existing value, will return `Some`
+      *   containing the old value and an effect representing release of that
+      *   value.
+      */
+    def putStrict(key: K, value: V)(implicit
+        F: Applicative[F]
+    ): F[Option[(V, F[Unit])]] =
       self.modify[Option[V]](key)((_, Directive.Put(value, None))).map(_.tupled)
 
     /** Like `putStrict`, but with `release` part of the new value.
-     *
-     * @return
-     *   If this `putStrict` replaced an existing value, will return `Some` containing the old value
-     *   and an effect representing release of that value.
-     */
-    def putStrict(key: K, value: V, release: self.type#Release)(implicit F: Applicative[F]): F[Option[(V, F[Unit])]] =
-      self.modify[Option[V]](key)((_, Directive.Put(value, release.some))).map(_.tupled)
+      *
+      * @return
+      *   If this `putStrict` replaced an existing value, will return `Some`
+      *   containing the old value and an effect representing release of that
+      *   value.
+      */
+    def putStrict(key: K, value: V, release: self.type#Release)(implicit
+        F: Applicative[F]
+    ): F[Option[(V, F[Unit])]] =
+      self
+        .modify[Option[V]](key)((_, Directive.Put(value, release.some)))
+        .map(_.tupled)
   }
 }
