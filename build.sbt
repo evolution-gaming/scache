@@ -20,7 +20,6 @@ startYear := Some(2019)
 organizationName := "Evolution Gaming"
 
 organizationHomepage := Some(url("http://evolutiongaming.com"))
-coverageExcludedFiles := ".*CacheOpsCompat.*"
 
 scalaVersion := crossScalaVersions.value.head
 
