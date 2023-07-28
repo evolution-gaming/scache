@@ -11,15 +11,15 @@ import scala.concurrent.duration.*
 object CacheMetered {
 
   def apply[F[_]: MeasureDuration: Temporal, K, V](
-    cache: Cache[F, K, V],
-    metrics: CacheMetrics[F],
-    interval: FiniteDuration = 1.minute
+      cache: Cache[F, K, V],
+      metrics: CacheMetrics[F],
+      interval: FiniteDuration = 1.minute
   ): Resource[F, Cache[F, K, V]] = {
 
     def measureSize = {
       for {
         size <- cache.size
-        _    <- metrics.size(size)
+        _ <- metrics.size(size)
       } yield {}
     }
 
@@ -64,20 +64,25 @@ object CacheMetered {
           for {
             result <- cache.getOrUpdate1(key) {
               for {
-                _          <- metrics.get(false)
-                start      <- MeasureDuration[F].start
-                value      <- value.attempt
-                duration   <- start
+                _ <- metrics.get(false)
+                start <- MeasureDuration[F].start
+                value <- value.attempt
+                duration <- start
                 loadSucceed = value match {
                   case Right(_) | Left(CacheOpsCompat.NoneError) => true
-                  case Left(_)                          => false
+                  case Left(_)                                   => false
                 }
-                _     <- metrics.load(duration, loadSucceed)
+                _ <- metrics.load(duration, loadSucceed)
                 value <- value.liftTo[F]
               } yield {
                 val (a, v, release) = value
-                val release1 = releaseMetered(start, release.getOrElse { ().pure[F] })
-                (a, v, release1.some) // TODO is this a good idea to convert option to always some?
+                val release1 =
+                  releaseMetered(start, release.getOrElse { ().pure[F] })
+                (
+                  a,
+                  v,
+                  release1.some
+                ) // TODO is this a good idea to convert option to always some?
               }
             }
             _ <- metrics.get(true).whenA(result.isRight)
@@ -87,29 +92,48 @@ object CacheMetered {
         def put(key: K, value: V, release: Option[Release]) = {
           for {
             duration <- MeasureDuration[F].start
-            _        <- metrics.put
-            release1  = releaseMetered(duration, release.getOrElse { ().pure[F] })
-            value    <- cache.put(key, value, release1.some)
+            _ <- metrics.put
+            release1 = releaseMetered(
+              duration,
+              release.getOrElse { ().pure[F] }
+            )
+            value <- cache.put(key, value, release1.some)
           } yield value
         }
 
-        def modify[A](key: K)(f: Option[V] => (A, Directive[F, V])): F[(A, Option[F[Unit]])] =
+        def modify[A](
+            key: K
+        )(f: Option[V] => (A, Directive[F, V])): F[(A, Option[F[Unit]])] =
           for {
             duration <- MeasureDuration[F].start
-            ((a, entryExisted, directive), release) <- cache.modify(key) { entry =>
-              f(entry) match {
-                case (a, put: Directive.Put[F, V]) =>
-                  ((a, entry.nonEmpty, CacheMetrics.Directive.Put),
-                    Directive.Put(put.value, releaseMetered(duration, put.release.getOrElse(().pure[F])).some))
-                case (a, Directive.Ignore) =>
-                  ((a, entry.nonEmpty, CacheMetrics.Directive.Ignore), Directive.Ignore)
-                case (a, Directive.Remove) =>
-                  ((a, entry.nonEmpty, CacheMetrics.Directive.Remove), Directive.Remove)
-              }
+            ((a, entryExisted, directive), release) <- cache.modify(key) {
+              entry =>
+                f(entry) match {
+                  case (a, put: Directive.Put[F, V]) =>
+                    (
+                      (a, entry.nonEmpty, CacheMetrics.Directive.Put),
+                      Directive.Put(
+                        put.value,
+                        releaseMetered(
+                          duration,
+                          put.release.getOrElse(().pure[F])
+                        ).some
+                      )
+                    )
+                  case (a, Directive.Ignore) =>
+                    (
+                      (a, entry.nonEmpty, CacheMetrics.Directive.Ignore),
+                      Directive.Ignore
+                    )
+                  case (a, Directive.Remove) =>
+                    (
+                      (a, entry.nonEmpty, CacheMetrics.Directive.Remove),
+                      Directive.Remove
+                    )
+                }
             }
             _ <- metrics.modify(entryExisted, directive)
           } yield (a, release)
-
 
         def contains(key: K) = cache.contains(key)
 
@@ -169,7 +193,9 @@ object CacheMetered {
           } yield a
         }
 
-        def foldMapPar[A: CommutativeMonoid](f: (K, Either[F[V], V]) => F[A]) = {
+        def foldMapPar[A: CommutativeMonoid](
+            f: (K, Either[F[V], V]) => F[A]
+        ) = {
           for {
             d <- MeasureDuration[F].start
             a <- cache.foldMapPar(f)
