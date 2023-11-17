@@ -8,7 +8,7 @@ import cats.kernel.{CommutativeMonoid, Monoid}
 object PartitionedCache {
 
   def apply[F[_]: MonadThrow: Parallel, K, V](
-    partitions: Partitions[K, Cache[F, K, V]]
+      partitions: Partitions[K, Cache[F, K, V]]
   ): Cache[F, K, V] = {
 
     implicit def monoidUnit: Monoid[F[Unit]] = Applicative.monoid[F, Unit]
@@ -47,7 +47,9 @@ object PartitionedCache {
           .put(key, value, release)
       }
 
-      def modify[A](key: K)(f: Option[V] => (A, Cache.Directive[F, V])): F[(A, Option[F[Unit]])] = {
+      def modify[A](
+          key: K
+      )(f: Option[V] => (A, Cache.Directive[F, V])): F[(A, Option[F[Unit]])] = {
         partitions
           .get(key)
           .modify(key)(f)
@@ -60,37 +62,30 @@ object PartitionedCache {
       }
 
       def size = {
-        partitions
-          .values
+        partitions.values
           .foldMapM(_.size)
       }
 
       def keys = {
-        partitions
-          .values
+        partitions.values
           .foldLeftM(Set.empty[K]) { (keys, cache) =>
-            cache
-              .keys
+            cache.keys
               .map { _ ++ keys }
           }
       }
 
       def values = {
-        partitions
-          .values
+        partitions.values
           .foldLeftM(Map.empty[K, F[V]]) { (values, cache) =>
-            cache
-              .values
+            cache.values
               .map { _ ++ values }
           }
       }
 
       def values1 = {
-        partitions
-          .values
+        partitions.values
           .foldLeftM(Map.empty[K, Either[F[V], V]]) { (values, cache) =>
-            cache
-              .values1
+            cache.values1
               .map { _ ++ values }
           }
       }
@@ -102,20 +97,17 @@ object PartitionedCache {
       }
 
       def clear = {
-        partitions
-          .values
+        partitions.values
           .foldMapM { _.clear }
       }
 
       def foldMap[A: CommutativeMonoid](f: (K, Either[F[V], V]) => F[A]) = {
-        partitions
-          .values
+        partitions.values
           .foldMapM { _.foldMap(f) }
       }
 
       def foldMapPar[A: CommutativeMonoid](f: (K, Either[F[V], V]) => F[A]) = {
-        partitions
-          .values
+        partitions.values
           .parFoldMap1 { _.foldMap(f) }
       }
     }

@@ -20,34 +20,45 @@ class CacheSpec extends AsyncFunSuite with Matchers {
 
   private val expiringCache = Cache.expiring[IO, Int, Int](
     config = ExpiringCache.Config[IO, Int, Int](expireAfterRead = 1.minute),
-    partitions = None,
+    partitions = None
   )
 
   for {
     (name, cache0) <- List(
-      ("default"               , Cache.loading[IO, Int, Int]),
-      ("no partitions"         , LoadingCache.of(LoadingCache.EntryRefs.empty[IO, Int, Int])),
-      ("expiring"              , expiringCache),
-      ("expiring no partitions", ExpiringCache.of[IO, Int, Int](ExpiringCache.Config(expireAfterRead = 1.minute))))
+      ("default", Cache.loading[IO, Int, Int]),
+      (
+        "no partitions",
+        LoadingCache.of(LoadingCache.EntryRefs.empty[IO, Int, Int])
+      ),
+      ("expiring", expiringCache),
+      (
+        "expiring no partitions",
+        ExpiringCache.of[IO, Int, Int](
+          ExpiringCache.Config(expireAfterRead = 1.minute)
+        )
+      )
+    )
   } yield {
 
     val cacheAndMetrics =
       for {
-        cache   <- cache0
+        cache <- cache0
         metrics <- CacheMetricsProbe.of.toResource
-        cache   <- cache.withMetrics(metrics)
-        cache   <- cache.withFence
+        cache <- cache.withMetrics(metrics)
+        cache <- cache.withFence
       } yield (cache, metrics)
 
-    def check(testName: String)(assertions: (Cache[IO, Int, Int], CacheMetricsProbe) => IO[Any]): Unit = test(testName) {
+    def check(testName: String)(
+        assertions: (Cache[IO, Int, Int], CacheMetricsProbe) => IO[Any]
+    ): Unit = test(testName) {
       cacheAndMetrics.use(assertions.tupled).run(timeout = 20.seconds)
     }
 
     check(s"get: $name") { (cache, metrics) =>
       for {
         value <- cache.get(0)
-        _     <- IO { value shouldEqual none[Int] }
-        _     <- metrics.expect(metrics.expectedGet(hit = false) -> 1)
+        _ <- IO { value shouldEqual none[Int] }
+        _ <- metrics.expect(metrics.expectedGet(hit = false) -> 1)
       } yield {}
     }
 
@@ -81,10 +92,10 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         a <- cache.get1(2)
         _ <- IO { a shouldEqual 2.asRight.some }
         _ <- metrics.expect(
-          metrics.expectedGet(hit = false)     -> 2,
-          metrics.expectedGet(hit = true)      -> 3,
+          metrics.expectedGet(hit = false) -> 2,
+          metrics.expectedGet(hit = true) -> 3,
           metrics.expectedLoad(success = true) -> 1,
-          metrics.expectedPut                  -> 1
+          metrics.expectedPut -> 1
         )
       } yield {}
     }
@@ -92,9 +103,9 @@ class CacheSpec extends AsyncFunSuite with Matchers {
     test(s"get succeeds after cache is released: $name") {
       val result = for {
         (cache, metrics) <- cacheAndMetrics.use { _.pure[IO] }
-        a                <- cache.get(0)
-        _                <- IO { a shouldEqual none[Int] }
-        _                <- metrics.expect(metrics.expectedGet(hit = false) -> 1)
+        a <- cache.get(0)
+        _ <- IO { a shouldEqual none[Int] }
+        _ <- metrics.expect(metrics.expectedGet(hit = false) -> 1)
       } yield {}
       result.run()
     }
@@ -102,14 +113,14 @@ class CacheSpec extends AsyncFunSuite with Matchers {
     check(s"getOrElse: $name") { (cache, metrics) =>
       for {
         value <- cache.getOrElse(0, 1.pure[IO])
-        _     <- IO { value shouldEqual 1 }
-        _     <- cache.put(0, 2)
+        _ <- IO { value shouldEqual 1 }
+        _ <- cache.put(0, 2)
         value <- cache.getOrElse(0, 1.pure[IO])
-        _     <- IO { value shouldEqual 2 }
-        _     <- metrics.expect(
+        _ <- IO { value shouldEqual 2 }
+        _ <- metrics.expect(
           metrics.expectedGet(hit = false) -> 1,
-          metrics.expectedPut              -> 1,
-          metrics.expectedGet(hit = true)  -> 1
+          metrics.expectedPut -> 1,
+          metrics.expectedGet(hit = true) -> 1
         )
       } yield {}
     }
@@ -117,9 +128,9 @@ class CacheSpec extends AsyncFunSuite with Matchers {
     test(s"getOrElse succeeds after cache is released: $name") {
       val result = for {
         (cache, metrics) <- cacheAndMetrics.use { _.pure[IO] }
-        a                <- cache.getOrElse(0, 1.pure[IO])
-        _                <- IO { a shouldEqual 1 }
-        _                <- metrics.expect(metrics.expectedGet(hit = false) -> 1)
+        a <- cache.getOrElse(0, 1.pure[IO])
+        _ <- IO { a shouldEqual 1 }
+        _ <- metrics.expect(metrics.expectedGet(hit = false) -> 1)
       } yield {}
       result.run()
     }
@@ -128,19 +139,19 @@ class CacheSpec extends AsyncFunSuite with Matchers {
       for {
         value <- cache.put(0, 0)
         value <- value
-        _     <- IO { value shouldEqual none }
+        _ <- IO { value shouldEqual none }
         value <- cache.get(0)
-        _     <- IO { value shouldEqual 0.some }
+        _ <- IO { value shouldEqual 0.some }
         value <- cache.put(0, 1)
         value <- value
-        _     <- IO { value shouldEqual 0.some }
+        _ <- IO { value shouldEqual 0.some }
         value <- cache.put(0, 2)
         value <- value
-        _     <- IO { value shouldEqual 1.some }
-        _     <- metrics.expect(
-          metrics.expectedPut             -> 3,
+        _ <- IO { value shouldEqual 1.some }
+        _ <- metrics.expect(
+          metrics.expectedPut -> 3,
           metrics.expectedGet(hit = true) -> 1,
-          metrics.expectedLife            -> 2
+          metrics.expectedLife -> 2
         )
       } yield {}
     }
@@ -148,9 +159,9 @@ class CacheSpec extends AsyncFunSuite with Matchers {
     test(s"put succeeds after cache is released: $name") {
       val result = for {
         (cache, metrics) <- cacheAndMetrics.use { _.pure[IO] }
-        a                <- cache.put(0, 0).flatten
-        _                <- IO { a shouldEqual none[Int] }
-        _                <- metrics.expect(metrics.expectedPut -> 1)
+        a <- cache.put(0, 0).flatten
+        _ <- IO { a shouldEqual none[Int] }
+        _ <- metrics.expect(metrics.expectedPut -> 1)
       } yield {}
       result.run()
     }
@@ -160,25 +171,29 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         release0 <- Deferred[IO, Unit]
         release1 <- Deferred[IO, Unit]
         released <- Ref[IO].of(false)
-        value    <- cache.put(0, 0, release0.complete(()) *> release1.get *> released.set(true))
-        value    <- value
-        _        <- IO { value shouldEqual none }
-        value    <- cache.get(0)
-        _        <- IO { value shouldEqual 0.some }
-        value    <- cache.put(0, 1)
-        _        <- release0.get
-        _        <- release1.complete(())
-        value    <- value
-        _        <- IO { value shouldEqual 0.some }
-        value    <- released.get
-        _        <- IO { value shouldEqual true }
-        value    <- cache.put(0, 2)
-        value    <- value
-        _        <- IO { value shouldEqual 1.some }
-        _        <- metrics.expect(
-          metrics.expectedPut             -> 3,
+        value <- cache.put(
+          0,
+          0,
+          release0.complete(()) *> release1.get *> released.set(true)
+        )
+        value <- value
+        _ <- IO { value shouldEqual none }
+        value <- cache.get(0)
+        _ <- IO { value shouldEqual 0.some }
+        value <- cache.put(0, 1)
+        _ <- release0.get
+        _ <- release1.complete(())
+        value <- value
+        _ <- IO { value shouldEqual 0.some }
+        value <- released.get
+        _ <- IO { value shouldEqual true }
+        value <- cache.put(0, 2)
+        value <- value
+        _ <- IO { value shouldEqual 1.some }
+        _ <- metrics.expect(
+          metrics.expectedPut -> 3,
           metrics.expectedGet(hit = true) -> 1,
-          metrics.expectedLife            -> 2
+          metrics.expectedLife -> 2
         )
       } yield {}
     }
@@ -186,9 +201,9 @@ class CacheSpec extends AsyncFunSuite with Matchers {
     test(s"put releasable fails after cache is released: $name") {
       val result = for {
         (cache, metrics) <- cacheAndMetrics.use { _.pure[IO] }
-        a                <- cache.put(0, 0, ().pure[IO]).flatten.attempt
-        _                <- IO { a shouldEqual CacheReleasedError.asLeft }
-        _                <- metrics.expect()
+        a <- cache.put(0, 0, ().pure[IO]).flatten.attempt
+        _ <- IO { a shouldEqual CacheReleasedError.asLeft }
+        _ <- metrics.expect()
       } yield {}
       result.run()
     }
@@ -228,9 +243,9 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         a <- cache.contains(1)
         _ <- IO { a shouldBe false }
         _ <- metrics.expect(
-          metrics.expectedPut                  -> 2,
-          metrics.expectedLife                 -> 2,
-          metrics.expectedClear                -> 1
+          metrics.expectedPut -> 2,
+          metrics.expectedLife -> 2,
+          metrics.expectedClear -> 1
         )
       } yield {}
     }
@@ -238,26 +253,26 @@ class CacheSpec extends AsyncFunSuite with Matchers {
     check(s"size: $name") { (cache, metrics) =>
       for {
         size <- cache.size
-        _    <- IO { size shouldEqual 0 }
-        _    <- cache.put(0, 0)
+        _ <- IO { size shouldEqual 0 }
+        _ <- cache.put(0, 0)
         size <- cache.size
-        _    <- IO { size shouldEqual 1 }
-        _    <- cache.put(0, 1)
+        _ <- IO { size shouldEqual 1 }
+        _ <- cache.put(0, 1)
         size <- cache.size
-        _    <- IO { size shouldEqual 1 }
-        _    <- cache.put(1, 1)
+        _ <- IO { size shouldEqual 1 }
+        _ <- cache.put(1, 1)
         size <- cache.size
-        _    <- IO { size shouldEqual 2 }
-        _    <- cache.remove(0)
+        _ <- IO { size shouldEqual 2 }
+        _ <- cache.remove(0)
         size <- cache.size
-        _    <- IO { size shouldEqual 1 }
-        _    <- cache.clear
+        _ <- IO { size shouldEqual 1 }
+        _ <- cache.clear
         size <- cache.size
-        _    <- IO { size shouldEqual 0 }
-        _    <- metrics.expect(
-          metrics.expectedSize  -> 6,
-          metrics.expectedPut   -> 3,
-          metrics.expectedLife  -> 3,
+        _ <- IO { size shouldEqual 0 }
+        _ <- metrics.expect(
+          metrics.expectedSize -> 6,
+          metrics.expectedPut -> 3,
+          metrics.expectedLife -> 3,
           metrics.expectedClear -> 1
         )
       } yield {}
@@ -265,11 +280,13 @@ class CacheSpec extends AsyncFunSuite with Matchers {
 
     test(s"size succeeds after cache is released: $name") {
       val result = for {
-        (cache, metrics) <- cacheAndMetrics.use { case (cache, metrics) => cache.put(0, 0).flatten.as((cache, metrics)) }
-        a                <- cache.size
-        _                <- IO { a shouldEqual 0 }
-        _                <- metrics.expect(
-          metrics.expectedPut  -> 1,
+        (cache, metrics) <- cacheAndMetrics.use { case (cache, metrics) =>
+          cache.put(0, 0).flatten.as((cache, metrics))
+        }
+        a <- cache.size
+        _ <- IO { a shouldEqual 0 }
+        _ <- metrics.expect(
+          metrics.expectedPut -> 1,
           metrics.expectedLife -> 1,
           metrics.expectedSize -> 1
         )
@@ -279,15 +296,15 @@ class CacheSpec extends AsyncFunSuite with Matchers {
 
     check(s"remove: $name") { (cache, metrics) =>
       for {
-        _     <- cache.put(0, 0)
+        _ <- cache.put(0, 0)
         value <- cache.remove(0)
         value <- value
-        _     <- IO { value shouldEqual 0.some }
+        _ <- IO { value shouldEqual 0.some }
         value <- cache.get(0)
-        _     <- IO { value shouldEqual none }
-        _     <- metrics.expect(
-          metrics.expectedPut              -> 1,
-          metrics.expectedLife             -> 1,
+        _ <- IO { value shouldEqual none }
+        _ <- metrics.expect(
+          metrics.expectedPut -> 1,
+          metrics.expectedLife -> 1,
           metrics.expectedGet(hit = false) -> 1
         )
       } yield {}
@@ -296,26 +313,26 @@ class CacheSpec extends AsyncFunSuite with Matchers {
     test(s"remove succeeds after cache is released: $name") {
       val result = for {
         (cache, metrics) <- cacheAndMetrics.use { _.pure[IO] }
-        a                <- cache.remove(0).flatten
-        _                <- IO { a shouldEqual none }
-        _                <- metrics.expect()
+        a <- cache.remove(0).flatten
+        _ <- IO { a shouldEqual none }
+        _ <- metrics.expect()
       } yield {}
       result.run()
     }
 
     check(s"clear: $name") { (cache, metrics) =>
       for {
-        _      <- cache.put(0, 0)
-        _      <- cache.put(1, 1)
-        _      <- cache.clear
+        _ <- cache.put(0, 0)
+        _ <- cache.put(1, 1)
+        _ <- cache.clear
         value0 <- cache.get(0)
         value1 <- cache.get(1)
-        _      <- IO { value0 shouldEqual none[Int] }
-        _      <- IO { value1 shouldEqual none[Int] }
-        _      <- metrics.expect(
-          metrics.expectedPut              -> 2,
-          metrics.expectedLife             -> 2,
-          metrics.expectedClear            -> 1,
+        _ <- IO { value0 shouldEqual none[Int] }
+        _ <- IO { value1 shouldEqual none[Int] }
+        _ <- metrics.expect(
+          metrics.expectedPut -> 2,
+          metrics.expectedLife -> 2,
+          metrics.expectedClear -> 1,
           metrics.expectedGet(hit = false) -> 2
         )
       } yield {}
@@ -324,51 +341,54 @@ class CacheSpec extends AsyncFunSuite with Matchers {
     test(s"clear succeeds after cache is released: $name") {
       val result = for {
         (cache, metrics) <- cacheAndMetrics.use { _.pure[IO] }
-        _                <- cache.clear.flatten
-        _                <- metrics.expect(metrics.expectedClear -> 1)
+        _ <- cache.clear.flatten
+        _ <- metrics.expect(metrics.expectedClear -> 1)
       } yield {}
       result.run()
     }
 
     check(s"clear releasable: $name") { (cache, metrics) =>
       for {
-        release   <- Deferred[IO, Unit]
+        release <- Deferred[IO, Unit]
         released0 <- Ref[IO].of(false)
-        _         <- cache.put(0, 0, release.get *> released0.set(true))
-        _         <- cache.put(1, 1, TestError.raiseError[IO, Unit])
+        _ <- cache.put(0, 0, release.get *> released0.set(true))
+        _ <- cache.put(1, 1, TestError.raiseError[IO, Unit])
         released1 <- Ref[IO].of(false)
-        _         <- cache.getOrUpdate1(2) { (2, 2, (release.get *> released1.set(true)).some).pure[IO] }
-        _         <- cache.getOrUpdate1(3) { (3, 3, TestError.raiseError[IO, Unit].some).pure[IO] }
-        keys      <- cache.keys
-        _         <- IO { keys shouldEqual Set(0, 1, 2, 3) }
-        clear     <- cache.clear
+        _ <- cache.getOrUpdate1(2) {
+          (2, 2, (release.get *> released1.set(true)).some).pure[IO]
+        }
+        _ <- cache.getOrUpdate1(3) {
+          (3, 3, TestError.raiseError[IO, Unit].some).pure[IO]
+        }
+        keys <- cache.keys
+        _ <- IO { keys shouldEqual Set(0, 1, 2, 3) }
+        clear <- cache.clear
         _ <- keys.toList.foldMapM { key =>
           for {
-            value    <- cache.get(key)
-            _        <- IO { value shouldEqual none[Int] }
+            value <- cache.get(key)
+            _ <- IO { value shouldEqual none[Int] }
           } yield {}
         }
-        keys  <- cache.keys
-        _     <- IO { keys shouldEqual Set.empty }
-        _     <- release.complete(()).start
-        _     <- clear
+        keys <- cache.keys
+        _ <- IO { keys shouldEqual Set.empty }
+        _ <- release.complete(()).start
+        _ <- clear
         value <- released0.get
-        _     <- IO { value shouldEqual true }
+        _ <- IO { value shouldEqual true }
         value <- released1.get
-        _     <- IO { value shouldEqual true }
-        _     <- metrics.expect(
-          metrics.expectedKeys                 -> 2,
-          metrics.expectedGet(hit = false)     -> 6,
-          metrics.expectedPut                  -> 2,
-          metrics.expectedLife                 -> 4,
-          metrics.expectedClear                -> 1,
-          metrics.expectedLoad(success = true) -> 2,
+        _ <- IO { value shouldEqual true }
+        _ <- metrics.expect(
+          metrics.expectedKeys -> 2,
+          metrics.expectedGet(hit = false) -> 6,
+          metrics.expectedPut -> 2,
+          metrics.expectedLife -> 4,
+          metrics.expectedClear -> 1,
+          metrics.expectedLoad(success = true) -> 2
         )
       } yield {}
     }
 
     check(s"put & get many: $name") { (cache, metrics) =>
-
       val values = (0 to 100).toList
 
       def getAll(cache: Cache[IO, Int, Int]) = {
@@ -383,14 +403,14 @@ class CacheSpec extends AsyncFunSuite with Matchers {
 
       for {
         result0 <- getAll(cache)
-        _       <- values.foldMapM { key => cache.put(key, key).void }
+        _ <- values.foldMapM { key => cache.put(key, key).void }
         result1 <- getAll(cache)
-        _       <- IO { result0.flatten.reverse shouldEqual List.empty }
-        _       <- IO { result1.flatten.reverse shouldEqual values }
-        _       <- metrics.expect(
+        _ <- IO { result0.flatten.reverse shouldEqual List.empty }
+        _ <- IO { result1.flatten.reverse shouldEqual values }
+        _ <- metrics.expect(
           metrics.expectedGet(hit = false) -> 101,
-          metrics.expectedPut              -> 101,
-          metrics.expectedGet(hit = true)  -> 101,
+          metrics.expectedPut -> 101,
+          metrics.expectedGet(hit = true) -> 101
         )
       } yield {}
     }
@@ -398,17 +418,17 @@ class CacheSpec extends AsyncFunSuite with Matchers {
     check(s"getOrUpdate: $name") { (cache, metrics) =>
       for {
         deferred <- Deferred[IO, Int]
-        value0   <- cache.getOrUpdateEnsure(0) { deferred.get }
-        value2   <- cache.getOrUpdate(0)(1.pure[IO]).startEnsure
-        _        <- deferred.complete(0)
-        value0   <- value0.joinWithNever
-        value1   <- value2.joinWithNever
-        _        <- IO { value0 shouldEqual 0.asRight }
-        _        <- IO { value1 shouldEqual 0 }
-        _        <- metrics.expect(
-          metrics.expectedGet(hit = false)     -> 1,
+        value0 <- cache.getOrUpdateEnsure(0) { deferred.get }
+        value2 <- cache.getOrUpdate(0)(1.pure[IO]).startEnsure
+        _ <- deferred.complete(0)
+        value0 <- value0.joinWithNever
+        value1 <- value2.joinWithNever
+        _ <- IO { value0 shouldEqual 0.asRight }
+        _ <- IO { value1 shouldEqual 0 }
+        _ <- metrics.expect(
+          metrics.expectedGet(hit = false) -> 1,
           metrics.expectedLoad(success = true) -> 1,
-          metrics.expectedGet(hit = true)      -> 1
+          metrics.expectedGet(hit = true) -> 1
         )
       } yield {}
     }
@@ -416,11 +436,11 @@ class CacheSpec extends AsyncFunSuite with Matchers {
     test(s"getOrUpdate succeeds after cache is released: $name") {
       val result = for {
         (cache, metrics) <- cacheAndMetrics.use { _.pure[IO] }
-        a                <- cache.getOrUpdate(0)(1.pure[IO])
-        _                <- IO { a shouldEqual 1 }
-        _                <- metrics.expect(
-          metrics.expectedGet(hit = false)     -> 1,
-          metrics.expectedLoad(success = true) -> 1,
+        a <- cache.getOrUpdate(0)(1.pure[IO])
+        _ <- IO { a shouldEqual 1 }
+        _ <- metrics.expect(
+          metrics.expectedGet(hit = false) -> 1,
+          metrics.expectedLoad(success = true) -> 1
         )
       } yield {}
       result.run()
@@ -429,54 +449,56 @@ class CacheSpec extends AsyncFunSuite with Matchers {
     check(s"getOrUpdateOpt: $name") { (cache, metrics) =>
       for {
         deferred <- Deferred[IO, Option[Int]]
-        value0   <- cache.getOrUpdateOptEnsure(0) { deferred.get }
-        value1   <- cache.getOrUpdateOpt(0)(0.some.pure[IO]).startEnsure
-        _        <- deferred.complete(none)
-        value0   <- value0.joinWithNever
-        value1   <- value1.joinWithNever
-        _         = value0 shouldEqual none[Int].asRight
-        _         = value1 shouldEqual none[Int]
-        value    <- cache.getOrUpdateOpt(0)(0.some.pure[IO])
-        _         = value shouldEqual 0.some
+        value0 <- cache.getOrUpdateOptEnsure(0) { deferred.get }
+        value1 <- cache.getOrUpdateOpt(0)(0.some.pure[IO]).startEnsure
+        _ <- deferred.complete(none)
+        value0 <- value0.joinWithNever
+        value1 <- value1.joinWithNever
+        _ = value0 shouldEqual none[Int].asRight
+        _ = value1 shouldEqual none[Int]
+        value <- cache.getOrUpdateOpt(0)(0.some.pure[IO])
+        _ = value shouldEqual 0.some
         _ <- metrics.expect(
-          metrics.expectedGet(hit = false)     -> 2,
-          metrics.expectedGet(hit = true)      -> 1,
-          metrics.expectedLoad(success = true) -> 2,
+          metrics.expectedGet(hit = false) -> 2,
+          metrics.expectedGet(hit = true) -> 1,
+          metrics.expectedLoad(success = true) -> 2
         )
       } yield {}
     }
 
     check(s"getOrUpdate1: $name") { (cache, metrics) =>
       for {
-        value     <- cache.getOrUpdate1(0) { ("a", 0, none[IO[Unit]]).pure[IO] }
-        _         <- IO { value shouldEqual "a".asLeft }
+        value <- cache.getOrUpdate1(0) { ("a", 0, none[IO[Unit]]).pure[IO] }
+        _ <- IO { value shouldEqual "a".asLeft }
 
-        value     <- cache.getOrUpdate1(0) { ("b", 1, none[IO[Unit]]).pure[IO] }
-        _         <- IO { value shouldEqual 0.asRight.asRight }
+        value <- cache.getOrUpdate1(0) { ("b", 1, none[IO[Unit]]).pure[IO] }
+        _ <- IO { value shouldEqual 0.asRight.asRight }
 
         deferred0 <- Deferred[IO, Unit]
         deferred1 <- Deferred[IO, (String, Int, Option[IO[Unit]])]
-        fiber     <- cache.getOrUpdate1(1) { deferred0.complete(()) *> deferred1.get }.start
-        _         <- deferred0.get
-        value     <- cache.getOrUpdate1(1) { ("d", 1, none[IO[Unit]]).pure[IO] }
-        _         <- IO { value should matchPattern { case Right(Left(_)) => } }
-        released  <- Deferred[IO, Unit]
-        _         <- deferred1.complete(("c", 0, released.complete(()).void.some))
-        value     <- value.traverse {
+        fiber <- cache
+          .getOrUpdate1(1) { deferred0.complete(()) *> deferred1.get }
+          .start
+        _ <- deferred0.get
+        value <- cache.getOrUpdate1(1) { ("d", 1, none[IO[Unit]]).pure[IO] }
+        _ <- IO { value should matchPattern { case Right(Left(_)) => } }
+        released <- Deferred[IO, Unit]
+        _ <- deferred1.complete(("c", 0, released.complete(()).void.some))
+        value <- value.traverse {
           case Right(a) => a.pure[IO]
           case Left(a)  => a
         }
-        _     <- IO { value shouldEqual 0.asRight }
+        _ <- IO { value shouldEqual 0.asRight }
         value <- fiber.joinWithNever
-        _     <- IO { value shouldEqual "c".asLeft }
-        _     <- cache.clear
-        _     <- released.complete(())
-        _     <- metrics.expect(
-          metrics.expectedGet(hit = true)      -> 2,
-          metrics.expectedGet(hit = false)     -> 2,
-          metrics.expectedLife                 -> 2,
-          metrics.expectedClear                -> 1,
-          metrics.expectedLoad(success = true) -> 2,
+        _ <- IO { value shouldEqual "c".asLeft }
+        _ <- cache.clear
+        _ <- released.complete(())
+        _ <- metrics.expect(
+          metrics.expectedGet(hit = true) -> 2,
+          metrics.expectedGet(hit = false) -> 2,
+          metrics.expectedLife -> 2,
+          metrics.expectedClear -> 1,
+          metrics.expectedLoad(success = true) -> 2
         )
       } yield {}
     }
@@ -485,22 +507,26 @@ class CacheSpec extends AsyncFunSuite with Matchers {
       for {
         deferred0 <- Deferred[IO, Unit]
         deferred1 <- Deferred[IO, (Int, IO[Unit])]
-        resource   = Resource
-          .make { deferred0.complete(()) *> deferred1.get } { case (_, release) => release }
+        resource = Resource
+          .make { deferred0.complete(()) *> deferred1.get } {
+            case (_, release) => release
+          }
           .map { case (a, _) => a }
-        fiber0    <- cache.getOrUpdateResource(0) { resource }.start
-        _         <- deferred0.get
-        fiber1    <- cache.getOrUpdateResource(0)(1.pure[Resource[IO, *]]).startEnsure
-        released  <- Deferred[IO, Unit]
-        _         <- deferred1.complete((0, released.get))
-        value     <- fiber0.joinWithNever
-        _         <- IO { value shouldEqual 0 }
-        value     <- fiber1.joinWithNever
-        _         <- IO { value shouldEqual 0 }
-        _         <- released.complete(())
-        _         <- metrics.expect(
-          metrics.expectedGet(hit = false)     -> 1,
-          metrics.expectedGet(hit = true)      -> 1,
+        fiber0 <- cache.getOrUpdateResource(0) { resource }.start
+        _ <- deferred0.get
+        fiber1 <- cache
+          .getOrUpdateResource(0)(1.pure[Resource[IO, *]])
+          .startEnsure
+        released <- Deferred[IO, Unit]
+        _ <- deferred1.complete((0, released.get))
+        value <- fiber0.joinWithNever
+        _ <- IO { value shouldEqual 0 }
+        value <- fiber1.joinWithNever
+        _ <- IO { value shouldEqual 0 }
+        _ <- released.complete(())
+        _ <- metrics.expect(
+          metrics.expectedGet(hit = false) -> 1,
+          metrics.expectedGet(hit = true) -> 1,
           metrics.expectedLoad(success = true) -> 1
         )
       } yield {}
@@ -508,32 +534,36 @@ class CacheSpec extends AsyncFunSuite with Matchers {
 
     check(s"getOrUpdateResourceOpt: $name") { (cache, metrics) =>
       for {
-        deferred  <- Deferred[IO, Unit]
-        resource   = Resource
+        deferred <- Deferred[IO, Unit]
+        resource = Resource
           .release { deferred.complete(()).void }
           .as(none[Int])
-        value     <- cache.getOrUpdateResourceOpt(0) { resource }
-        _         <- IO { value shouldEqual none }
-        _         <- deferred.get
+        value <- cache.getOrUpdateResourceOpt(0) { resource }
+        _ <- IO { value shouldEqual none }
+        _ <- deferred.get
         deferred0 <- Deferred[IO, Unit]
         deferred1 <- Deferred[IO, (Option[Int], IO[Unit])]
-        resource   = Resource
-          .make { deferred0.complete(()) *> deferred1.get } { case (_, release) => release }
+        resource = Resource
+          .make { deferred0.complete(()) *> deferred1.get } {
+            case (_, release) => release
+          }
           .map { case (a, _) => a }
-        fiber0    <- cache.getOrUpdateResourceOpt(0) { resource }.start
-        _         <- deferred0.get
-        fiber1    <- cache.getOrUpdateResourceOpt(0)(1.some.pure[Resource[IO, *]]).startEnsure
-        released  <- Deferred[IO, Unit]
-        _         <- deferred1.complete((0.some, released.get))
-        value     <- fiber0.joinWithNever
-        _         <- IO { value shouldEqual 0.some }
-        value     <- fiber1.joinWithNever
-        _         <- IO { value shouldEqual 0.some }
-        _         <- released.complete(())
-        _         <- metrics.expect(
-          metrics.expectedGet(hit = false)     -> 2,
+        fiber0 <- cache.getOrUpdateResourceOpt(0) { resource }.start
+        _ <- deferred0.get
+        fiber1 <- cache
+          .getOrUpdateResourceOpt(0)(1.some.pure[Resource[IO, *]])
+          .startEnsure
+        released <- Deferred[IO, Unit]
+        _ <- deferred1.complete((0.some, released.get))
+        value <- fiber0.joinWithNever
+        _ <- IO { value shouldEqual 0.some }
+        value <- fiber1.joinWithNever
+        _ <- IO { value shouldEqual 0.some }
+        _ <- released.complete(())
+        _ <- metrics.expect(
+          metrics.expectedGet(hit = false) -> 2,
           metrics.expectedLoad(success = true) -> 2,
-          metrics.expectedGet(hit = true)      -> 1
+          metrics.expectedGet(hit = true) -> 1
         )
       } yield {}
     }
@@ -541,14 +571,14 @@ class CacheSpec extends AsyncFunSuite with Matchers {
     check(s"getOrUpdateOpt1: $name") { (cache, metrics) =>
       for {
         deferred <- Deferred[IO, Option[(Int, Option[IO[Unit]])]]
-        value0   <- cache.getOrUpdateOpt1Ensure(0) { deferred.get }
-        _        <- deferred.complete(none)
-        value    <- value0.joinWithNever
-        _        <- IO { value shouldEqual none[Int] }
-        value    <- cache.getOrUpdateOpt1(0)((1, 1, none[IO[Unit]]).some.pure[IO])
-        _        <- IO { value shouldEqual 1.asLeft.some }
-        _        <- metrics.expect(
-          metrics.expectedGet(hit = false)     -> 2,
+        value0 <- cache.getOrUpdateOpt1Ensure(0) { deferred.get }
+        _ <- deferred.complete(none)
+        value <- value0.joinWithNever
+        _ <- IO { value shouldEqual none[Int] }
+        value <- cache.getOrUpdateOpt1(0)((1, 1, none[IO[Unit]]).some.pure[IO])
+        _ <- IO { value shouldEqual 1.asLeft.some }
+        _ <- metrics.expect(
+          metrics.expectedGet(hit = false) -> 2,
           metrics.expectedLoad(success = true) -> 2
         )
       } yield {}
@@ -557,11 +587,11 @@ class CacheSpec extends AsyncFunSuite with Matchers {
     test(s"getOrUpdate1 does not fail after cache is released: $name") {
       val result = for {
         (cache, metrics) <- cacheAndMetrics.use { _.pure[IO] }
-        a                <- cache.getOrUpdate1(0)((1, 1, none[IO[Unit]]).pure[IO])
-        _                <- IO { a shouldEqual 1.asLeft }
-        _                <- metrics.expect(
-          metrics.expectedGet(hit = false)     -> 1,
-          metrics.expectedLoad(success = true) -> 1,
+        a <- cache.getOrUpdate1(0)((1, 1, none[IO[Unit]]).pure[IO])
+        _ <- IO { a shouldEqual 1.asLeft }
+        _ <- metrics.expect(
+          metrics.expectedGet(hit = false) -> 1,
+          metrics.expectedLoad(success = true) -> 1
         )
       } yield {}
       result.run()
@@ -570,10 +600,10 @@ class CacheSpec extends AsyncFunSuite with Matchers {
     test(s"getOrUpdate1 with release fails after cache is released: $name") {
       val result = for {
         (cache, metrics) <- cacheAndMetrics.use { _.pure[IO] }
-        a                <- cache.getOrUpdate1(0)((1, 1, IO.unit.some).pure[IO]).attempt
-        _                <- IO { a shouldEqual CacheReleasedError.asLeft }
-        _                <- metrics.expect(
-          metrics.expectedGet(hit = false)      -> 1,
+        a <- cache.getOrUpdate1(0)((1, 1, IO.unit.some).pure[IO]).attempt
+        _ <- IO { a shouldEqual CacheReleasedError.asLeft }
+        _ <- metrics.expect(
+          metrics.expectedGet(hit = false) -> 1,
           metrics.expectedLoad(success = false) -> 1
         )
       } yield {}
@@ -583,11 +613,11 @@ class CacheSpec extends AsyncFunSuite with Matchers {
     test(s"getOrUpdateOpt1 does not fail after cache is released: $name") {
       val result = for {
         (cache, metrics) <- cacheAndMetrics.use { _.pure[IO] }
-        a                <- cache.getOrUpdateOpt1(0)((1, 1, none[IO[Unit]]).some.pure[IO])
-        _                <- IO { a shouldEqual 1.asLeft.some }
-        _                <- metrics.expect(
-          metrics.expectedGet(hit = false)     -> 1,
-          metrics.expectedLoad(success = true) -> 1,
+        a <- cache.getOrUpdateOpt1(0)((1, 1, none[IO[Unit]]).some.pure[IO])
+        _ <- IO { a shouldEqual 1.asLeft.some }
+        _ <- metrics.expect(
+          metrics.expectedGet(hit = false) -> 1,
+          metrics.expectedLoad(success = true) -> 1
         )
       } yield {}
       result.run()
@@ -596,11 +626,13 @@ class CacheSpec extends AsyncFunSuite with Matchers {
     test(s"getOrUpdateOpt1 with release fails after cache is released: $name") {
       val result = for {
         (cache, metrics) <- cacheAndMetrics.use { _.pure[IO] }
-        a                <- cache.getOrUpdateOpt1(0)((1, 1, IO.unit.some).some.pure[IO]).attempt
-        _                <- IO { a shouldEqual CacheReleasedError.asLeft }
-        _                <- metrics.expect(
-          metrics.expectedGet(hit = false)      -> 1,
-          metrics.expectedLoad(success = false) -> 1,
+        a <- cache
+          .getOrUpdateOpt1(0)((1, 1, IO.unit.some).some.pure[IO])
+          .attempt
+        _ <- IO { a shouldEqual CacheReleasedError.asLeft }
+        _ <- metrics.expect(
+          metrics.expectedGet(hit = false) -> 1,
+          metrics.expectedLoad(success = false) -> 1
         )
       } yield {}
       result.run()
@@ -609,22 +641,22 @@ class CacheSpec extends AsyncFunSuite with Matchers {
     check(s"cancel getOrUpdate1: $name") { (cache, metrics) =>
       for {
         deferred0 <- Deferred[IO, (Int, Option[IO[Unit]])]
-        fiber0    <- cache.getOrUpdate1Ensure(0) { deferred0.get }
-        fiber1    <- cache.getOrUpdate2(0) { IO.never }.startEnsure
-        release   <- Deferred[IO, Unit]
-        _         <- fiber0.cancel.start
-        _         <- deferred0.complete((0, release.complete(()).void.some))
-        value     <- fiber0.join
-        _         <- IO { value shouldEqual Outcome.canceled }
-        value     <- fiber1.joinWithNever
-        _         <- IO { value shouldEqual 0.asRight }
-        _         <- cache.remove(0)
-        _         <- release.get
-        _         <- metrics.expect(
-          metrics.expectedGet(hit = false)     -> 1,
-          metrics.expectedGet(hit = true)      -> 1,
+        fiber0 <- cache.getOrUpdate1Ensure(0) { deferred0.get }
+        fiber1 <- cache.getOrUpdate2(0) { IO.never }.startEnsure
+        release <- Deferred[IO, Unit]
+        _ <- fiber0.cancel.start
+        _ <- deferred0.complete((0, release.complete(()).void.some))
+        value <- fiber0.join
+        _ <- IO { value shouldEqual Outcome.canceled }
+        value <- fiber1.joinWithNever
+        _ <- IO { value shouldEqual 0.asRight }
+        _ <- cache.remove(0)
+        _ <- release.get
+        _ <- metrics.expect(
+          metrics.expectedGet(hit = false) -> 1,
+          metrics.expectedGet(hit = true) -> 1,
           metrics.expectedLoad(success = true) -> 1,
-          metrics.expectedLife                 -> 1
+          metrics.expectedLife -> 1
         )
       } yield {}
     }
@@ -632,21 +664,21 @@ class CacheSpec extends AsyncFunSuite with Matchers {
     check(s"put while getOrUpdate: $name") { (cache, metrics) =>
       for {
         deferred <- Deferred[IO, Int]
-        fiber    <- cache.getOrUpdateEnsure(0) { deferred.get }
-        value    <- cache.put(0, 1)
-        _        <- deferred.complete(0)
-        value    <- value
-        _        <- IO { value shouldEqual none }
-        value    <- fiber.joinWithNever
-        _        <- IO { value shouldEqual 1.asRight }
-        value    <- cache.get(0)
-        _        <- IO { value shouldEqual 1.some }
-        _        <- metrics.expect(
-          metrics.expectedGet(hit = true)      -> 2,
+        fiber <- cache.getOrUpdateEnsure(0) { deferred.get }
+        value <- cache.put(0, 1)
+        _ <- deferred.complete(0)
+        value <- value
+        _ <- IO { value shouldEqual none }
+        value <- fiber.joinWithNever
+        _ <- IO { value shouldEqual 1.asRight }
+        value <- cache.get(0)
+        _ <- IO { value shouldEqual 1.some }
+        _ <- metrics.expect(
+          metrics.expectedGet(hit = true) -> 2,
           metrics.expectedLoad(success = true) -> 1,
-          metrics.expectedGet(hit = false)     -> 1,
-          metrics.expectedPut                  -> 1,
-          metrics.expectedLife                 -> 1
+          metrics.expectedGet(hit = false) -> 1,
+          metrics.expectedPut -> 1,
+          metrics.expectedLife -> 1
         )
       } yield {}
     }
@@ -654,23 +686,23 @@ class CacheSpec extends AsyncFunSuite with Matchers {
     check(s"put while getOrUpdate1: $name") { (cache, metrics) =>
       for {
         deferred <- Deferred[IO, (Int, Option[IO[Unit]])]
-        fiber    <- cache.getOrUpdate1Ensure(0) { deferred.get }
-        value    <- cache.put(0, 1)
-        release  <- Deferred[IO, Unit]
-        _        <- deferred.complete((0, release.complete(()).void.some))
-        _        <- release.get
-        value    <- value
-        _        <- IO { value shouldEqual none }
-        value    <- fiber.joinWithNever
-        _        <- IO { value shouldEqual 1.asRight }
-        value    <- cache.get(0)
-        _        <- IO { value shouldEqual 1.some }
-        _        <- metrics.expect(
-          metrics.expectedGet(hit = true)      -> 2,
+        fiber <- cache.getOrUpdate1Ensure(0) { deferred.get }
+        value <- cache.put(0, 1)
+        release <- Deferred[IO, Unit]
+        _ <- deferred.complete((0, release.complete(()).void.some))
+        _ <- release.get
+        value <- value
+        _ <- IO { value shouldEqual none }
+        value <- fiber.joinWithNever
+        _ <- IO { value shouldEqual 1.asRight }
+        value <- cache.get(0)
+        _ <- IO { value shouldEqual 1.some }
+        _ <- metrics.expect(
+          metrics.expectedGet(hit = true) -> 2,
           metrics.expectedLoad(success = true) -> 1,
-          metrics.expectedGet(hit = false)     -> 1,
-          metrics.expectedPut                  -> 1,
-          metrics.expectedLife                 -> 1
+          metrics.expectedGet(hit = false) -> 1,
+          metrics.expectedPut -> 1,
+          metrics.expectedLife -> 1
         )
       } yield {}
     }
@@ -680,33 +712,35 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         fiber <- cache.getOrUpdateEnsure(0) { IO.never[Int] }
         value <- cache.put(0, 0)
         value <- value
-        _     <- IO { value shouldEqual none }
+        _ <- IO { value shouldEqual none }
         value <- fiber.joinWithNever
-        _     <- IO { value shouldEqual 0.asRight }
+        _ <- IO { value shouldEqual 0.asRight }
         value <- cache.get(0)
-        _     <- IO { value shouldEqual 0.some }
-        _     <- metrics.expect(
+        _ <- IO { value shouldEqual 0.some }
+        _ <- metrics.expect(
           metrics.expectedGet(hit = false) -> 1,
-          metrics.expectedPut              -> 1,
-          metrics.expectedGet(hit = true)  -> 2
+          metrics.expectedPut -> 1,
+          metrics.expectedGet(hit = true) -> 2
         )
       } yield {}
     }
 
     check(s"put while getOrUpdate1 never: $name") { (cache, metrics) =>
       for {
-        fiber <- cache.getOrUpdate1Ensure(0) { IO.never[(Int, Option[IO[Unit]])] }
+        fiber <- cache.getOrUpdate1Ensure(0) {
+          IO.never[(Int, Option[IO[Unit]])]
+        }
         value <- cache.put(0, 0)
         value <- value
-        _     <- IO { value shouldEqual none }
+        _ <- IO { value shouldEqual none }
         value <- fiber.joinWithNever
-        _     <- IO { value shouldEqual 0.asRight }
+        _ <- IO { value shouldEqual 0.asRight }
         value <- cache.get(0)
-        _     <- IO { value shouldEqual 0.some }
-        _     <- metrics.expect(
+        _ <- IO { value shouldEqual 0.some }
+        _ <- metrics.expect(
           metrics.expectedGet(hit = false) -> 1,
-          metrics.expectedPut              -> 1,
-          metrics.expectedGet(hit = true)  -> 2
+          metrics.expectedPut -> 1,
+          metrics.expectedGet(hit = true) -> 2
         )
       } yield {}
     }
@@ -714,20 +748,20 @@ class CacheSpec extends AsyncFunSuite with Matchers {
     check(s"put while getOrUpdate failed: $name") { (cache, metrics) =>
       for {
         deferred <- Deferred[IO, IO[Int]]
-        fiber    <- cache.getOrUpdateEnsure(0) { deferred.get.flatten }
-        value    <- cache.put(0, 1)
-        _        <- deferred.complete(TestError.raiseError[IO, Int])
-        value    <- value
-        _        <- IO { value shouldEqual none }
-        value    <- fiber.joinWithNever
-        _        <- IO { value shouldEqual 1.asRight }
-        value    <- cache.get(0)
-        _        <- IO { value shouldEqual 1.some }
-        _        <- metrics.expect(
-          metrics.expectedGet(hit = false)      -> 1,
-          metrics.expectedPut                   -> 1,
+        fiber <- cache.getOrUpdateEnsure(0) { deferred.get.flatten }
+        value <- cache.put(0, 1)
+        _ <- deferred.complete(TestError.raiseError[IO, Int])
+        value <- value
+        _ <- IO { value shouldEqual none }
+        value <- fiber.joinWithNever
+        _ <- IO { value shouldEqual 1.asRight }
+        value <- cache.get(0)
+        _ <- IO { value shouldEqual 1.some }
+        _ <- metrics.expect(
+          metrics.expectedGet(hit = false) -> 1,
+          metrics.expectedPut -> 1,
           metrics.expectedLoad(success = false) -> 1,
-          metrics.expectedGet(hit = true)       -> 2
+          metrics.expectedGet(hit = true) -> 2
         )
       } yield {}
     }
@@ -735,20 +769,22 @@ class CacheSpec extends AsyncFunSuite with Matchers {
     check(s"put while getOrUpdate1 failed: $name") { (cache, metrics) =>
       for {
         deferred <- Deferred[IO, IO[(Int, Option[IO[Unit]])]]
-        fiber    <- cache.getOrUpdate1Ensure(0) { deferred.get.flatten }
-        value    <- cache.put(0, 1)
-        _        <- deferred.complete(TestError.raiseError[IO, (Int, Option[IO[Unit]])])
-        value    <- value
-        _        <- IO { value shouldEqual none }
-        value    <- fiber.joinWithNever
-        _        <- IO { value shouldEqual 1.asRight }
-        value    <- cache.get(0)
-        _        <- IO { value shouldEqual 1.some }
-        _        <- metrics.expect(
-          metrics.expectedGet(hit = false)      -> 1,
-          metrics.expectedPut                   -> 1,
+        fiber <- cache.getOrUpdate1Ensure(0) { deferred.get.flatten }
+        value <- cache.put(0, 1)
+        _ <- deferred.complete(
+          TestError.raiseError[IO, (Int, Option[IO[Unit]])]
+        )
+        value <- value
+        _ <- IO { value shouldEqual none }
+        value <- fiber.joinWithNever
+        _ <- IO { value shouldEqual 1.asRight }
+        value <- cache.get(0)
+        _ <- IO { value shouldEqual 1.some }
+        _ <- metrics.expect(
+          metrics.expectedGet(hit = false) -> 1,
+          metrics.expectedPut -> 1,
           metrics.expectedLoad(success = false) -> 1,
-          metrics.expectedGet(hit = true)       -> 2
+          metrics.expectedGet(hit = true) -> 2
         )
       } yield {}
     }
@@ -756,17 +792,17 @@ class CacheSpec extends AsyncFunSuite with Matchers {
     check(s"get while getOrUpdate: $name") { (cache, metrics) =>
       for {
         deferred <- Deferred[IO, Int]
-        value0   <- cache.getOrUpdateEnsure(0) { deferred.get }
-        value1   <- cache.get(0).startEnsure
-        _        <- deferred.complete(0)
-        value    <- value0.joinWithNever
-        _        <- IO { value shouldEqual 0.asRight }
-        value    <- value1.joinWithNever
-        _        <- IO { value shouldEqual 0.some }
-        _        <- metrics.expect(
-          metrics.expectedGet(hit = false)     -> 1,
+        value0 <- cache.getOrUpdateEnsure(0) { deferred.get }
+        value1 <- cache.get(0).startEnsure
+        _ <- deferred.complete(0)
+        value <- value0.joinWithNever
+        _ <- IO { value shouldEqual 0.asRight }
+        value <- value1.joinWithNever
+        _ <- IO { value shouldEqual 0.some }
+        _ <- metrics.expect(
+          metrics.expectedGet(hit = false) -> 1,
           metrics.expectedLoad(success = true) -> 1,
-          metrics.expectedGet(hit = true)      -> 1
+          metrics.expectedGet(hit = true) -> 1
         )
       } yield {}
     }
@@ -775,18 +811,18 @@ class CacheSpec extends AsyncFunSuite with Matchers {
       for {
         deferred <- Deferred[IO, (Int, Option[IO[Unit]])]
         released <- Deferred[IO, Unit]
-        value0   <- cache.getOrUpdate1Ensure(0) { deferred.get }
-        value1   <- cache.get(0).startEnsure
-        _        <- deferred.complete((0, released.get.some))
-        value    <- value0.joinWithNever
-        _        <- IO { value shouldEqual 0.asRight }
-        value    <- value1.joinWithNever
-        _        <- IO { value shouldEqual 0.some }
-        _        <- released.complete(())
-        _        <- metrics.expect(
-          metrics.expectedGet(hit = false)     -> 1,
+        value0 <- cache.getOrUpdate1Ensure(0) { deferred.get }
+        value1 <- cache.get(0).startEnsure
+        _ <- deferred.complete((0, released.get.some))
+        value <- value0.joinWithNever
+        _ <- IO { value shouldEqual 0.asRight }
+        value <- value1.joinWithNever
+        _ <- IO { value shouldEqual 0.some }
+        _ <- released.complete(())
+        _ <- metrics.expect(
+          metrics.expectedGet(hit = false) -> 1,
           metrics.expectedLoad(success = true) -> 1,
-          metrics.expectedGet(hit = true)      -> 1
+          metrics.expectedGet(hit = true) -> 1
         )
       } yield {}
     }
@@ -794,15 +830,15 @@ class CacheSpec extends AsyncFunSuite with Matchers {
     check(s"get while getOrUpdate failed: $name") { (cache, metrics) =>
       for {
         deferred <- Deferred[IO, IO[Int]]
-        value0   <- cache.getOrUpdateEnsure(0) { deferred.get.flatten }
-        value1   <- cache.get(0).startEnsure
-        _        <- deferred.complete(TestError.raiseError[IO, Int])
-        value    <- value0.joinWithNever
-        _        <- IO { value shouldEqual TestError.asLeft }
-        value    <- value1.joinWithNever
-        _        <- IO { value shouldEqual none[Int] }
-        _        <- metrics.expect(
-          metrics.expectedGet(hit = false)      -> 2,
+        value0 <- cache.getOrUpdateEnsure(0) { deferred.get.flatten }
+        value1 <- cache.get(0).startEnsure
+        _ <- deferred.complete(TestError.raiseError[IO, Int])
+        value <- value0.joinWithNever
+        _ <- IO { value shouldEqual TestError.asLeft }
+        value <- value1.joinWithNever
+        _ <- IO { value shouldEqual none[Int] }
+        _ <- metrics.expect(
+          metrics.expectedGet(hit = false) -> 2,
           metrics.expectedLoad(success = false) -> 1
         )
       } yield {}
@@ -811,15 +847,17 @@ class CacheSpec extends AsyncFunSuite with Matchers {
     check(s"get while getOrUpdate1 failed: $name") { (cache, metrics) =>
       for {
         deferred <- Deferred[IO, IO[(Int, Option[IO[Unit]])]]
-        value0   <- cache.getOrUpdate1Ensure(0) { deferred.get.flatten }
-        value1   <- cache.get(0).startEnsure
-        _        <- deferred.complete(TestError.raiseError[IO, (Int, Option[IO[Unit]])])
-        value    <- value0.joinWithNever
-        _        <- IO { value shouldEqual TestError.asLeft }
-        value    <- value1.joinWithNever
-        _        <- IO { value shouldEqual none[Int] }
-        _        <- metrics.expect(
-          metrics.expectedGet(hit = false)      -> 2,
+        value0 <- cache.getOrUpdate1Ensure(0) { deferred.get.flatten }
+        value1 <- cache.get(0).startEnsure
+        _ <- deferred.complete(
+          TestError.raiseError[IO, (Int, Option[IO[Unit]])]
+        )
+        value <- value0.joinWithNever
+        _ <- IO { value shouldEqual TestError.asLeft }
+        value <- value1.joinWithNever
+        _ <- IO { value shouldEqual none[Int] }
+        _ <- metrics.expect(
+          metrics.expectedGet(hit = false) -> 2,
           metrics.expectedLoad(success = false) -> 1
         )
       } yield {}
@@ -828,19 +866,19 @@ class CacheSpec extends AsyncFunSuite with Matchers {
     check(s"remove while getOrUpdate: $name") { (cache, metrics) =>
       for {
         deferred <- Deferred[IO, Int]
-        value0   <- cache.getOrUpdateEnsure(0) { deferred.get }
-        value1   <- cache.remove(0)
-        _        <- deferred.complete(0)
-        value    <- value0.joinWithNever
-        _        <- IO { value shouldEqual 0.asRight }
-        value    <- value1
-        _        <- IO { value shouldEqual None }
+        value0 <- cache.getOrUpdateEnsure(0) { deferred.get }
+        value1 <- cache.remove(0)
+        _ <- deferred.complete(0)
+        value <- value0.joinWithNever
+        _ <- IO { value shouldEqual 0.asRight }
+        value <- value1
+        _ <- IO { value shouldEqual None }
         // Value is still present in cache, since calculation ended later than remove
-        value    <- cache.get(0)
-        _        <- IO { value shouldEqual Some(0) }
-        _        <- metrics.expect(
-          metrics.expectedGet(hit = false)     -> 1,
-          metrics.expectedGet(hit = true)      -> 1,
+        value <- cache.get(0)
+        _ <- IO { value shouldEqual Some(0) }
+        _ <- metrics.expect(
+          metrics.expectedGet(hit = false) -> 1,
+          metrics.expectedGet(hit = true) -> 1,
           metrics.expectedLoad(success = true) -> 1
         )
       } yield {}
@@ -849,25 +887,27 @@ class CacheSpec extends AsyncFunSuite with Matchers {
     check(s"remove while getOrUpdate1: $name") { (cache, metrics) =>
       for {
         deferred <- Deferred[IO, (Int, Option[IO[Unit]])]
-        fiber    <- cache.getOrUpdate1Ensure(0) { deferred.get }
-        value1   <- cache.remove(0)
-        release  <- Deferred[IO, Unit]
+        fiber <- cache.getOrUpdate1Ensure(0) { deferred.get }
+        value1 <- cache.remove(0)
+        release <- Deferred[IO, Unit]
         released <- Ref[IO].of(false)
-        _        <- deferred.complete((0, (release.get *> released.set(true).void).some))
-        value    <- fiber.joinWithNever
-        _        <- IO { value shouldEqual 0.asRight }
-        value    <- value1.startEnsure
-        _        <- release.complete(())
-        value    <- value.joinWithNever
+        _ <- deferred.complete(
+          (0, (release.get *> released.set(true).void).some)
+        )
+        value <- fiber.joinWithNever
+        _ <- IO { value shouldEqual 0.asRight }
+        value <- value1.startEnsure
+        _ <- release.complete(())
+        value <- value.joinWithNever
         released <- released.get
-        _        <- IO { released shouldEqual false }
-        _        <- IO { value shouldEqual None }
-        value    <- cache.get(0)
+        _ <- IO { released shouldEqual false }
+        _ <- IO { value shouldEqual None }
+        value <- cache.get(0)
         // Value is still present in cache, since calculation ended later than remove
-        _        <- IO { value shouldEqual Some(0) }
-        _        <- metrics.expect(
-          metrics.expectedGet(hit = false)     -> 1,
-          metrics.expectedGet(hit = true)      -> 1,
+        _ <- IO { value shouldEqual Some(0) }
+        _ <- metrics.expect(
+          metrics.expectedGet(hit = false) -> 1,
+          metrics.expectedGet(hit = true) -> 1,
           metrics.expectedLoad(success = true) -> 1
         )
       } yield {}
@@ -876,17 +916,17 @@ class CacheSpec extends AsyncFunSuite with Matchers {
     check(s"remove while getOrUpdate failed: $name") { (cache, metrics) =>
       for {
         deferred <- Deferred[IO, IO[Int]]
-        fiber    <- cache.getOrUpdateEnsure(0) { deferred.get.flatten }
-        value    <- cache.remove(0)
-        _        <- deferred.complete(TestError.raiseError[IO, Int])
-        value    <- value
-        _        <- IO { value shouldEqual none }
-        value    <- fiber.joinWithNever
-        _        <- IO { value shouldEqual TestError.asLeft }
-        value    <- cache.get(0)
-        _        <- IO { value shouldEqual none }
-        _        <- metrics.expect(
-          metrics.expectedGet(hit = false)      -> 2,
+        fiber <- cache.getOrUpdateEnsure(0) { deferred.get.flatten }
+        value <- cache.remove(0)
+        _ <- deferred.complete(TestError.raiseError[IO, Int])
+        value <- value
+        _ <- IO { value shouldEqual none }
+        value <- fiber.joinWithNever
+        _ <- IO { value shouldEqual TestError.asLeft }
+        value <- cache.get(0)
+        _ <- IO { value shouldEqual none }
+        _ <- metrics.expect(
+          metrics.expectedGet(hit = false) -> 2,
           metrics.expectedLoad(success = false) -> 1
         )
       } yield {}
@@ -895,17 +935,19 @@ class CacheSpec extends AsyncFunSuite with Matchers {
     check(s"remove while getOrUpdate1 failed: $name") { (cache, metrics) =>
       for {
         deferred <- Deferred[IO, IO[(Int, Option[IO[Unit]])]]
-        fiber    <- cache.getOrUpdate1Ensure(0) { deferred.get.flatten }
-        value    <- cache.remove(0)
-        _        <- deferred.complete(TestError.raiseError[IO, (Int, Option[IO[Unit]])])
-        value    <- value
-        _        <- IO { value shouldEqual none }
-        value    <- fiber.joinWithNever
-        _        <- IO { value shouldEqual TestError.asLeft }
-        value    <- cache.get(0)
-        _        <- IO { value shouldEqual none }
-        _        <- metrics.expect(
-          metrics.expectedGet(hit = false)      -> 2,
+        fiber <- cache.getOrUpdate1Ensure(0) { deferred.get.flatten }
+        value <- cache.remove(0)
+        _ <- deferred.complete(
+          TestError.raiseError[IO, (Int, Option[IO[Unit]])]
+        )
+        value <- value
+        _ <- IO { value shouldEqual none }
+        value <- fiber.joinWithNever
+        _ <- IO { value shouldEqual TestError.asLeft }
+        value <- cache.get(0)
+        _ <- IO { value shouldEqual none }
+        _ <- metrics.expect(
+          metrics.expectedGet(hit = false) -> 2,
           metrics.expectedLoad(success = false) -> 1
         )
       } yield {}
@@ -914,22 +956,22 @@ class CacheSpec extends AsyncFunSuite with Matchers {
     check(s"clear while getOrUpdate: $name") { (cache, metrics) =>
       for {
         deferred <- Deferred[IO, Int]
-        value    <- cache.getOrUpdateEnsure(0) { deferred.get }
-        keys     <- cache.keys
-        _        <- IO { keys shouldEqual Set(0) }
-        _        <- cache.clear
-        keys     <- cache.keys
-        _        <- IO { keys shouldEqual Set.empty }
-        _        <- deferred.complete(0)
-        value    <- value.joinWithNever
-        _        <- IO { value shouldEqual 0.asRight }
-        keys     <- cache.keys
-        _        <- IO { keys shouldEqual Set.empty }
-        _        <- metrics.expect(
-          metrics.expectedKeys                 -> 3,
-          metrics.expectedGet(hit = false)     -> 1,
-          metrics.expectedLife                 -> 1,
-          metrics.expectedClear                -> 1,
+        value <- cache.getOrUpdateEnsure(0) { deferred.get }
+        keys <- cache.keys
+        _ <- IO { keys shouldEqual Set(0) }
+        _ <- cache.clear
+        keys <- cache.keys
+        _ <- IO { keys shouldEqual Set.empty }
+        _ <- deferred.complete(0)
+        value <- value.joinWithNever
+        _ <- IO { value shouldEqual 0.asRight }
+        keys <- cache.keys
+        _ <- IO { keys shouldEqual Set.empty }
+        _ <- metrics.expect(
+          metrics.expectedKeys -> 3,
+          metrics.expectedGet(hit = false) -> 1,
+          metrics.expectedLife -> 1,
+          metrics.expectedClear -> 1,
           metrics.expectedLoad(success = true) -> 1
         )
       } yield {}
@@ -937,26 +979,28 @@ class CacheSpec extends AsyncFunSuite with Matchers {
 
     check(s"clear while getOrUpdate1: $name") { (cache, metrics) =>
       for {
-        release  <- Deferred[IO, Unit]
+        release <- Deferred[IO, Unit]
         released <- Ref[IO].of(false)
-        value    <- cache.getOrUpdate1(0) { (0, 0, (release.get *> released.set(true)).some).pure[IO] }
-        _        <- IO { value shouldEqual 0.asLeft }
-        keys     <- cache.keys
-        _        <- IO { keys shouldEqual Set(0) }
-        clear    <- cache.clear
-        keys     <- cache.keys
-        _        <- IO { keys shouldEqual Set.empty }
-        _        <- release.complete(())
-        _        <- clear
+        value <- cache.getOrUpdate1(0) {
+          (0, 0, (release.get *> released.set(true)).some).pure[IO]
+        }
+        _ <- IO { value shouldEqual 0.asLeft }
+        keys <- cache.keys
+        _ <- IO { keys shouldEqual Set(0) }
+        clear <- cache.clear
+        keys <- cache.keys
+        _ <- IO { keys shouldEqual Set.empty }
+        _ <- release.complete(())
+        _ <- clear
         released <- released.get
-        _        <- IO { released shouldEqual true }
-        keys     <- cache.keys
-        _        <- IO { keys shouldEqual Set.empty }
+        _ <- IO { released shouldEqual true }
+        keys <- cache.keys
+        _ <- IO { keys shouldEqual Set.empty }
         _ <- metrics.expect(
-          metrics.expectedKeys                 -> 3,
-          metrics.expectedGet(hit = false)     -> 1,
-          metrics.expectedLife                 -> 1,
-          metrics.expectedClear                -> 1,
+          metrics.expectedKeys -> 3,
+          metrics.expectedGet(hit = false) -> 1,
+          metrics.expectedLife -> 1,
+          metrics.expectedClear -> 1,
           metrics.expectedLoad(success = true) -> 1
         )
       } yield {}
@@ -965,28 +1009,28 @@ class CacheSpec extends AsyncFunSuite with Matchers {
     check(s"clear while getOrUpdate1 loading: $name") { (cache, metrics) =>
       for {
         deferred <- Deferred[IO, (Int, Option[IO[Unit]])]
-        value    <- cache.getOrUpdate1Ensure(0) { deferred.get }
-        keys     <- cache.keys
-        _        <- IO { keys shouldEqual Set(0) }
-        clear    <- cache.clear
-        keys     <- cache.keys
-        _        <- IO { keys shouldEqual Set.empty }
-        release  <- Deferred[IO, Unit]
+        value <- cache.getOrUpdate1Ensure(0) { deferred.get }
+        keys <- cache.keys
+        _ <- IO { keys shouldEqual Set(0) }
+        clear <- cache.clear
+        keys <- cache.keys
+        _ <- IO { keys shouldEqual Set.empty }
+        release <- Deferred[IO, Unit]
         released <- Ref[IO].of(false)
-        _        <- deferred.complete((0, (release.get *> released.set(true)).some))
-        value    <- value.joinWithNever
-        _        <- IO { value shouldEqual 0.asRight }
-        keys     <- cache.keys
-        _        <- IO { keys shouldEqual Set.empty }
-        _        <- release.complete(())
-        _        <- clear
+        _ <- deferred.complete((0, (release.get *> released.set(true)).some))
+        value <- value.joinWithNever
+        _ <- IO { value shouldEqual 0.asRight }
+        keys <- cache.keys
+        _ <- IO { keys shouldEqual Set.empty }
+        _ <- release.complete(())
+        _ <- clear
         released <- released.get
-        _        <- IO { released shouldEqual true }
+        _ <- IO { released shouldEqual true }
         _ <- metrics.expect(
-          metrics.expectedKeys                 -> 3,
-          metrics.expectedGet(hit = false)     -> 1,
-          metrics.expectedLife                 -> 1,
-          metrics.expectedClear                -> 1,
+          metrics.expectedKeys -> 3,
+          metrics.expectedGet(hit = false) -> 1,
+          metrics.expectedLife -> 1,
+          metrics.expectedClear -> 1,
           metrics.expectedLoad(success = true) -> 1
         )
       } yield {}
@@ -994,46 +1038,46 @@ class CacheSpec extends AsyncFunSuite with Matchers {
 
     check(s"keys: $name") { (cache, metrics) =>
       for {
-        _    <- cache.put(0, 0)
+        _ <- cache.put(0, 0)
         keys <- cache.keys
-        _    <- IO { keys shouldEqual Set(0) }
-        _    <- cache.put(1, 1)
+        _ <- IO { keys shouldEqual Set(0) }
+        _ <- cache.put(1, 1)
         keys <- cache.keys
-        _    <- IO { keys shouldEqual Set(0, 1) }
-        _    <- cache.put(2, 2)
+        _ <- IO { keys shouldEqual Set(0, 1) }
+        _ <- cache.put(2, 2)
         keys <- cache.keys
-        _    <- IO { keys shouldEqual Set(0, 1, 2) }
-        _    <- cache.clear
+        _ <- IO { keys shouldEqual Set(0, 1, 2) }
+        _ <- cache.clear
         keys <- cache.keys
-        _    <- IO { keys shouldEqual Set.empty }
-        _    <- metrics.expect(
-          metrics.expectedPut   -> 3,
-          metrics.expectedKeys  -> 4,
+        _ <- IO { keys shouldEqual Set.empty }
+        _ <- metrics.expect(
+          metrics.expectedPut -> 3,
+          metrics.expectedKeys -> 4,
           metrics.expectedClear -> 1,
-          metrics.expectedLife  -> 3
+          metrics.expectedLife -> 3
         )
       } yield {}
     }
 
     check(s"values: $name") { (cache, metrics) =>
       for {
-        _      <- cache.put(0, 0)
+        _ <- cache.put(0, 0)
         values <- cache.valuesFlatten
-        _      <- IO { values shouldEqual Map((0, 0)) }
-        _      <- cache.put(1, 1)
+        _ <- IO { values shouldEqual Map((0, 0)) }
+        _ <- cache.put(1, 1)
         values <- cache.valuesFlatten
-        _      <- IO { values shouldEqual Map((0, 0), (1, 1)) }
-        _      <- cache.put(2, 2)
+        _ <- IO { values shouldEqual Map((0, 0), (1, 1)) }
+        _ <- cache.put(2, 2)
         values <- cache.valuesFlatten
-        _      <- IO { values shouldEqual Map((0, 0), (1, 1), (2, 2)) }
-        _      <- cache.clear
+        _ <- IO { values shouldEqual Map((0, 0), (1, 1), (2, 2)) }
+        _ <- cache.clear
         values <- cache.valuesFlatten
-        _      <- IO { values shouldEqual Map.empty }
-        _      <- metrics.expect(
-          metrics.expectedPut    -> 3,
+        _ <- IO { values shouldEqual Map.empty }
+        _ <- metrics.expect(
+          metrics.expectedPut -> 3,
           metrics.expectedValues -> 4,
-          metrics.expectedClear  -> 1,
-          metrics.expectedLife   -> 3
+          metrics.expectedClear -> 1,
+          metrics.expectedLife -> 3
         )
       } yield {}
     }
@@ -1050,39 +1094,53 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         d <- Deferred[IO, Int]
         b <- cache.getOrUpdateEnsure(3) { d.get }
         a <- cache.values1
-        _ <- IO { a.map { case (k, v) => (k, v.toOption) } shouldEqual Map((0, 0.some), (1, 1.some), (2, 2.some), (3, none)) }
+        _ <- IO {
+          a.map { case (k, v) => (k, v.toOption) } shouldEqual Map(
+            (0, 0.some),
+            (1, 1.some),
+            (2, 2.some),
+            (3, none)
+          )
+        }
         _ <- d.complete(3)
         _ <- b.join
         a <- cache.values1
-        _ <- IO { a shouldEqual Map((0, 0.asRight), (1, 1.asRight), (2, 2.asRight), (3, 3.asRight)) }
+        _ <- IO {
+          a shouldEqual Map(
+            (0, 0.asRight),
+            (1, 1.asRight),
+            (2, 2.asRight),
+            (3, 3.asRight)
+          )
+        }
         _ <- cache.clear
         a <- cache.values1
         _ <- IO { a shouldEqual Map.empty }
         _ <- metrics.expect(
-          metrics.expectedGet(hit = false)     -> 1,
-          metrics.expectedPut                  -> 3,
-          metrics.expectedClear                -> 1,
+          metrics.expectedGet(hit = false) -> 1,
+          metrics.expectedPut -> 3,
+          metrics.expectedClear -> 1,
           metrics.expectedLoad(success = true) -> 1,
-          metrics.expectedValues               -> 5,
-          metrics.expectedLife                 -> 4
+          metrics.expectedValues -> 5,
+          metrics.expectedLife -> 4
         )
       } yield {}
     }
 
     check(s"cancellation: $name") { (cache, metrics) =>
       for {
-        deferred      <- Deferred[IO, Int]
-        fiber         <- cache.getOrUpdateEnsure(0) { deferred.get }
-        _             <- fiber.cancel.start
-        _             <- deferred.complete(0)
+        deferred <- Deferred[IO, Int]
+        fiber <- cache.getOrUpdateEnsure(0) { deferred.get }
+        _ <- fiber.cancel.start
+        _ <- deferred.complete(0)
         cancelOutcome <- fiber.join
-        _             <- IO { cancelOutcome shouldEqual Outcome.canceled }
-        value         <- cache.get(0)
-        _             <- IO { value shouldEqual 0.some }
-        _             <- metrics.expect(
-          metrics.expectedGet(hit = false)     -> 1,
+        _ <- IO { cancelOutcome shouldEqual Outcome.canceled }
+        value <- cache.get(0)
+        _ <- IO { value shouldEqual 0.some }
+        _ <- metrics.expect(
+          metrics.expectedGet(hit = false) -> 1,
           metrics.expectedLoad(success = true) -> 1,
-          metrics.expectedGet(hit = true)      -> 1
+          metrics.expectedGet(hit = true) -> 1
         )
       } yield {}
     }
@@ -1092,13 +1150,13 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         .use { case (cache, metrics) =>
           for {
             deferred <- Deferred[IO, Int]
-            fiber    <- cache.getOrUpdateEnsure(0)(deferred.get)
-            fiber    <- fiber.cancel.start
-            result   <- cache.get(0)
-            _        <- IO { result shouldEqual none }
-            _        <- deferred.complete(0)
-            _        <- fiber.joinWithNever
-            _        <- metrics.expect(metrics.expectedGet(hit = false) -> 2)
+            fiber <- cache.getOrUpdateEnsure(0)(deferred.get)
+            fiber <- fiber.cancel.start
+            result <- cache.get(0)
+            _ <- IO { result shouldEqual none }
+            _ <- deferred.complete(0)
+            _ <- fiber.joinWithNever
+            _ <- metrics.expect(metrics.expectedGet(hit = false) -> 2)
           } yield {}
         }
         .run()
@@ -1107,16 +1165,16 @@ class CacheSpec extends AsyncFunSuite with Matchers {
     check(s"no leak in case of failure: $name") { (cache, metrics) =>
       for {
         result <- cache.getOrUpdate(0)(TestError.raiseError[IO, Int]).attempt
-        _      <- IO { result shouldEqual TestError.asLeft[Int] }
+        _ <- IO { result shouldEqual TestError.asLeft[Int] }
         result <- cache.getOrUpdate(0)(0.pure[IO]).attempt
-        _      <- IO { result shouldEqual 0.asRight }
+        _ <- IO { result shouldEqual 0.asRight }
         result <- cache.getOrUpdate(0)(TestError.raiseError[IO, Int]).attempt
-        _      <- IO { result shouldEqual 0.asRight }
-        _      <- metrics.expect(
-          metrics.expectedGet(hit = false)      -> 2,
+        _ <- IO { result shouldEqual 0.asRight }
+        _ <- metrics.expect(
+          metrics.expectedGet(hit = false) -> 2,
           metrics.expectedLoad(success = false) -> 1,
-          metrics.expectedLoad(success = true)  -> 1,
-          metrics.expectedGet(hit = true)       -> 1
+          metrics.expectedLoad(success = true) -> 1,
+          metrics.expectedGet(hit = true) -> 1
         )
       } yield {}
     }
@@ -1124,14 +1182,15 @@ class CacheSpec extends AsyncFunSuite with Matchers {
     check(s"foldMap: $name") { (cache, metrics) =>
       for {
         _ <- cache.put(0, 1)
-        expect = (a: Int, i: Int) => for {
-          b <- cache.foldMap { case (_, b) => b.map { _.pure[IO] }.merge }
-          _ <- IO { b shouldEqual a }
-          _ <- metrics.expect(
-            metrics.expectedPut     -> i,
-            metrics.expectedFoldMap -> i,
-          )
-        } yield {}
+        expect = (a: Int, i: Int) =>
+          for {
+            b <- cache.foldMap { case (_, b) => b.map { _.pure[IO] }.merge }
+            _ <- IO { b shouldEqual a }
+            _ <- metrics.expect(
+              metrics.expectedPut -> i,
+              metrics.expectedFoldMap -> i
+            )
+          } yield {}
         _ <- expect(1, 1)
         _ <- cache.put(1, 2)
         _ <- expect(3, 2)
@@ -1149,9 +1208,9 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         _ <- cache.getOrUpdateEnsure(0) { d0.complete(()).productR(d1.get) }
         _ <- cache.getOrUpdateEnsure(1) { d2.complete(()).productR(d3.get) }
         _ <- cache.getOrUpdateEnsure(2) { d4.complete(()).productR(d5.get) }
-        fiber <- cache
-          .foldMapPar { case (_, b) => b.map { _.pure[IO] }.merge }
-          .start
+        fiber <- cache.foldMapPar { case (_, b) =>
+          b.map { _.pure[IO] }.merge
+        }.start
         _ <- d0.get
         _ <- d2.get
         _ <- d4.get
@@ -1161,14 +1220,16 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         a <- fiber.join
         _ <- IO { a shouldEqual 6.pure[Outcome[IO, Throwable, *]] }
         _ <- metrics.expect(
-          metrics.expectedGet(hit = false)     -> 3,
+          metrics.expectedGet(hit = false) -> 3,
           metrics.expectedLoad(success = true) -> 3,
-          metrics.expectedFoldMap              -> 1
+          metrics.expectedFoldMap -> 1
         )
       } yield {}
     }
 
-    check(s"each release performed exactly once during `getOrUpdate1` and `put` race: $name") { (cache, _) =>
+    check(
+      s"each release performed exactly once during `getOrUpdate1` and `put` race: $name"
+    ) { (cache, _) =>
       for {
         resultRef1 <- Ref[IO].of(0)
         resultRef2 <- Ref[IO].of(0)
@@ -1177,12 +1238,19 @@ class CacheSpec extends AsyncFunSuite with Matchers {
 
         // For `getOrUpdate*` we don't know how many times the resource will be run,
         // so we use increment/decrement as a way to check that the resource is released exactly once.
-        valueResource = (i: Int) => Resource.make(resultRef1.update(_ + i).as(i))(_ => resultRef1.update(_ - i))
-        f1 <- range.parTraverse { i => cache.getOrUpdateResource(0)(valueResource(i)) }.start
+        valueResource = (i: Int) =>
+          Resource.make(resultRef1.update(_ + i).as(i))(_ =>
+            resultRef1.update(_ - i)
+          )
+        f1 <- range.parTraverse { i =>
+          cache.getOrUpdateResource(0)(valueResource(i))
+        }.start
 
         // For `put` we know that the resource will be written and released every time,
         // so we increment on release and check that the final value is equal to the sum of the range.
-        f2 <- range.parTraverse(i => cache.put(0, 0, resultRef2.update(_ + i))).start
+        f2 <- range
+          .parTraverse(i => cache.put(0, 0, resultRef2.update(_ + i)))
+          .start
 
         expectedResult = range.sum
 
@@ -1197,13 +1265,17 @@ class CacheSpec extends AsyncFunSuite with Matchers {
       } yield {}
     }
 
-    check(s"each release performed exactly once during `put` and `remove` race: $name") { (cache, _) =>
+    check(
+      s"each release performed exactly once during `put` and `remove` race: $name"
+    ) { (cache, _) =>
       for {
         resultRef <- Ref[IO].of(0)
         n = 100000
         range = (1 to n).toList
 
-        f1 <- range.parTraverse(i => cache.put(0, 0, resultRef.update(_ + i))).start
+        f1 <- range
+          .parTraverse(i => cache.put(0, 0, resultRef.update(_ + i)))
+          .start
         f2 <- cache.remove(0).replicateA(n).start
 
         expectedResult = range.sum
@@ -1217,10 +1289,13 @@ class CacheSpec extends AsyncFunSuite with Matchers {
       } yield {}
     }
 
-    check(s"each release performed exactly once during " +
-      s"`getOrUpdate1`, `put`, `modify` and `remove` race: $name") { (cache, _) =>
-
-      def modify(releaseCounter: Ref[IO, Int]): Option[Int] => (Int, Directive[IO, Int]) = {
+    check(
+      s"each release performed exactly once during " +
+        s"`getOrUpdate1`, `put`, `modify` and `remove` race: $name"
+    ) { (cache, _) =>
+      def modify(
+          releaseCounter: Ref[IO, Int]
+      ): Option[Int] => (Int, Directive[IO, Int]) = {
         case Some(i) => i -> Directive.Put(i, releaseCounter.update(_ + 1).some)
         case None => -2 -> Directive.Put(-2, releaseCounter.update(_ + 1).some)
       }
@@ -1234,12 +1309,19 @@ class CacheSpec extends AsyncFunSuite with Matchers {
 
         // For `getOrUpdate*` we don't know how many times the resource will be run,
         // so we use increment/decrement as a way to check that the resource is released exactly once.
-        valueResource = (i: Int) => Resource.make(resultRef1.update(_ + i).as(i))(_ => resultRef1.update(_ - i))
-        f1 <- range.parTraverse { i => cache.getOrUpdateResource(0)(valueResource(i)) }.start
+        valueResource = (i: Int) =>
+          Resource.make(resultRef1.update(_ + i).as(i))(_ =>
+            resultRef1.update(_ - i)
+          )
+        f1 <- range.parTraverse { i =>
+          cache.getOrUpdateResource(0)(valueResource(i))
+        }.start
 
         // For `put` we know that the resource will be written and released every time,
         // so we increment on release and check that the final value is equal to the sum of the range.
-        f2 <- range.parTraverse(i => cache.put(0, 0, resultRef2.update(_ + i))).start
+        f2 <- range
+          .parTraverse(i => cache.put(0, 0, resultRef2.update(_ + i)))
+          .start
 
         f3 <- range.parTraverse(_ => cache.modify(0)(modify(resultRef3))).start
 
@@ -1262,10 +1344,13 @@ class CacheSpec extends AsyncFunSuite with Matchers {
       } yield {}
     }
 
-    check(s"failing loads don't interfere with releases during " +
-      s"`getOrUpdate1`, `put`, `modify` and `remove` race: $name") { (cache, _) =>
-
-      def modify(releaseCounter: Ref[IO, Int]): Option[Int] => (Int, Directive[IO, Int]) = {
+    check(
+      s"failing loads don't interfere with releases during " +
+        s"`getOrUpdate1`, `put`, `modify` and `remove` race: $name"
+    ) { (cache, _) =>
+      def modify(
+          releaseCounter: Ref[IO, Int]
+      ): Option[Int] => (Int, Directive[IO, Int]) = {
         case Some(i) => i -> Directive.Put(i, releaseCounter.update(_ + 1).some)
         case None => -2 -> Directive.Put(-2, releaseCounter.update(_ + 1).some)
       }
@@ -1280,20 +1365,31 @@ class CacheSpec extends AsyncFunSuite with Matchers {
 
         // For `getOrUpdate*` we don't know how many times the resource will be run,
         // so we use increment/decrement as a way to check that the resource is released exactly once.
-        valueResource = (i: Int) => Resource.make(resultRef1.update(_ + i).as(i))(_ => resultRef1.update(_ - i))
+        valueResource = (i: Int) =>
+          Resource.make(resultRef1.update(_ + i).as(i))(_ =>
+            resultRef1.update(_ - i)
+          )
         f1 <- range.parTraverse { i =>
-          cache.getOrUpdateResource(0)(valueResource(i)).recover { case _ => -1 }
+          cache.getOrUpdateResource(0)(valueResource(i)).recover { case _ =>
+            -1
+          }
         }.start
 
         failingResource = (i: Int) =>
-          Resource.make(new Exception("Boom").raiseError[IO, Int])(_ => resultRef2.update(_ - i))
+          Resource.make(new Exception("Boom").raiseError[IO, Int])(_ =>
+            resultRef2.update(_ - i)
+          )
         f2 <- range.parTraverse { i =>
-          cache.getOrUpdateResource(0)(failingResource(i)).recover { case _ => -1 }
+          cache.getOrUpdateResource(0)(failingResource(i)).recover { case _ =>
+            -1
+          }
         }.start
 
         // For `put` we know that the resource will be written and released every time,
         // so we increment on release and check that the final value is equal to the sum of the range.
-        f3 <- range.parTraverse(i => cache.put(0, 0, resultRef3.update(_ + i))).start
+        f3 <- range
+          .parTraverse(i => cache.put(0, 0, resultRef3.update(_ + i)))
+          .start
 
         f4 <- range.parTraverse(_ => cache.modify(0)(modify(resultRef4))).start
 
@@ -1322,7 +1418,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
     check(s"modify modifies existing entry: $name") { (cache, metrics) =>
       val modify: Option[Int] => (Int, Directive[IO, Int]) = {
         case Some(i) => i -> Directive.Put(i + 1, None)
-        case None => -1 -> Directive.Ignore
+        case None    => -1 -> Directive.Ignore
       }
       for {
         (a, release1) <- cache.modify(0)(modify)
@@ -1338,16 +1434,23 @@ class CacheSpec extends AsyncFunSuite with Matchers {
 
         _ <- metrics.expect(
           metrics.expectedPut -> 1,
-          metrics.expectedModify(entryExisted = false, CacheMetrics.Directive.Ignore) -> 1,
-          metrics.expectedModify(entryExisted = true, CacheMetrics.Directive.Put) -> 1,
+          metrics.expectedModify(
+            entryExisted = false,
+            CacheMetrics.Directive.Ignore
+          ) -> 1,
+          metrics.expectedModify(
+            entryExisted = true,
+            CacheMetrics.Directive.Put
+          ) -> 1,
           metrics.expectedGet(true) -> 1,
-          metrics.expectedLife -> 2,
+          metrics.expectedLife -> 2
         )
       } yield ()
     }
 
     check(s"modify keeps existing entry: $name") { (cache, metrics) =>
-      val modify: Option[Int] => (Int, Directive[IO, Int]) = i => i.getOrElse(-1) -> Directive.Ignore
+      val modify: Option[Int] => (Int, Directive[IO, Int]) =
+        i => i.getOrElse(-1) -> Directive.Ignore
       for {
         (a, release1) <- cache.modify(0)(modify)
         _ <- IO { a shouldEqual -1 }
@@ -1359,9 +1462,15 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         _ <- List(release1, release2).flatten.sequence_
         _ <- metrics.expect(
           metrics.expectedPut -> 1,
-          metrics.expectedModify(entryExisted = false, CacheMetrics.Directive.Ignore) -> 1,
-          metrics.expectedModify(entryExisted = true, CacheMetrics.Directive.Ignore) -> 1,
-          metrics.expectedGet(true) -> 1,
+          metrics.expectedModify(
+            entryExisted = false,
+            CacheMetrics.Directive.Ignore
+          ) -> 1,
+          metrics.expectedModify(
+            entryExisted = true,
+            CacheMetrics.Directive.Ignore
+          ) -> 1,
+          metrics.expectedGet(true) -> 1
         )
       } yield ()
     }
@@ -1369,7 +1478,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
     check(s"modify removes existing entry: $name") { (cache, metrics) =>
       val modify: Option[Int] => (Int, Directive[IO, Int]) = {
         case Some(i) => i -> Directive.Remove
-        case None => -1 -> Directive.Ignore
+        case None    => -1 -> Directive.Ignore
       }
       for {
         (a, release1) <- cache.modify(0)(modify)
@@ -1382,10 +1491,16 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         _ <- List(release1, release2).flatten.sequence_
         _ <- metrics.expect(
           metrics.expectedPut -> 1,
-          metrics.expectedModify(entryExisted = false, CacheMetrics.Directive.Ignore) -> 1,
-          metrics.expectedModify(entryExisted = true, CacheMetrics.Directive.Remove) -> 1,
+          metrics.expectedModify(
+            entryExisted = false,
+            CacheMetrics.Directive.Ignore
+          ) -> 1,
+          metrics.expectedModify(
+            entryExisted = true,
+            CacheMetrics.Directive.Remove
+          ) -> 1,
           metrics.expectedGet(false) -> 1,
-          metrics.expectedLife -> 1,
+          metrics.expectedLife -> 1
         )
       } yield ()
     }
@@ -1393,7 +1508,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
     check(s"modify adds entry when absent: $name") { (cache, metrics) =>
       val modify: Option[Int] => (Int, Directive[IO, Int]) = {
         case Some(i) => i -> Directive.Ignore
-        case None => 1 -> Directive.Put(1, None)
+        case None    => 1 -> Directive.Put(1, None)
       }
       for {
         (a, release1) <- cache.modify(0)(modify)
@@ -1404,131 +1519,196 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         _ <- IO { value shouldBe Some(1) }
         _ <- List(release1, release2).flatten.sequence_
         _ <- metrics.expect(
-          metrics.expectedModify(entryExisted = false, CacheMetrics.Directive.Put) -> 1,
-          metrics.expectedModify(entryExisted = true, CacheMetrics.Directive.Ignore) -> 1,
-          metrics.expectedGet(true) -> 1,
+          metrics.expectedModify(
+            entryExisted = false,
+            CacheMetrics.Directive.Put
+          ) -> 1,
+          metrics.expectedModify(
+            entryExisted = true,
+            CacheMetrics.Directive.Ignore
+          ) -> 1,
+          metrics.expectedGet(true) -> 1
         )
       } yield ()
     }
 
-    check(s"modify guarantees updated value write concurrently accessing single key: $name") {
-      (cache, metrics) =>
-        def modify(releaseCounter: Ref[IO, Int]): Option[Int] => (Int, Directive[IO, Int]) = {
-          case Some(i) => i -> Directive.Put(i + 1, releaseCounter.update(_ + i + 1).some)
-          case None => 0 -> Directive.Put(1, releaseCounter.update(_ + 1).some)
-        }
-        for {
-          releaseCounter <- Ref[IO].of(0)
-          n = 100000
-          range = (1 to n).toList
+    check(
+      s"modify guarantees updated value write concurrently accessing single key: $name"
+    ) { (cache, metrics) =>
+      def modify(
+          releaseCounter: Ref[IO, Int]
+      ): Option[Int] => (Int, Directive[IO, Int]) = {
+        case Some(i) =>
+          i -> Directive.Put(i + 1, releaseCounter.update(_ + i + 1).some)
+        case None => 0 -> Directive.Put(1, releaseCounter.update(_ + 1).some)
+      }
+      for {
+        releaseCounter <- Ref[IO].of(0)
+        n = 100000
+        range = (1 to n).toList
 
-          f1 <- range.parTraverse(_ => cache.modify(0)(modify(releaseCounter))).start
+        f1 <- range
+          .parTraverse(_ => cache.modify(0)(modify(releaseCounter)))
+          .start
 
-          expectedResult = range.sum
+        expectedResult = range.sum
 
-          results <- f1.joinWithNever
-          _ <- IO { results.map(_._1).sum shouldEqual (expectedResult - n) }
+        results <- f1.joinWithNever
+        _ <- IO { results.map(_._1).sum shouldEqual (expectedResult - n) }
 
-          // Waiting for releases
-          _ <- results.flatMap(_._2).sequence_
+        // Waiting for releases
+        _ <- results.flatMap(_._2).sequence_
 
-          lastWrittenValue <- cache.get(0)
-          (lastValueRemoved, lastRelease) <- cache.modify(0)(lastValue => (lastValue, Directive.Remove))
-          _ <- lastRelease.sequence_
-          releasedValuesSum <- releaseCounter.get
+        lastWrittenValue <- cache.get(0)
+        (lastValueRemoved, lastRelease) <- cache.modify(0)(lastValue =>
+          (lastValue, Directive.Remove)
+        )
+        _ <- lastRelease.sequence_
+        releasedValuesSum <- releaseCounter.get
 
-          _ <- IO { releasedValuesSum shouldEqual expectedResult }
-          _ <- IO { lastWrittenValue shouldBe n.some }
-          _ <- IO { lastValueRemoved shouldBe n.some }
+        _ <- IO { releasedValuesSum shouldEqual expectedResult }
+        _ <- IO { lastWrittenValue shouldBe n.some }
+        _ <- IO { lastValueRemoved shouldBe n.some }
 
-          _ <- metrics.expect(
-            metrics.expectedModify(entryExisted = false, CacheMetrics.Directive.Put) -> 1,
-            metrics.expectedModify(entryExisted = true, CacheMetrics.Directive.Put) -> (n - 1),
-            metrics.expectedModify(entryExisted = true, CacheMetrics.Directive.Remove) -> 1,
-            metrics.expectedGet(true) -> 1,
-            metrics.expectedLife -> n,
-          )
-        } yield ()
+        _ <- metrics.expect(
+          metrics.expectedModify(
+            entryExisted = false,
+            CacheMetrics.Directive.Put
+          ) -> 1,
+          metrics.expectedModify(
+            entryExisted = true,
+            CacheMetrics.Directive.Put
+          ) -> (n - 1),
+          metrics.expectedModify(
+            entryExisted = true,
+            CacheMetrics.Directive.Remove
+          ) -> 1,
+          metrics.expectedGet(true) -> 1,
+          metrics.expectedLife -> n
+        )
+      } yield ()
     }
 
-    check(s"modify guarantees updated value write concurrently accessing multiple keys: $name") {
-      (cache, metrics) =>
-        def modify(releaseCounter: Ref[IO, Int]): Option[Int] => (Int, Directive[IO, Int]) = {
-          case Some(i) => i -> Directive.Put(i + 1, releaseCounter.update(_ + i + 1).some)
-          case None => 0 -> Directive.Put(1, releaseCounter.update(_ + 1).some)
-        }
-        for {
-          releaseCounter <- Ref[IO].of(0)
-          n = 100000
-          range = (1 to n).toList
+    check(
+      s"modify guarantees updated value write concurrently accessing multiple keys: $name"
+    ) { (cache, metrics) =>
+      def modify(
+          releaseCounter: Ref[IO, Int]
+      ): Option[Int] => (Int, Directive[IO, Int]) = {
+        case Some(i) =>
+          i -> Directive.Put(i + 1, releaseCounter.update(_ + i + 1).some)
+        case None => 0 -> Directive.Put(1, releaseCounter.update(_ + 1).some)
+      }
+      for {
+        releaseCounter <- Ref[IO].of(0)
+        n = 100000
+        range = (1 to n).toList
 
-          f0 <- range.parTraverse(_ => cache.modify(0)(modify(releaseCounter))).start
-          f1 <- range.parTraverse(_ => cache.modify(1)(modify(releaseCounter))).start
-          f2 <- range.parTraverse(_ => cache.modify(2)(modify(releaseCounter))).start
-          f3 <- range.parTraverse(_ => cache.modify(3)(modify(releaseCounter))).start
+        f0 <- range
+          .parTraverse(_ => cache.modify(0)(modify(releaseCounter)))
+          .start
+        f1 <- range
+          .parTraverse(_ => cache.modify(1)(modify(releaseCounter)))
+          .start
+        f2 <- range
+          .parTraverse(_ => cache.modify(2)(modify(releaseCounter)))
+          .start
+        f3 <- range
+          .parTraverse(_ => cache.modify(3)(modify(releaseCounter)))
+          .start
 
-          expectedResult = range.sum
+        expectedResult = range.sum
 
-          results <- List(f0, f1, f2, f3).flatTraverse(_.joinWithNever)
-          _ <- IO { results.map(_._1).sum shouldEqual (expectedResult - n) * 4 }
+        results <- List(f0, f1, f2, f3).flatTraverse(_.joinWithNever)
+        _ <- IO { results.map(_._1).sum shouldEqual (expectedResult - n) * 4 }
 
-          // Waiting for releases
-          _ <- results.flatMap(_._2).sequence_
+        // Waiting for releases
+        _ <- results.flatMap(_._2).sequence_
 
-          lastWrittenValue0 <- cache.get(0)
-          lastWrittenValue1 <- cache.get(1)
-          lastWrittenValue2 <- cache.get(2)
-          lastWrittenValue3 <- cache.get(3)
+        lastWrittenValue0 <- cache.get(0)
+        lastWrittenValue1 <- cache.get(1)
+        lastWrittenValue2 <- cache.get(2)
+        lastWrittenValue3 <- cache.get(3)
 
-          (lastValueRemoved0, lastRelease0) <- cache.modify(0)(lastValue => (lastValue, Directive.Remove))
-          (lastValueRemoved1, lastRelease1) <- cache.modify(1)(lastValue => (lastValue, Directive.Remove))
-          (lastValueRemoved2, lastRelease2) <- cache.modify(2)(lastValue => (lastValue, Directive.Remove))
-          (lastValueRemoved3, lastRelease3) <- cache.modify(3)(lastValue => (lastValue, Directive.Remove))
-          _ <- List(lastRelease0, lastRelease1, lastRelease2, lastRelease3).flatten.sequence_
+        (lastValueRemoved0, lastRelease0) <- cache.modify(0)(lastValue =>
+          (lastValue, Directive.Remove)
+        )
+        (lastValueRemoved1, lastRelease1) <- cache.modify(1)(lastValue =>
+          (lastValue, Directive.Remove)
+        )
+        (lastValueRemoved2, lastRelease2) <- cache.modify(2)(lastValue =>
+          (lastValue, Directive.Remove)
+        )
+        (lastValueRemoved3, lastRelease3) <- cache.modify(3)(lastValue =>
+          (lastValue, Directive.Remove)
+        )
+        _ <- List(
+          lastRelease0,
+          lastRelease1,
+          lastRelease2,
+          lastRelease3
+        ).flatten.sequence_
 
-          releasedValuesSum <- releaseCounter.get
+        releasedValuesSum <- releaseCounter.get
 
-          _ <- IO { releasedValuesSum shouldEqual expectedResult * 4 }
+        _ <- IO { releasedValuesSum shouldEqual expectedResult * 4 }
 
-          _ <- IO { lastWrittenValue0 shouldBe n.some }
-          _ <- IO { lastWrittenValue1 shouldBe n.some }
-          _ <- IO { lastWrittenValue2 shouldBe n.some }
-          _ <- IO { lastWrittenValue3 shouldBe n.some }
+        _ <- IO { lastWrittenValue0 shouldBe n.some }
+        _ <- IO { lastWrittenValue1 shouldBe n.some }
+        _ <- IO { lastWrittenValue2 shouldBe n.some }
+        _ <- IO { lastWrittenValue3 shouldBe n.some }
 
-          _ <- IO { lastValueRemoved0 shouldBe n.some }
-          _ <- IO { lastValueRemoved1 shouldBe n.some }
-          _ <- IO { lastValueRemoved2 shouldBe n.some }
-          _ <- IO { lastValueRemoved3 shouldBe n.some }
+        _ <- IO { lastValueRemoved0 shouldBe n.some }
+        _ <- IO { lastValueRemoved1 shouldBe n.some }
+        _ <- IO { lastValueRemoved2 shouldBe n.some }
+        _ <- IO { lastValueRemoved3 shouldBe n.some }
 
-          _ <- metrics.expect(
-            metrics.expectedModify(entryExisted = false, CacheMetrics.Directive.Put) -> 4,
-            metrics.expectedModify(entryExisted = true, CacheMetrics.Directive.Put) -> (n - 1) * 4,
-            metrics.expectedModify(entryExisted = true, CacheMetrics.Directive.Remove) -> 4,
-            metrics.expectedGet(true) -> 4,
-            metrics.expectedLife -> n * 4,
-          )
-        } yield ()
+        _ <- metrics.expect(
+          metrics.expectedModify(
+            entryExisted = false,
+            CacheMetrics.Directive.Put
+          ) -> 4,
+          metrics.expectedModify(
+            entryExisted = true,
+            CacheMetrics.Directive.Put
+          ) -> (n - 1) * 4,
+          metrics.expectedModify(
+            entryExisted = true,
+            CacheMetrics.Directive.Remove
+          ) -> 4,
+          metrics.expectedGet(true) -> 4,
+          metrics.expectedLife -> n * 4
+        )
+      } yield ()
     }
   }
 }
 
 object CacheSpec {
 
-  class CacheMetricsProbe(interactions: Ref[IO, Map[String, Int]]) extends CacheMetrics[IO] with Matchers with Eventually {
-    private def inc(op: String) = interactions.update(i => i.updated(op, i.getOrElse(op, 0) + 1))
+  class CacheMetricsProbe(interactions: Ref[IO, Map[String, Int]])
+      extends CacheMetrics[IO]
+      with Matchers
+      with Eventually {
+    private def inc(op: String) =
+      interactions.update(i => i.updated(op, i.getOrElse(op, 0) + 1))
 
     // results of metrics.life calls might take some time
-    def expect(calls: (String, Int)*): IO[Assertion] = eventually(timeout(200.millis), interval(50.millis)) {
-      interactions
-        .get
-        .flatMap(is => IO { is shouldBe calls.toMap })
-    }
+    def expect(calls: (String, Int)*): IO[Assertion] =
+      eventually(timeout(200.millis), interval(50.millis)) {
+        interactions.get
+          .flatMap(is => IO { is shouldBe calls.toMap })
+      }
 
     def expectedGet(hit: Boolean): String = s"get(hit=$hit)"
-    def expectedLoad(success: Boolean): String = s"load(time=..., success=$success)"
+    def expectedLoad(success: Boolean): String =
+      s"load(time=..., success=$success)"
     val expectedLife: String = "life(time=...)"
     val expectedPut: String = "put"
-    def expectedModify(entryExisted: Boolean, directive: CacheMetrics.Directive): String =
+    def expectedModify(
+        entryExisted: Boolean,
+        directive: CacheMetrics.Directive
+    ): String =
       s"modify(existed=$entryExisted, directive=$directive"
     def expectedSize(size: Int): String = s"size(size=$size)"
     val expectedSize: String = "size(latency=...)"
@@ -1538,10 +1718,15 @@ object CacheSpec {
     val expectedFoldMap: String = "foldMap(latency=...)"
 
     def get(hit: Boolean): IO[Unit] = inc(expectedGet(hit))
-    def load(time: FiniteDuration, success: Boolean): IO[Unit] = inc(expectedLoad(success))
+    def load(time: FiniteDuration, success: Boolean): IO[Unit] = inc(
+      expectedLoad(success)
+    )
     def life(time: FiniteDuration): IO[Unit] = inc(expectedLife)
     def put: IO[Unit] = inc(expectedPut)
-    def modify(entryExisted: Boolean, directive: CacheMetrics.Directive): IO[Unit] =
+    def modify(
+        entryExisted: Boolean,
+        directive: CacheMetrics.Directive
+    ): IO[Unit] =
       inc(expectedModify(entryExisted, directive))
     def size(size: Int): IO[Unit] = inc(expectedSize(size))
     def size(latency: FiniteDuration): IO[Unit] = inc(expectedSize)
@@ -1551,17 +1736,19 @@ object CacheSpec {
     def foldMap(latency: FiniteDuration): IO[Unit] = inc(expectedFoldMap)
   }
   object CacheMetricsProbe {
-    def of: IO[CacheMetricsProbe] = Ref.of[IO, Map[String, Int]](Map.empty).map(new CacheMetricsProbe(_))
+    def of: IO[CacheMetricsProbe] =
+      Ref.of[IO, Map[String, Int]](Map.empty).map(new CacheMetricsProbe(_))
   }
 
   case object TestError extends RuntimeException with NoStackTrace
 
-  implicit class CacheSpecCacheOps[F[_], K, V](val self: Cache[F, K, V]) extends AnyVal {
+  implicit class CacheSpecCacheOps[F[_], K, V](val self: Cache[F, K, V])
+      extends AnyVal {
 
     def valuesFlatten(implicit F: Monad[F]): F[Map[K, V]] = {
       for {
         values <- self.values
-        zero    = Map.empty[K, V].pure[F]
+        zero = Map.empty[K, V].pure[F]
         values <- values.foldLeft(zero) { case (map, (key, value)) =>
           for {
             map <- map
@@ -1573,11 +1760,12 @@ object CacheSpec {
       } yield values
     }
 
-
-    def getOrUpdateEnsure(key: K)(value: => F[V])(implicit F: Concurrent[F]): F[Fiber[F, Throwable, Either[Throwable, V]]] = {
+    def getOrUpdateEnsure(key: K)(value: => F[V])(implicit
+        F: Concurrent[F]
+    ): F[Fiber[F, Throwable, Either[Throwable, V]]] = {
       for {
         deferred <- Deferred[F, Unit]
-        fiber    <- self
+        fiber <- self
           .getOrUpdate(key) {
             for {
               _ <- deferred.complete(())
@@ -1586,14 +1774,16 @@ object CacheSpec {
           }
           .attempt
           .start
-        _        <- deferred.get
+        _ <- deferred.get
       } yield fiber
     }
 
-    def getOrUpdateOptEnsure(key: K)(value: => F[Option[V]])(implicit F: Concurrent[F]): F[Fiber[F, Throwable, Either[Throwable, Option[V]]]] = {
+    def getOrUpdateOptEnsure(key: K)(value: => F[Option[V]])(implicit
+        F: Concurrent[F]
+    ): F[Fiber[F, Throwable, Either[Throwable, Option[V]]]] = {
       for {
         deferred <- Deferred[F, Unit]
-        fiber    <- self
+        fiber <- self
           .getOrUpdateOpt(key) {
             deferred
               .complete(())
@@ -1601,18 +1791,16 @@ object CacheSpec {
           }
           .attempt
           .start
-        _        <- deferred.get
+        _ <- deferred.get
       } yield fiber
     }
 
-    def getOrUpdate1Ensure(
-      key: K)(
-      value: => F[(V, Option[F[Unit]])])(implicit
-      F: Concurrent[F]
+    def getOrUpdate1Ensure(key: K)(value: => F[(V, Option[F[Unit]])])(implicit
+        F: Concurrent[F]
     ): F[Fiber[F, Throwable, Either[Throwable, V]]] = {
       for {
         deferred <- Deferred[F, Unit]
-        fiber    <- self
+        fiber <- self
           .getOrUpdate1(key) {
             deferred
               .complete(())
@@ -1626,23 +1814,25 @@ object CacheSpec {
           }
           .attempt
           .start
-        _        <- deferred.get
+        _ <- deferred.get
       } yield fiber
     }
 
     def getOrUpdateOpt1Ensure(
-      key: K)(
-      value: => F[Option[(V, Option[F[Unit]])]])(implicit
-      F: Concurrent[F]
+        key: K
+    )(value: => F[Option[(V, Option[F[Unit]])]])(implicit
+        F: Concurrent[F]
     ): F[Fiber[F, Throwable, Option[V]]] = {
       for {
         deferred <- Deferred[F, Unit]
-        fiber    <- self
+        fiber <- self
           .getOrUpdateOpt1[V](key) {
             deferred
               .complete(())
               .productR { value }
-              .map { _.map { case (value, release) => (value, value, release) } }
+              .map {
+                _.map { case (value, release) => (value, value, release) }
+              }
           }
           .flatMap {
             case Some(Right(Right(a))) => a.some.pure[F]
@@ -1651,7 +1841,7 @@ object CacheSpec {
             case None                  => none[V].pure[F]
           }
           .start
-        _        <- deferred.get
+        _ <- deferred.get
       } yield fiber
     }
   }
