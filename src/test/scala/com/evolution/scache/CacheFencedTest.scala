@@ -7,7 +7,6 @@ import com.evolution.scache.IOSuite.*
 import org.scalatest.funsuite.AsyncFunSuite
 import org.scalatest.matchers.should.Matchers
 
-
 class CacheFencedTest extends AsyncFunSuite with Matchers {
 
   private val cache = Cache
@@ -17,8 +16,8 @@ class CacheFencedTest extends AsyncFunSuite with Matchers {
   test(s"get succeeds after cache is released") {
     val result = for {
       cache <- cache.use(_.pure[IO])
-      a     <- cache.get(0)
-      _      = a shouldEqual none
+      a <- cache.get(0)
+      _ = a shouldEqual none
     } yield {}
     result.run()
   }
@@ -26,8 +25,8 @@ class CacheFencedTest extends AsyncFunSuite with Matchers {
   test("getOrElse succeeds after cache is released") {
     val result = for {
       cache <- cache.use(_.pure[IO])
-      a     <- cache.getOrElse(0, 1.pure[IO])
-      _      = a shouldEqual 1
+      a <- cache.getOrElse(0, 1.pure[IO])
+      _ = a shouldEqual 1
     } yield {}
     result.run()
   }
@@ -35,8 +34,8 @@ class CacheFencedTest extends AsyncFunSuite with Matchers {
   test(s"put succeeds after cache is released") {
     val result = for {
       cache <- cache.use(_.pure[IO])
-      a     <- cache.put(0, 0).flatten
-      _      = a shouldEqual none
+      a <- cache.put(0, 0).flatten
+      _ = a shouldEqual none
     } yield {}
     result.run()
   }
@@ -44,8 +43,8 @@ class CacheFencedTest extends AsyncFunSuite with Matchers {
   test(s"put releasable fails after cache is released") {
     val result = for {
       cache <- cache.use(_.pure[IO])
-      a     <- cache.put(0, 0, ().pure[IO]).flatten.attempt
-      _      = a shouldEqual CacheReleasedError.asLeft
+      a <- cache.put(0, 0, ().pure[IO]).flatten.attempt
+      _ = a shouldEqual CacheReleasedError.asLeft
     } yield {}
     result.run()
   }
@@ -53,8 +52,8 @@ class CacheFencedTest extends AsyncFunSuite with Matchers {
   test(s"size succeeds after cache is released") {
     val result = for {
       cache <- cache.use { cache => cache.put(0, 0).flatten as cache }
-      a     <- cache.size
-      _      = a shouldEqual 0
+      a <- cache.size
+      _ = a shouldEqual 0
     } yield {}
     result.run()
   }
@@ -62,8 +61,8 @@ class CacheFencedTest extends AsyncFunSuite with Matchers {
   test(s"remove succeeds after cache is released") {
     val result = for {
       cache <- cache.use(_.pure[IO])
-      a     <- cache.remove(0).flatten
-      _      = a shouldEqual none
+      a <- cache.remove(0).flatten
+      _ = a shouldEqual none
     } yield {}
     result.run()
   }
@@ -71,7 +70,7 @@ class CacheFencedTest extends AsyncFunSuite with Matchers {
   test(s"clear succeeds after cache is released") {
     val result = for {
       cache <- cache.use(_.pure[IO])
-      _     <- cache.clear.flatten
+      _ <- cache.clear.flatten
     } yield {}
     result.run()
   }
@@ -79,8 +78,8 @@ class CacheFencedTest extends AsyncFunSuite with Matchers {
   test(s"getOrUpdate succeeds after cache is released") {
     val result = for {
       cache <- cache.use(_.pure[IO])
-      a     <- cache.getOrUpdate(0)(1.pure[IO])
-      _      = a shouldEqual 1
+      a <- cache.getOrUpdate(0)(1.pure[IO])
+      _ = a shouldEqual 1
     } yield {}
     result.run()
   }
@@ -88,8 +87,8 @@ class CacheFencedTest extends AsyncFunSuite with Matchers {
   test(s"getOrUpdateReleasable fails after cache is released") {
     val result = for {
       cache <- cache.use { _.pure[IO] }
-      a     <- cache.getOrUpdate1(0)((1, 1, IO.unit.some).pure[IO]).attempt
-      _     <- IO { a shouldEqual CacheReleasedError.asLeft }
+      a <- cache.getOrUpdate1(0)((1, 1, IO.unit.some).pure[IO]).attempt
+      _ <- IO { a shouldEqual CacheReleasedError.asLeft }
     } yield {}
     result.run()
   }
@@ -98,7 +97,7 @@ class CacheFencedTest extends AsyncFunSuite with Matchers {
 
     def cache(ref: Ref[IO, Int]) = {
       val cache = for {
-        _     <- Resource.release { ref.update(_ + 1) }
+        _ <- Resource.release { ref.update(_ + 1) }
         cache <- Cache
           .loading[IO, Int, Int]
           .flatMap { _.withFence }
@@ -108,12 +107,12 @@ class CacheFencedTest extends AsyncFunSuite with Matchers {
 
     val result = for {
       ref <- Ref[IO].of(0)
-      ab  <- cache(ref).allocated
+      ab <- cache(ref).allocated
       (_, release) = ab
-      _   <- release
-      _   <- release
-      a   <- ref.get
-      _    = a shouldEqual 1
+      _ <- release
+      _ <- release
+      a <- ref.get
+      _ = a shouldEqual 1
     } yield {}
     result.run()
   }
