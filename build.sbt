@@ -1,6 +1,4 @@
-import sbt.librarymanagement.For3Use2_13
 import Dependencies._
-import org.scoverage.coveralls.Imports.CoverallsKeys._
 
 def crossSettings[T](scalaVersion: String, if3: T, if2: T) = {
   scalaVersion match {
@@ -13,13 +11,13 @@ name := "scache"
 
 organization := "com.evolution"
 
-homepage := Some(new URL("http://github.com/evolution-gaming/scache"))
+homepage := Some(url("https://github.com/evolution-gaming/scache"))
 
 startYear := Some(2019)
 
-organizationName := "Evolution Gaming"
+organizationName := "Evolution"
 
-organizationHomepage := Some(url("http://evolutiongaming.com"))
+organizationHomepage := Some(url("https://evolution.com"))
 coverageExcludedFiles := ".*CacheOpsCompat.*"
 
 scalaVersion := crossScalaVersions.value.head
@@ -65,10 +63,6 @@ licenses := Seq(("MIT", url("https://opensource.org/licenses/MIT")))
 
 description := "Cache in Scala with cats-effect"
 
-sonatypeCredentialHost := "s01.oss.sonatype.org"
-
-sonatypeRepository := "https://s01.oss.sonatype.org/service/local"
-
 Test / publishArtifact := false
 
 scmInfo := Some(
@@ -87,4 +81,7 @@ developers := List(
   )
 )
 
-enablePlugins(GitVersioning)
+publishTo := Some(Resolver.evolutionReleases)
+
+//addCommandAlias("check", "all versionPolicyCheck Compile/doc")
+addCommandAlias("check", "show version")
