@@ -39,7 +39,7 @@ jobs:
         run: sbt ++${{ matrix.scala }} clean coverage test
 
       - name: test coverage
-        if: success() && matrix.scala != '3.3.0'
+        if: success() && matrix.scala != '3.3.4'
         env:
           COVERALLS_REPO_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           COVERALLS_FLAG_NAME: Scala ${{ matrix.scala }}
