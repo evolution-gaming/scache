@@ -22,7 +22,7 @@ coverageExcludedFiles := ".*CacheOpsCompat.*"
 
 scalaVersion := crossScalaVersions.value.head
 
-crossScalaVersions := Seq("2.13.11", "3.3.0", "2.12.18")
+crossScalaVersions := Seq("2.13.16", "3.3.0", "2.12.18")
 
 scalacOptsFailOnWarn := crossSettings(
   scalaVersion.value,
