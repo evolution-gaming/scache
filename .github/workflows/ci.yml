@@ -28,11 +28,14 @@ jobs:
       - uses: coursier/cache-action@v6
 
       - name: Setup Java
-        uses: actions/setup-java@v3
+        uses: actions/setup-java@v4
         with:
           java-version: "17"
           distribution: "temurin"
           cache: "sbt"
+      
+      - name: setup SBT
+        uses: sbt/setup-sbt@v1
 
       - name: build ${{ matrix.scala }}
         run: sbt ++${{ matrix.scala }} clean coverage test
@@ -68,6 +71,9 @@ jobs:
           distribution: temurin
           java-version: 17
           cache: "sbt"
+
+      - name: setup SBT
+        uses: sbt/setup-sbt@v1
 
       - name: Publish artifacts
         env:
