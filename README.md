@@ -120,13 +120,13 @@ trait SerialMap[F[_], K, V] {
 
 ## Setup
 
-Although `scache` is available on maven central, its dependencies are not. That is why one need to include
-dependency on https://github.com/evolution-gaming/sbt-artifactory-plugin.
+`scache`, along with its dependencies, is available on Evolution's JFrog Artifactory. That is why one needs to include
+a dependency on https://github.com/evolution-gaming/sbt-artifactory-plugin.
 
 ```scala
 addSbtPlugin("com.evolution" % "sbt-artifactory-plugin" % "0.0.2")
 
-libraryDependencies += "com.evolution" %% "scache" % "5.1.2"
+libraryDependencies += "com.evolution" %% "scache" % "<latest version from badge>"
 ```
 
 ## ExpiringCache
