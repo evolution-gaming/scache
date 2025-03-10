@@ -19,9 +19,8 @@ jobs:
       fail-fast: false
       matrix:
         scala:
-          - 3.3.0
-          - 2.13.11
-          - 2.12.18
+          - 3.3.5
+          - 2.13.16
 
     steps:
       - uses: actions/checkout@v3
@@ -29,17 +28,20 @@ jobs:
       - uses: coursier/cache-action@v6
 
       - name: Setup Java
-        uses: actions/setup-java@v3
+        uses: actions/setup-java@v4
         with:
           java-version: "17"
           distribution: "temurin"
           cache: "sbt"
+      
+      - name: setup SBT
+        uses: sbt/setup-sbt@v1
 
       - name: build ${{ matrix.scala }}
         run: sbt ++${{ matrix.scala }} clean coverage test
 
       - name: test coverage
-        if: success() && matrix.scala != '3.3.0'
+        if: success() && matrix.scala != '3.3.5'
         env:
           COVERALLS_REPO_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           COVERALLS_FLAG_NAME: Scala ${{ matrix.scala }}
@@ -52,28 +54,3 @@ jobs:
           type: ${{ job.status }}
           job_name: Build
           url: ${{ secrets.SLACK_WEBHOOK }}
-
-  publish:
-    name: Publish Artifacts
-    needs: [test]
-    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v'))
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-
-      - uses: coursier/cache-action@v6
-
-      - name: Setup Java
-        uses: actions/setup-java@v3
-        with:
-          distribution: temurin
-          java-version: 17
-          cache: "sbt"
-
-      - name: Publish artifacts
-        env:
-          SONATYPE_USERNAME: ${{ secrets.SONATYPE_USER }}
-          SONATYPE_PASSWORD: ${{ secrets.SONATYPE_PASS }}
-          PGP_PASSPHRASE: ${{ secrets.PGP_PASSPHRASE }}
-          PGP_SECRET: ${{ secrets.PGP_SECRET }}
-        run: sbt ci-release
