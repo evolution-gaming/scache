@@ -7,7 +7,7 @@
 
 ## Key features
 
-* Available for: Scala 2.12.x, 2.13.x, 3.3.0 and later
+* Available for: Scala 2.13.x, 3.3.0 and later
 * Auto loading of missing values
 * Expiry of not used records
 * Deleting oldest values in case of exceeding max size
