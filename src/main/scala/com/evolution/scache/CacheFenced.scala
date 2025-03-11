@@ -6,12 +6,13 @@ import cats.kernel.CommutativeMonoid
 import cats.syntax.all.*
 import com.evolutiongaming.catshelper.CatsHelper.*
 
-/**
-  * Prevents adding new resources to cache after it was released
+/** Prevents adding new resources to cache after it was released
   */
 object CacheFenced {
 
-  def of[F[_]: Concurrent, K, V](cache: Cache[F, K, V]): Resource[F, Cache[F, K, V]] = {
+  def of[F[_]: Concurrent, K, V](
+      cache: Cache[F, K, V]
+  ): Resource[F, Cache[F, K, V]] = {
     Resource
       .make {
         Ref[F].of(().pure[F])
@@ -24,7 +25,10 @@ object CacheFenced {
       .fenced
   }
 
-  def apply[F[_]: MonadThrow, K, V](cache: Cache[F, K, V], fence: F[Unit]): Cache[F, K, V] = {
+  def apply[F[_]: MonadThrow, K, V](
+      cache: Cache[F, K, V],
+      fence: F[Unit]
+  ): Cache[F, K, V] = {
     abstract class CacheFenced extends Cache.Abstract1[F, K, V]
 
     new CacheFenced {
@@ -52,7 +56,9 @@ object CacheFenced {
           .productR { cache.put(key, value, release) }
       }
 
-      def modify[A](key: K)(f: Option[V] => (A, Cache.Directive[F, V])): F[(A, Option[F[Unit]])] =
+      def modify[A](key: K)(
+          f: Option[V] => (A, Cache.Directive[F, V])
+      ): F[(A, Option[F[Unit]])] =
         fence.flatMap(_ => cache.modify(key)(f))
 
       def contains(key: K) = cache.contains(key)
@@ -69,9 +75,11 @@ object CacheFenced {
 
       def clear = cache.clear
 
-      def foldMap[A: CommutativeMonoid](f: (K, Either[F[V], V]) => F[A]) = cache.foldMap(f)
+      def foldMap[A: CommutativeMonoid](f: (K, Either[F[V], V]) => F[A]) =
+        cache.foldMap(f)
 
-      def foldMapPar[A: CommutativeMonoid](f: (K, Either[F[V], V]) => F[A]) = cache.foldMapPar(f)
+      def foldMapPar[A: CommutativeMonoid](f: (K, Either[F[V], V]) => F[A]) =
+        cache.foldMapPar(f)
     }
   }
 
