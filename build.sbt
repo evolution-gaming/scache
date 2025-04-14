@@ -1,4 +1,4 @@
-import Dependencies._
+import Dependencies.*
 
 def crossSettings[T](scalaVersion: String, if3: T, if2: T) = {
   scalaVersion match {
@@ -19,6 +19,8 @@ organizationName := "Evolution"
 
 organizationHomepage := Some(url("https://evolution.com"))
 coverageExcludedFiles := ".*CacheOpsCompat.*"
+
+versionPolicyIntention := Compatibility.BinaryCompatible
 
 scalaVersion := crossScalaVersions.value.head
 
@@ -83,5 +85,5 @@ developers := List(
 
 publishTo := Some(Resolver.evolutionReleases)
 
-//addCommandAlias("check", "all versionPolicyCheck Compile/doc")
-addCommandAlias("check", "show version")
+addCommandAlias("check", "all versionPolicyCheck Compile/doc")
+addCommandAlias("build", "all test package")
