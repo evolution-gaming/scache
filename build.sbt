@@ -24,7 +24,7 @@ versionPolicyIntention := Compatibility.BinaryCompatible
 
 scalaVersion := crossScalaVersions.value.head
 
-crossScalaVersions := Seq("2.13.16", "3.3.5")
+crossScalaVersions := Seq("2.13.16", "3.3.6")
 
 scalacOptsFailOnWarn := crossSettings(
   scalaVersion.value,
