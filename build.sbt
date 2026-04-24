@@ -79,7 +79,7 @@ lazy val scache = (project in file("scache"))
     name := "scache",
     description := "Cache in Scala with cats-effect",
     coverageExcludedFiles := ".*CacheOpsCompat.*",
-    versionPolicyIntention := Compatibility.BinaryCompatible,
+    versionPolicyIntention := Compatibility.None,
     libraryDependencies ++= Seq(
       Cats.core,
       Cats.effect,
