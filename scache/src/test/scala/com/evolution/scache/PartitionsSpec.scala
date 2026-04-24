@@ -28,11 +28,11 @@ class PartitionsSpec extends AnyWordSpec with Matchers {
     "handle Int.MinValue hash correctly" in {
       // Int.MinValue is a special case: math.abs(Int.MinValue) == Int.MinValue (negative)
       // Our implementation uses (hash & Int.MaxValue) which always produces a non-negative value
-      val intMinHash: Hash[Int] = new Hash[Int] {
+      implicit val intMinHash: Hash[Int] = new Hash[Int] {
         def hash(x: Int): Int = Int.MinValue
         def eqv(x: Int, y: Int): Boolean = x == y
       }
-      val p = Partitions.of[Id, Int, String](3, _.toString)(implicitly, intMinHash)
+      val p = Partitions.of[Id, Int, String](3, _.toString)
       // Should not throw ArrayIndexOutOfBoundsException
       val result = p.get(42)
       result.toInt should be >= 0
@@ -40,11 +40,11 @@ class PartitionsSpec extends AnyWordSpec with Matchers {
     }
 
     "handle negative hash codes" in {
-      val negativeHash: Hash[Int] = new Hash[Int] {
+      implicit val negativeHash: Hash[Int] = new Hash[Int] {
         def hash(x: Int): Int = -x
         def eqv(x: Int, y: Int): Boolean = x == y
       }
-      val p = Partitions.of[Id, Int, String](4, _.toString)(implicitly, negativeHash)
+      val p = Partitions.of[Id, Int, String](4, _.toString)
       for {
         n <- 1 to 100
       } yield {
