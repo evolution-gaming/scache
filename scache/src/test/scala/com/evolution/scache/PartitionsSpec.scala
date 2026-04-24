@@ -25,35 +25,6 @@ class PartitionsSpec extends AnyWordSpec with Matchers {
       partitions.values shouldEqual List("0", "1", "2")
     }
 
-    "handle Int.MinValue hash correctly" in {
-      // Int.MinValue is a special case: math.abs(Int.MinValue) == Int.MinValue (negative)
-      // Our implementation uses (hash & Int.MaxValue) which always produces a non-negative value
-      implicit val intMinHash: Hash[Int] = new Hash[Int] {
-        def hash(x: Int): Int = Int.MinValue
-        def eqv(x: Int, y: Int): Boolean = x == y
-      }
-      val p = Partitions.of[Id, Int, String](3, _.toString)
-      // Should not throw ArrayIndexOutOfBoundsException
-      val result = p.get(42)
-      result.toInt should be >= 0
-      result.toInt should be < 3
-    }
-
-    "handle negative hash codes" in {
-      implicit val negativeHash: Hash[Int] = new Hash[Int] {
-        def hash(x: Int): Int = -x
-        def eqv(x: Int, y: Int): Boolean = x == y
-      }
-      val p = Partitions.of[Id, Int, String](4, _.toString)
-      for {
-        n <- 1 to 100
-      } yield {
-        val partition = p.get(n).toInt
-        partition should be >= 0
-        partition should be < 4
-      }
-    }
-
     "distribute keys reasonably across partitions" in {
       val nPartitions = 8
       val p = Partitions.of[Id, Int, String](nPartitions, _.toString)
@@ -68,6 +39,34 @@ class PartitionsSpec extends AnyWordSpec with Matchers {
     }
   }
 
+  "handle Int.MinValue hash correctly" in {
+    // Int.MinValue is a special case: math.abs(Int.MinValue) == Int.MinValue (negative)
+    // Our implementation uses (hash & Int.MaxValue) which always produces a non-negative value
+    implicit val intMinHash: Hash[Int] = new Hash[Int] {
+      def hash(x: Int): Int = Int.MinValue
+      def eqv(x: Int, y: Int): Boolean = x == y
+    }
+    val p = Partitions.of[Id, Int, String](3, _.toString)
+    // Should not throw ArrayIndexOutOfBoundsException
+    val result = p.get(42)
+    result.toInt should be >= 0
+    result.toInt should be < 3
+  }
+
+  "handle negative hash codes" in {
+    implicit val negativeHash: Hash[Int] = new Hash[Int] {
+      def hash(x: Int): Int = -x
+      def eqv(x: Int, y: Int): Boolean = x == y
+    }
+    val p = Partitions.of[Id, Int, String](4, _.toString)
+    for {
+      n <- 1 to 100
+    } {
+      val partition = p.get(n).toInt
+      partition should be >= 0
+      partition should be < 4
+    }
+  }
 
   "const" should {
 
