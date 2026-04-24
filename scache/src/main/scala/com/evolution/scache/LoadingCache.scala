@@ -10,6 +10,14 @@ import com.evolution.scache.Cache.Directive
 
 private[scache] object LoadingCache {
 
+  /** Maximum number of CAS retry attempts before giving up.
+    * This is a safety net against infinite spinning under extreme contention.
+    */
+  /** Maximum number of CAS retry attempts on the outer map before giving up.
+    * Inner entry-level CAS loops are unbounded as they always make progress.
+    */
+  private val MaxRetries: Int = 10000
+
   def of[F[_] : Concurrent, K, V](
     map: EntryRefs[F, K, V],
   ): Resource[F, Cache[F, K, V]] = {
@@ -34,12 +42,24 @@ private[scache] object LoadingCache {
     ref: Ref[F, EntryRefs[F, K, V]]
   ): Cache[F, K, V] = {
 
-    val ignore = (_: Throwable) => ()
+    val handleReleaseError = (e: Throwable) => {
+      System.err.println(s"scache: failed to release cache entry: $e")
+    }
+
+    def checkRetries(counter: Int): F[Unit] = {
+      if (counter >= MaxRetries) {
+        new IllegalStateException(
+          s"Cache CAS retry limit ($MaxRetries) exceeded. This indicates extreme contention."
+        ).raiseError[F, Unit]
+      } else {
+        ().pure[F]
+      }
+    }
 
     def entryOf(value: V, release: Option[F[Unit]]) = {
       Entry(
         value = value,
-        release = release.map { _.handleError(ignore) })
+        release = release.map { _.handleError(handleReleaseError) })
     }
 
     abstract class LoadingCache extends Cache.Abstract1[F, K, V]
@@ -100,6 +120,7 @@ private[scache] object LoadingCache {
 
       def getOrUpdate1[A](key: K)(value: => F[(A, V, Option[Release])]): F[Either[A, Either[F[V], V]]] = {
         0.tailRecM { counter =>
+          checkRetries(counter) *>
           ref
             .access
             .flatMap { case (entryRefs, set) =>
@@ -370,6 +391,7 @@ private[scache] object LoadingCache {
       def put(key: K, value: V, release: Option[Release]): F[F[Option[V]]] = {
         val entry = entryOf(value, release)
         0.tailRecM { counter =>
+          checkRetries(counter) *>
           ref
             .access
             .flatMap { case (entryRefs, set) =>
@@ -484,6 +506,7 @@ private[scache] object LoadingCache {
 
       override def modify[A](key: K)(f: Option[V] => (A, Directive[F, V])): F[(A, Option[F[Unit]])] = {
         0.tailRecM { counter =>
+          checkRetries(counter) *>
           ref
             .access
             .flatMap { case (entryRefs, setMap) =>
@@ -715,6 +738,7 @@ private[scache] object LoadingCache {
 
       def remove(key: K): F[F[Option[V]]] = {
         0.tailRecM { counter =>
+          checkRetries(counter) *>
           ref
             .access
             .flatMap { case (entryRefs, set) =>
