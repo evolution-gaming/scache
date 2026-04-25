@@ -5,7 +5,12 @@ import cats.effect.Resource
 import cats.syntax.all.*
 import com.evolution.scache.CacheMetrics.Directive
 import com.evolutiongaming.smetrics.MetricsHelper.*
-import com.evolutiongaming.smetrics.{CollectorRegistry, LabelNames, Quantile, Quantiles}
+import com.evolutiongaming.smetrics.{
+  CollectorRegistry,
+  LabelNames,
+  Quantile,
+  Quantiles
+}
 
 import scala.concurrent.duration.FiniteDuration
 
@@ -36,8 +41,7 @@ trait CacheMetrics[F[_]] {
 
 object CacheMetrics {
 
-  def empty[F[_] : Applicative]: CacheMetrics[F] = const(().pure[F])
-
+  def empty[F[_]: Applicative]: CacheMetrics[F] = const(().pure[F])
 
   def const[F[_]](unit: F[Unit]): CacheMetrics[F] = new CacheMetrics[F] {
 
@@ -66,7 +70,7 @@ object CacheMetrics {
 
   sealed trait Directive {
     override def toString: Prefix = this match {
-      case Directive.Put => "put"
+      case Directive.Put    => "put"
       case Directive.Ignore => "ignore"
       case Directive.Remove => "remove"
     }
@@ -85,148 +89,156 @@ object CacheMetrics {
     val Default: Prefix = "cache"
   }
 
-
-  def of[F[_] : Monad](
-    collectorRegistry: CollectorRegistry[F],
-    prefix: Prefix = Prefix.Default,
+  def of[F[_]: Monad](
+      collectorRegistry: CollectorRegistry[F],
+      prefix: Prefix = Prefix.Default
   ): Resource[F, Name => CacheMetrics[F]] = {
 
     val getCounter = collectorRegistry.counter(
-      name = s"${ prefix }_get",
+      name = s"${prefix}_get",
       help = "Get type: hit or miss",
-      labels = LabelNames("name", "type"))
+      labels = LabelNames("name", "type")
+    )
 
     val putCounter = collectorRegistry.counter(
-      name = s"${ prefix }_put",
+      name = s"${prefix}_put",
       help = "Put",
-      labels = LabelNames("name"))
+      labels = LabelNames("name")
+    )
 
     val modifyCounter = collectorRegistry.counter(
-      name = s"${ prefix }_modify",
-      help = "Modify, labeled by modification input (entry was present or not), and output (put, keep, or remove)",
+      name = s"${prefix}_modify",
+      help =
+        "Modify, labeled by modification input (entry was present or not), and output (put, keep, or remove)",
       labels = LabelNames("name", "existing_entry", "result")
     )
 
     val loadResultCounter = collectorRegistry.counter(
-      name = s"${ prefix }_load_result",
+      name = s"${prefix}_load_result",
       help = "Load result: success or failure",
-      labels = LabelNames("name", "result"))
+      labels = LabelNames("name", "result")
+    )
 
     val quantiles = Quantiles(
       Quantile(value = 0.9, error = 0.05),
-      Quantile(value = 0.99, error = 0.005))
+      Quantile(value = 0.99, error = 0.005)
+    )
 
     val loadTimeSummary = collectorRegistry.summary(
-      name = s"${ prefix }_load_time",
+      name = s"${prefix}_load_time",
       help = s"Load time in seconds",
       quantiles = quantiles,
-      labels = LabelNames("name", "result"))
+      labels = LabelNames("name", "result")
+    )
 
     val sizeGauge = collectorRegistry.gauge(
-      name = s"${ prefix }_size",
+      name = s"${prefix}_size",
       help = s"Cache size",
-      labels = LabelNames("name"))
+      labels = LabelNames("name")
+    )
 
     val lifeTimeSummary = collectorRegistry.summary(
-      name = s"${ prefix }_life_time",
+      name = s"${prefix}_life_time",
       help = s"Life time in seconds",
       quantiles = quantiles,
-      labels = LabelNames("name"))
+      labels = LabelNames("name")
+    )
 
     val callSummary = collectorRegistry.summary(
-      name = s"${ prefix }_call_latency",
+      name = s"${prefix}_call_latency",
       help = "Call latency in seconds",
       quantiles = quantiles,
-      labels = LabelNames("name", "type"))
+      labels = LabelNames("name", "type")
+    )
 
     for {
-      getsCounter       <- getCounter
-      putCounter        <- putCounter
-      modifyCounter     <- modifyCounter
+      getsCounter <- getCounter
+      putCounter <- putCounter
+      modifyCounter <- modifyCounter
       loadResultCounter <- loadResultCounter
-      loadTimeSummary   <- loadTimeSummary
-      lifeTimeSummary   <- lifeTimeSummary
-      sizeGauge         <- sizeGauge
-      callSummary       <- callSummary
-    } yield {
-      (name: Name) =>
+      loadTimeSummary <- loadTimeSummary
+      lifeTimeSummary <- lifeTimeSummary
+      sizeGauge <- sizeGauge
+      callSummary <- callSummary
+    } yield { (name: Name) =>
+      val hitCounter = getsCounter.labels(name, "hit")
 
-        val hitCounter = getsCounter.labels(name, "hit")
+      val missCounter = getsCounter.labels(name, "miss")
 
-        val missCounter = getsCounter.labels(name, "miss")
+      val successCounter = loadResultCounter.labels(name, "success")
 
-        val successCounter = loadResultCounter.labels(name, "success")
+      val failureCounter = loadResultCounter.labels(name, "failure")
 
-        val failureCounter = loadResultCounter.labels(name, "failure")
+      val successSummary = loadTimeSummary.labels(name, "success")
 
-        val successSummary = loadTimeSummary.labels(name, "success")
+      val failureSummary = loadTimeSummary.labels(name, "failure")
 
-        val failureSummary = loadTimeSummary.labels(name, "failure")
+      val putCounter1 = putCounter.labels(name)
 
-        val putCounter1 = putCounter.labels(name)
+      val lifeTimeSummary1 = lifeTimeSummary.labels(name)
 
-        val lifeTimeSummary1 = lifeTimeSummary.labels(name)
+      val sizeSummary = callSummary.labels(name, "size")
 
-        val sizeSummary = callSummary.labels(name, "size")
+      val keysSummary = callSummary.labels(name, "keys")
 
-        val keysSummary = callSummary.labels(name, "keys")
+      val valuesSummary = callSummary.labels(name, "values")
 
-        val valuesSummary = callSummary.labels(name, "values")
+      val clearSummary = callSummary.labels(name, "clear")
 
-        val clearSummary = callSummary.labels(name, "clear")
+      val foldMapSummary = callSummary.labels(name, "foldMap")
 
-        val foldMapSummary = callSummary.labels(name, "foldMap")
+      new CacheMetrics[F] {
 
-        new CacheMetrics[F] {
-
-          def get(hit: Boolean) = {
-            val counter = if (hit) hitCounter else missCounter
-            counter.inc()
-          }
-
-          def load(time: FiniteDuration, success: Boolean) = {
-            val resultCounter = if (success) successCounter else failureCounter
-            val timeSummary = if (success) successSummary else failureSummary
-            for {
-              _ <- resultCounter.inc()
-              _ <- timeSummary.observe(time.toNanos.nanosToSeconds)
-            } yield {}
-          }
-
-          def life(time: FiniteDuration) = {
-            lifeTimeSummary1.observe(time.toNanos.nanosToSeconds)
-          }
-
-          val put = putCounter1.inc()
-
-          def modify(entryExisted: Boolean, directive: Directive): F[Unit] = {
-            modifyCounter.labels(name, entryExisted.toString, directive.toString).inc()
-          }
-
-          def size(size: Int) = {
-            sizeGauge.labels(name).set(size.toDouble)
-          }
-
-          def size(latency: FiniteDuration) = {
-            sizeSummary.observe(latency.toNanos.nanosToSeconds)
-          }
-
-          def values(latency: FiniteDuration) = {
-            valuesSummary.observe(latency.toNanos.nanosToSeconds)
-          }
-
-          def keys(latency: FiniteDuration) = {
-            keysSummary.observe(latency.toNanos.nanosToSeconds)
-          }
-
-          def clear(latency: FiniteDuration) = {
-            clearSummary.observe(latency.toNanos.nanosToSeconds)
-          }
-
-          def foldMap(latency: FiniteDuration) = {
-            foldMapSummary.observe(latency.toNanos.nanosToSeconds)
-          }
+        def get(hit: Boolean) = {
+          val counter = if (hit) hitCounter else missCounter
+          counter.inc()
         }
+
+        def load(time: FiniteDuration, success: Boolean) = {
+          val resultCounter = if (success) successCounter else failureCounter
+          val timeSummary = if (success) successSummary else failureSummary
+          for {
+            _ <- resultCounter.inc()
+            _ <- timeSummary.observe(time.toNanos.nanosToSeconds)
+          } yield {}
+        }
+
+        def life(time: FiniteDuration) = {
+          lifeTimeSummary1.observe(time.toNanos.nanosToSeconds)
+        }
+
+        val put = putCounter1.inc()
+
+        def modify(entryExisted: Boolean, directive: Directive): F[Unit] = {
+          modifyCounter
+            .labels(name, entryExisted.toString, directive.toString)
+            .inc()
+        }
+
+        def size(size: Int) = {
+          sizeGauge.labels(name).set(size.toDouble)
+        }
+
+        def size(latency: FiniteDuration) = {
+          sizeSummary.observe(latency.toNanos.nanosToSeconds)
+        }
+
+        def values(latency: FiniteDuration) = {
+          valuesSummary.observe(latency.toNanos.nanosToSeconds)
+        }
+
+        def keys(latency: FiniteDuration) = {
+          keysSummary.observe(latency.toNanos.nanosToSeconds)
+        }
+
+        def clear(latency: FiniteDuration) = {
+          clearSummary.observe(latency.toNanos.nanosToSeconds)
+        }
+
+        def foldMap(latency: FiniteDuration) = {
+          foldMapSummary.observe(latency.toNanos.nanosToSeconds)
+        }
+      }
     }
   }
 }

@@ -54,14 +54,14 @@ lazy val commonSettings = Seq(
       url("https://github.com/t3hnar")
     )
   ),
-  publishTo := Some(Resolver.evolutionReleases),
+  publishTo := Some(Resolver.evolutionReleases)
 )
 
 lazy val root = (project in file("."))
   .settings(
     name := "scache-root",
     publish / skip := true,
-    publishArtifact := false,
+    publishArtifact := false
   )
   .aggregate(`cache-adt`, scache)
 
@@ -70,7 +70,7 @@ lazy val `cache-adt` = (project in file("cache-adt"))
   .settings(
     name := "cache-adt",
     description := "Directive ADT for scache",
-    versionPolicyIntention := Compatibility.BinaryCompatible,
+    versionPolicyIntention := Compatibility.BinaryCompatible
   )
 
 lazy val scache = (project in file("scache"))
@@ -86,7 +86,7 @@ lazy val scache = (project in file("scache"))
       `cats-helper`,
       smetrics,
       scalatest % Test
-    ),
+    )
   )
   .dependsOn(`cache-adt`)
 
