@@ -13,13 +13,13 @@ object CacheMetered {
   def apply[F[_]: MeasureDuration: Temporal, K, V](
     cache: Cache[F, K, V],
     metrics: CacheMetrics[F],
-    interval: FiniteDuration = 1.minute
+    interval: FiniteDuration = 1.minute,
   ): Resource[F, Cache[F, K, V]] = {
 
     def measureSize = {
       for {
         size <- cache.size
-        _    <- metrics.size(size)
+        _ <- metrics.size(size)
       } yield {}
     }
 
@@ -55,8 +55,8 @@ object CacheMetered {
           getOrUpdate1(key) { value.map { a => (a, a, none[Release]) } }
             .flatMap {
               case Right(Right(a)) => a.pure[F]
-              case Right(Left(a))  => a
-              case Left(a)         => a.pure[F]
+              case Right(Left(a)) => a
+              case Left(a) => a.pure[F]
             }
         }
 
@@ -64,15 +64,15 @@ object CacheMetered {
           for {
             result <- cache.getOrUpdate1(key) {
               for {
-                _          <- metrics.get(false)
-                start      <- MeasureDuration[F].start
-                value      <- value.attempt
-                duration   <- start
+                _ <- metrics.get(false)
+                start <- MeasureDuration[F].start
+                value <- value.attempt
+                duration <- start
                 loadSucceed = value match {
                   case Right(_) | Left(CacheOpsCompat.NoneError) => true
-                  case Left(_)                          => false
+                  case Left(_) => false
                 }
-                _     <- metrics.load(duration, loadSucceed)
+                _ <- metrics.load(duration, loadSucceed)
                 value <- value.liftTo[F]
               } yield {
                 val (a, v, release) = value
@@ -87,9 +87,9 @@ object CacheMetered {
         def put(key: K, value: V, release: Option[Release]) = {
           for {
             duration <- MeasureDuration[F].start
-            _        <- metrics.put
-            release1  = releaseMetered(duration, release.getOrElse { ().pure[F] })
-            value    <- cache.put(key, value, release1.some)
+            _ <- metrics.put
+            release1 = releaseMetered(duration, release.getOrElse { ().pure[F] })
+            value <- cache.put(key, value, release1.some)
           } yield value
         }
 
@@ -99,8 +99,10 @@ object CacheMetered {
             ((a, entryExisted, directive), release) <- cache.modify(key) { entry =>
               f(entry) match {
                 case (a, put: Directive.Put[F, V]) =>
-                  ((a, entry.nonEmpty, CacheMetrics.Directive.Put),
-                    Directive.Put(put.value, releaseMetered(duration, put.release.getOrElse(().pure[F])).some))
+                  (
+                    (a, entry.nonEmpty, CacheMetrics.Directive.Put),
+                    Directive.Put(put.value, releaseMetered(duration, put.release.getOrElse(().pure[F])).some),
+                  )
                 case (a, Directive.Ignore) =>
                   ((a, entry.nonEmpty, CacheMetrics.Directive.Ignore), Directive.Ignore)
                 case (a, Directive.Remove) =>
@@ -109,7 +111,6 @@ object CacheMetered {
             }
             _ <- metrics.modify(entryExisted, directive)
           } yield (a, release)
-
 
         def contains(key: K) = cache.contains(key)
 
