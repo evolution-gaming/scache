@@ -46,7 +46,7 @@ object Partitions {
 
       def get(key: K) = {
         val hash = key.hash
-        val partition = math.abs(hash % nrOfPartitions)
+        val partition = (hash & Int.MaxValue) % nrOfPartitions
         partitions(partition)
       }
 
