@@ -22,7 +22,7 @@ object ExpiringCache {
 
     type E = Entry[V]
 
-    val cooldown           = config.expireAfterRead.toMillis / 5
+    val cooldown           = math.max(config.expireAfterRead.toMillis / 5, 10L)
     val expireAfterReadMs  = config.expireAfterRead.toMillis + cooldown / 2
     val expireAfterWriteMs = config.expireAfterWrite.map { _.toMillis }
     val expireInterval     = {
