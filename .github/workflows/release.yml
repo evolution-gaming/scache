@@ -9,6 +9,6 @@ jobs:
   release:
     uses: evolution-gaming/scala-github-actions/.github/workflows/release.yml@v4
     with:
-      verify_sbt_command: '++2.13.18; clean; check; ++3.3.7; clean; check; ++2.13.18; test; ++3.3.7; test'
+      verify_sbt_command: '++2.13.18; clean; check; test; ++3.3.7; clean; check; test'
       publish_sbt_command: '++2.13.18; publish; ++3.3.7; publish'
     secrets: inherit
