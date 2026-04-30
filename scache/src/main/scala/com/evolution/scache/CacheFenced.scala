@@ -7,8 +7,8 @@ import cats.syntax.all.*
 import com.evolutiongaming.catshelper.CatsHelper.*
 
 /**
-  * Prevents adding new resources to cache after it was released
-  */
+ * Prevents adding new resources to cache after it was released
+ */
 object CacheFenced {
 
   def of[F[_]: Concurrent, K, V](cache: Cache[F, K, V]): Resource[F, Cache[F, K, V]] = {
@@ -41,7 +41,7 @@ object CacheFenced {
         cache.getOrUpdate1(key) {
           value.flatMap {
             case (a, value, Some(release)) => fence.as((a, value, release.some))
-            case a                         => a.pure[F]
+            case a => a.pure[F]
           }
         }
       }

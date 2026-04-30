@@ -1,8 +1,8 @@
 package com.evolution.scache
 
 import cats.Monad
-import cats.syntax.all.*
 import cats.kernel.Hash
+import cats.syntax.all.*
 
 trait Partitions[-K, +V] {
 
@@ -15,7 +15,6 @@ object Partitions {
 
   type Partition = Int
 
-
   def const[K, V](value: V): Partitions[K, V] = new Partitions[K, V] {
 
     def get(key: K) = value
@@ -23,9 +22,9 @@ object Partitions {
     val values = List(value)
   }
 
-  def of[F[_] : Monad, K : Hash, V](
+  def of[F[_]: Monad, K: Hash, V](
     nrOfPartitions: Int,
-    valueOf: Partition => F[V]
+    valueOf: Partition => F[V],
   ): F[Partitions[K, V]] = {
     if (nrOfPartitions <= 1) {
       valueOf(0).map(const)
@@ -37,8 +36,7 @@ object Partitions {
     }
   }
 
-
-  private def apply[K : Hash, V](partitions: Vector[V]): Partitions[K, V] = {
+  private def apply[K: Hash, V](partitions: Vector[V]): Partitions[K, V] = {
 
     val nrOfPartitions = partitions.size
 
@@ -46,7 +44,7 @@ object Partitions {
 
       def get(key: K) = {
         val hash = key.hash
-        val partition = math.abs(hash % nrOfPartitions)
+        val partition = (hash & Int.MaxValue) % nrOfPartitions
         partitions(partition)
       }
 

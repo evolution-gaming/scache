@@ -1,8 +1,8 @@
 package com.evolution.scache
 
-import cats.{Applicative, Monad}
 import cats.effect.Resource
 import cats.syntax.all.*
+import cats.{Applicative, Monad}
 import com.evolution.scache.CacheMetrics.Directive
 import com.evolutiongaming.smetrics.MetricsHelper.*
 import com.evolutiongaming.smetrics.{CollectorRegistry, LabelNames, Quantile, Quantiles}
@@ -36,8 +36,7 @@ trait CacheMetrics[F[_]] {
 
 object CacheMetrics {
 
-  def empty[F[_] : Applicative]: CacheMetrics[F] = const(().pure[F])
-
+  def empty[F[_]: Applicative]: CacheMetrics[F] = const(().pure[F])
 
   def const[F[_]](unit: F[Unit]): CacheMetrics[F] = new CacheMetrics[F] {
 
@@ -85,8 +84,7 @@ object CacheMetrics {
     val Default: Prefix = "cache"
   }
 
-
-  def of[F[_] : Monad](
+  def of[F[_]: Monad](
     collectorRegistry: CollectorRegistry[F],
     prefix: Prefix = Prefix.Default,
   ): Resource[F, Name => CacheMetrics[F]] = {
@@ -94,63 +92,70 @@ object CacheMetrics {
     val getCounter = collectorRegistry.counter(
       name = s"${ prefix }_get",
       help = "Get type: hit or miss",
-      labels = LabelNames("name", "type"))
+      labels = LabelNames("name", "type"),
+    )
 
     val putCounter = collectorRegistry.counter(
       name = s"${ prefix }_put",
       help = "Put",
-      labels = LabelNames("name"))
+      labels = LabelNames("name"),
+    )
 
     val modifyCounter = collectorRegistry.counter(
       name = s"${ prefix }_modify",
       help = "Modify, labeled by modification input (entry was present or not), and output (put, keep, or remove)",
-      labels = LabelNames("name", "existing_entry", "result")
+      labels = LabelNames("name", "existing_entry", "result"),
     )
 
     val loadResultCounter = collectorRegistry.counter(
       name = s"${ prefix }_load_result",
       help = "Load result: success or failure",
-      labels = LabelNames("name", "result"))
+      labels = LabelNames("name", "result"),
+    )
 
     val quantiles = Quantiles(
       Quantile(value = 0.9, error = 0.05),
-      Quantile(value = 0.99, error = 0.005))
+      Quantile(value = 0.99, error = 0.005),
+    )
 
     val loadTimeSummary = collectorRegistry.summary(
       name = s"${ prefix }_load_time",
       help = s"Load time in seconds",
       quantiles = quantiles,
-      labels = LabelNames("name", "result"))
+      labels = LabelNames("name", "result"),
+    )
 
     val sizeGauge = collectorRegistry.gauge(
       name = s"${ prefix }_size",
       help = s"Cache size",
-      labels = LabelNames("name"))
+      labels = LabelNames("name"),
+    )
 
     val lifeTimeSummary = collectorRegistry.summary(
       name = s"${ prefix }_life_time",
       help = s"Life time in seconds",
       quantiles = quantiles,
-      labels = LabelNames("name"))
+      labels = LabelNames("name"),
+    )
 
     val callSummary = collectorRegistry.summary(
       name = s"${ prefix }_call_latency",
       help = "Call latency in seconds",
       quantiles = quantiles,
-      labels = LabelNames("name", "type"))
+      labels = LabelNames("name", "type"),
+    )
 
     for {
-      getsCounter       <- getCounter
-      putCounter        <- putCounter
-      modifyCounter     <- modifyCounter
+      getsCounter <- getCounter
+      putCounter <- putCounter
+      modifyCounter <- modifyCounter
       loadResultCounter <- loadResultCounter
-      loadTimeSummary   <- loadTimeSummary
-      lifeTimeSummary   <- lifeTimeSummary
-      sizeGauge         <- sizeGauge
-      callSummary       <- callSummary
+      loadTimeSummary <- loadTimeSummary
+      lifeTimeSummary <- lifeTimeSummary
+      sizeGauge <- sizeGauge
+      callSummary <- callSummary
     } yield {
       (name: Name) =>
-
         val hitCounter = getsCounter.labels(name, "hit")
 
         val missCounter = getsCounter.labels(name, "miss")
