@@ -1,14 +1,14 @@
 package com.evolution.scache
 
+import cats.kernel.{CommutativeMonoid, Monoid}
 import cats.syntax.all.*
 import cats.{Applicative, MonadThrow, Parallel}
 import com.evolutiongaming.catshelper.ParallelHelper.*
-import cats.kernel.{CommutativeMonoid, Monoid}
 
 object PartitionedCache {
 
   def apply[F[_]: MonadThrow: Parallel, K, V](
-    partitions: Partitions[K, Cache[F, K, V]]
+    partitions: Partitions[K, Cache[F, K, V]],
   ): Cache[F, K, V] = {
 
     implicit def monoidUnit: Monoid[F[Unit]] = Applicative.monoid[F, Unit]
