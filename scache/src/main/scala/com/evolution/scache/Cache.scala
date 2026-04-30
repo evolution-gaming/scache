@@ -373,12 +373,8 @@ object Cache {
   import CacheOpsCompat.*
 
 
-  sealed trait Directive[+F[_], +V]
-  object Directive {
-    final case class Put[F[_], V](value: V, release: Option[F[Unit]]) extends Directive[F, V]
-    case object Remove extends Directive[Nothing, Nothing]
-    case object Ignore extends Directive[Nothing, Nothing]
-  }
+  type Directive[+F[_], +V] = com.evolution.scache.Directive[F, V]
+  val Directive = com.evolution.scache.Directive
 
   /** Creates an always-empty implementation of cache.
     *

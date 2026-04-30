@@ -2,12 +2,12 @@
 [![Build Status](https://github.com/evolution-gaming/scache/workflows/CI/badge.svg)](https://github.com/evolution-gaming/scache/actions?query=workflow%3ACI)
 [![Coverage Status](https://coveralls.io/repos/evolution-gaming/scache/badge.svg)](https://coveralls.io/r/evolution-gaming/scache)
 [![Codacy Badge](https://app.codacy.com/project/badge/Grade/c44790f3e44a495488141d9eed4aa757)](https://www.codacy.com/gh/evolution-gaming/scache/dashboard?utm_source=github.com&amp;utm_medium=referral&amp;utm_content=evolution-gaming/scache&amp;utm_campaign=Badge_Grade)
-[![Maven Central](https://maven-badges.herokuapp.com/maven-central/com.evolution/scache_2.13/badge.svg)](https://maven-badges.herokuapp.com/maven-central/com.evolution/scache_2.13)
+[![Latest version](https://img.shields.io/badge/version-click-blue)](https://evolution.jfrog.io/artifactory/api/search/latestVersion?g=com.evolution&a=scache_2.13&repos=public)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellowgreen.svg)](https://opensource.org/licenses/MIT)
 
 ## Key features
 
-* Available for: Scala 2.12.x, 2.13.x, 3.3.0 and later
+* Available for: Scala 2.13.x, 3.3.x and later
 * Auto loading of missing values
 * Expiry of not used records
 * Deleting oldest values in case of exceeding max size
@@ -120,13 +120,13 @@ trait SerialMap[F[_], K, V] {
 
 ## Setup
 
-Although `scache` is available on maven central, its dependencies are not. That is why one need to include
-dependency on https://github.com/evolution-gaming/sbt-artifactory-plugin.
+`scache`, along with its dependencies, is available on Evolution's JFrog Artifactory. That is why one needs to include
+a dependency on https://github.com/evolution-gaming/sbt-artifactory-plugin.
 
 ```scala
 addSbtPlugin("com.evolution" % "sbt-artifactory-plugin" % "0.0.2")
 
-libraryDependencies += "com.evolution" %% "scache" % "5.1.2"
+libraryDependencies += "com.evolution" %% "scache" % "<latest version from badge>"
 ```
 
 ## ExpiringCache
@@ -139,5 +139,9 @@ libraryDependencies += "com.evolution" %% "scache" % "5.1.2"
 * Touch, despite its name, is not called after refresh.
 * expireAfterWrite, despite its name, is calculated from date of creation, not time of update.
 
-
-
+## Release process
+The release process is based on Git tags and makes use of [evolution-gaming/scala-github-actions](https://github.com/evolution-gaming/scala-github-actions) which uses [sbt-dynver](https://github.com/sbt/sbt-dynver) to automatically obtain the version from the latest Git tag. The flow is defined in `.github/workflows/release.yml`.  
+A typical release process is as follows:
+1. Create and push a new Git tag. The version should be in the format `vX.Y.Z` (example: `v4.1.0`). Example: `git tag v4.1.0 && git push origin v4.1.0`
+2. On success, a new GitHub release is automatically created with a calculated diff and auto-generated release notes. You can see it on `Releases` page, change the description if needed
+3. On failure, the tag is deleted from the remote repository. Please note that your local tag isn't deleted, so if the failure is recoverable then you can delete the local tag and try again (an example of *unrecoverable* failure is successfully publishing only a few of the artifacts to Artifactory which means a new attempt would fail since Artifactory doesn't allow overwriting its contents)

@@ -28,7 +28,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
       ("default"               , Cache.loading[IO, Int, Int]),
       ("no partitions"         , LoadingCache.of(LoadingCache.EntryRefs.empty[IO, Int, Int])),
       ("expiring"              , expiringCache),
-      ("expiring no partitions", ExpiringCache.of[IO, Int, Int](ExpiringCache.Config(expireAfterRead = 1.minute))))
+      ("expiring no partitions", ExpiringCache.of[IO, Int, Int](ExpiringCache.Config[IO, Int, Int](expireAfterRead = 1.minute))))
   } yield {
 
     val cacheAndMetrics =

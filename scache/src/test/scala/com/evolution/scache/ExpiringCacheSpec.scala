@@ -45,7 +45,7 @@ class ExpiringCacheSpec extends AsyncFunSuite with Matchers {
 
   private def expireRecords[F[_] : Async] = {
 
-    ExpiringCache.of[F, Int, Int](ExpiringCache.Config(expireAfterRead = 100.millis)).use { cache =>
+    ExpiringCache.of[F, Int, Int](ExpiringCache.Config[F, Int, Int](expireAfterRead = 100.millis)).use { cache =>
       for {
         release <- Deferred[F, Unit]
         value   <- cache.put(0, 0, release.complete(()).void)
@@ -79,7 +79,7 @@ class ExpiringCacheSpec extends AsyncFunSuite with Matchers {
   }
 
   private def notExpireUsedRecords[F[_] : Async] = {
-    ExpiringCache.of[F, Int, Int](ExpiringCache.Config(50.millis)).use { cache =>
+    ExpiringCache.of[F, Int, Int](ExpiringCache.Config[F, Int, Int](50.millis)).use { cache =>
       val touch = for {
         _ <- Temporal[F].sleep(10.millis)
         _ <- cache.get(0)
