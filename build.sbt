@@ -90,5 +90,6 @@ lazy val scache = (project in file("scache"))
   )
   .dependsOn(`cache-adt`)
 
-addCommandAlias("check", "all versionPolicyCheck Compile/doc")
+addCommandAlias("fmt", "all scalafmt scalafmtAll")
+addCommandAlias("check", "all versionPolicyCheck Compile/doc scalafmtCheckAll scalafmtSbtCheck")
 addCommandAlias("build", "all test package")
