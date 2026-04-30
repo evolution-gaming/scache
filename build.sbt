@@ -1,89 +1,102 @@
-import sbt.librarymanagement.For3Use2_13
-import Dependencies._
-import org.scoverage.coveralls.Imports.CoverallsKeys._
+import Dependencies.*
 
 def crossSettings[T](scalaVersion: String, if3: T, if2: T) = {
   scalaVersion match {
     case version if version.startsWith("3") => if3
-    case _                                  => if2
+    case _ => if2
   }
 }
 
-name := "scache"
-
-organization := "com.evolution"
-
-homepage := Some(new URL("http://github.com/evolution-gaming/scache"))
-
-startYear := Some(2019)
-
-organizationName := "Evolution Gaming"
-
-organizationHomepage := Some(url("http://evolutiongaming.com"))
-
-scalaVersion := crossScalaVersions.value.head
-
-crossScalaVersions := Seq("2.13.11", "3.3.0", "2.12.18")
-
-scalacOptsFailOnWarn := crossSettings(
-  scalaVersion.value,
-  if3 = Some(false),
-  if2 = Some(true)
-)
-
-libraryDependencies ++= crossSettings(
-  scalaVersion.value,
-  if3 = Nil,
-  if2 = Seq(
-    compilerPlugin(betterMonadicFor),
-    compilerPlugin(`kind-projector` cross CrossVersion.full)
-  )
-)
-
-scalacOptions ++= crossSettings(
-  scalaVersion.value,
-  if3 = Seq(
-    "-Ykind-projector:underscores",
-    "-language:implicitConversions",
-    "-source:future"
+lazy val commonSettings = Seq(
+  organization := "com.evolution",
+  homepage := Some(url("https://github.com/evolution-gaming/scache")),
+  startYear := Some(2019),
+  organizationName := "Evolution",
+  organizationHomepage := Some(url("https://evolution.com")),
+  scalaVersion := crossScalaVersions.value.head,
+  crossScalaVersions := Seq("2.13.18", "3.3.7"),
+  scalacOptsFailOnWarn := crossSettings(
+    scalaVersion.value,
+    if3 = Some(false),
+    if2 = Some(true),
   ),
-  if2 = Seq("-Xsource:3", "-P:kind-projector:underscore-placeholders")
+  scalacOptions ++= crossSettings(
+    scalaVersion.value,
+    if3 = Seq(
+      "-Ykind-projector:underscores",
+      "-language:implicitConversions",
+      "-source:future",
+    ),
+    if2 = Seq("-Xsource:3", "-P:kind-projector:underscore-placeholders"),
+  ),
+  libraryDependencies ++= crossSettings(
+    scalaVersion.value,
+    if3 = Nil,
+    if2 = Seq(
+      compilerPlugin(betterMonadicFor),
+      compilerPlugin(`kind-projector` cross CrossVersion.full),
+    ),
+  ),
+  autoAPIMappings := true,
+  licenses := Seq(("MIT", url("https://opensource.org/licenses/MIT"))),
+  Test / publishArtifact := false,
+  scmInfo := Some(
+    ScmInfo(
+      url("https://github.com/evolution-gaming/scache"),
+      "git@github.com:evolution-gaming/scache.git",
+    ),
+  ),
+  developers := List(
+    Developer(
+      "t3hnar",
+      "Yaroslav Klymko",
+      "yklymko@evolution.com",
+      url("https://github.com/t3hnar"),
+    ),
+  ),
+  publishTo := Some(Resolver.evolutionReleases),
 )
 
-libraryDependencies ++= Seq(
-  Cats.core,
-  Cats.effect,
-  `cats-helper`,
-  smetrics,
-  scalatest % Test
-)
-
-autoAPIMappings := true
-
-licenses := Seq(("MIT", url("https://opensource.org/licenses/MIT")))
-
-description := "Cache in Scala with cats-effect"
-
-sonatypeCredentialHost := "s01.oss.sonatype.org"
-
-sonatypeRepository := "https://s01.oss.sonatype.org/service/local"
-
-Test / publishArtifact := false
-
-scmInfo := Some(
-  ScmInfo(
-    url("https://github.com/evolution-gaming/scache"),
-    "git@github.com:evolution-gaming/scache.git"
+lazy val root = (project in file("."))
+  .settings(
+    name := "scache-root",
+    publish / skip := true,
+    publishArtifact := false,
   )
-)
+  .aggregate(`cache-adt`, scache)
 
-developers := List(
-  Developer(
-    "t3hnar",
-    "Yaroslav Klymko",
-    "yklymko@evolution.com",
-    url("https://github.com/t3hnar")
+lazy val `cache-adt` = (project in file("cache-adt"))
+  .settings(commonSettings)
+  .settings(
+    name := "cache-adt",
+    description := "Directive ADT for scache",
+    versionPolicyIntention := Compatibility.BinaryCompatible,
   )
-)
 
-enablePlugins(GitVersioning)
+lazy val scache = (project in file("scache"))
+  .settings(commonSettings)
+  .settings(
+    name := "scache",
+    description := "Cache in Scala with cats-effect",
+    versionPolicyIntention := Compatibility.None,
+    libraryDependencies ++= Seq(
+      Cats.core,
+      Cats.effect,
+      `cats-helper`,
+      smetrics,
+      scalatest % Test,
+    ),
+  )
+  .dependsOn(`cache-adt`)
+
+addCommandAlias(
+  "fmt",
+  "++2.13.18; all scalafmt scalafmtSbt; " +
+    "++3.3.7; all scalafmt scalafmtSbt",
+)
+addCommandAlias(
+  "check",
+  "++2.13.18; all versionPolicyCheck Compile/doc scalafmtCheck scalafmtSbtCheck; " +
+    "++3.3.7; all versionPolicyCheck Compile/doc scalafmtCheck scalafmtSbtCheck",
+)
+addCommandAlias("build", "all test package")
