@@ -1,6 +1,6 @@
 import Dependencies.*
 
-def crossSettings[T](scalaVersion: String, if3: T, if2: T) = {
+def crossSettings[T](scalaVersion: String, if3: T, if2: T): T = {
   scalaVersion match {
     case version if version.startsWith("3") => if3
     case _ => if2
@@ -26,8 +26,14 @@ lazy val commonSettings = Seq(
       "-Ykind-projector:underscores",
       "-language:implicitConversions",
       "-source:future",
+      // improve error messages:
+      "-explain",
+      "-explain-types",
     ),
-    if2 = Seq("-Xsource:3", "-P:kind-projector:underscore-placeholders"),
+    if2 = Seq(
+      "-Xsource:3",
+      "-P:kind-projector:underscore-placeholders",
+    ),
   ),
   libraryDependencies ++= crossSettings(
     scalaVersion.value,
@@ -40,24 +46,11 @@ lazy val commonSettings = Seq(
   autoAPIMappings := true,
   licenses := Seq(("MIT", url("https://opensource.org/licenses/MIT"))),
   Test / publishArtifact := false,
-  scmInfo := Some(
-    ScmInfo(
-      url("https://github.com/evolution-gaming/scache"),
-      "git@github.com:evolution-gaming/scache.git",
-    ),
-  ),
-  developers := List(
-    Developer(
-      "t3hnar",
-      "Yaroslav Klymko",
-      "yklymko@evolution.com",
-      url("https://github.com/t3hnar"),
-    ),
-  ),
   publishTo := Some(Resolver.evolutionReleases),
 )
 
 lazy val root = (project in file("."))
+  .settings(commonSettings)
   .settings(
     name := "scache-root",
     publish / skip := true,
@@ -89,14 +82,6 @@ lazy val scache = (project in file("scache"))
   )
   .dependsOn(`cache-adt`)
 
-addCommandAlias(
-  "fmt",
-  "++2.13.18; all scalafmt scalafmtSbt; " +
-    "++3.3.7; all scalafmt scalafmtSbt",
-)
-addCommandAlias(
-  "check",
-  "++2.13.18; all versionPolicyCheck Compile/doc scalafmtCheck scalafmtSbtCheck; " +
-    "++3.3.7; all versionPolicyCheck Compile/doc scalafmtCheck scalafmtSbtCheck",
-)
+addCommandAlias("fmt", "+scalafmtRepo")
+addCommandAlias("check", "+all versionPolicyCheck Compile/doc scalafmtCheckRepo")
 addCommandAlias("build", "all test package")
