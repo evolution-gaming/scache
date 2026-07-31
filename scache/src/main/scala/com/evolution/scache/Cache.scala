@@ -2,7 +2,7 @@ package com.evolution.scache
 
 import cats.effect.kernel.MonadCancel
 import cats.effect.syntax.all.*
-import cats.effect.{Concurrent, Resource, Temporal}
+import cats.effect.{Async, Concurrent, Resource, Temporal}
 import cats.kernel.CommutativeMonoid
 import cats.syntax.all.*
 import cats.{Applicative, Functor, Hash, Monad, MonadThrow, Monoid, Parallel, ~>}
@@ -441,7 +441,7 @@ object Cache {
    *   method will be called on underlying cache when resource is released to make sure all
    *   resources stored in a cache are also released.
    */
-  def loading[F[_]: Concurrent: Parallel: Runtime, K, V]: Resource[F, Cache[F, K, V]] = {
+  def loading[F[_]: Async: Parallel: Runtime, K, V]: Resource[F, Cache[F, K, V]] = {
     loading(none)
   }
 
@@ -460,7 +460,7 @@ object Cache {
    *   method will be called on underlying cache when resource is released to make sure all
    *   resources stored in a cache are also released.
    */
-  def loading[F[_]: Concurrent: Parallel: Runtime, K, V](partitions: Int): Resource[F, Cache[F, K, V]] = {
+  def loading[F[_]: Async: Parallel: Runtime, K, V](partitions: Int): Resource[F, Cache[F, K, V]] = {
     loading(partitions.some)
   }
 
@@ -508,7 +508,7 @@ object Cache {
    *   method will be called on underlying cache when resource is released to make sure all
    *   resources stored in a cache are also released.
    */
-  def loading[F[_]: Concurrent: Parallel: Runtime, K, V](partitions: Option[Int] = None)
+  def loading[F[_]: Async: Parallel: Runtime, K, V](partitions: Option[Int] = None)
     : Resource[F, Cache[F, K, V]] = {
 
     implicit val hash: Hash[K] = Hash.fromUniversalHashCode[K]
@@ -518,7 +518,7 @@ object Cache {
         .map { _.pure[F] }
         .getOrElse { NrOfPartitions[F]() }
         .toResource
-      cache = LoadingCache.of(LoadingCache.EntryRefs.empty[F, K, V])
+      cache = LoadingCache.of[F, K, V]
       partitions <- Partitions.of[Resource[F, _], K, Cache[F, K, V]](nrOfPartitions, _ => cache)
     } yield {
       fromPartitions(partitions)
@@ -570,7 +570,7 @@ object Cache {
    *   method will be called on underlying cache when resource is released to make sure all
    *   resources stored in a cache are also released.
    */
-  def expiring[F[_]: Temporal: Runtime: Parallel, K, V](
+  def expiring[F[_]: Async: Runtime: Parallel, K, V](
     config: ExpiringCache.Config[F, K, V],
     partitions: Option[Int] = None,
   ): Resource[F, Cache[F, K, V]] = {
