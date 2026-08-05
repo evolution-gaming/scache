@@ -34,6 +34,16 @@ object ExpiringCache {
       (expireInterval / 10).millis
     }
 
+    /* One run of the expiration routine: drops the values that are too old, evicts the loads that
+     * are taking too long, and enforces `maxSize`.
+     *
+     * Loads are expired as well, because a load that never completes would otherwise stay in the
+     * map forever, holding the key hostage: nothing can be stored under it, everyone asking for it
+     * waits on a `Deferred` that will never complete, and so does the release of the cache itself.
+     *
+     * `loadingSince` holds the moment each of the currently loading keys was first seen loading,
+     * carried over between the runs, as this is the only way to tell how long a load is running.
+     */
     def removeExpiredAndCheckSize(
       entryMap: LoadingCache.EntryMap[F, K, E],
       cache: Cache[F, K, E],
@@ -64,6 +74,11 @@ object ExpiringCache {
           }
       }
 
+      /* Drops an entry that is still loading, failing everyone waiting for it with `ExpiredError`.
+       *
+       * Does nothing unless the entry is still loading the very same `deferred`, so that a load
+       * that has completed, or has been replaced by a newer one, in the meantime is left alone.
+       */
       def evictLoading(key: K, entryRef: LoadingCache.EntryRef[F, E], deferred: DeferredE): F[Unit] = {
         entryRef
           .modify {
@@ -87,6 +102,15 @@ object ExpiringCache {
           .uncancelable
       }
 
+      /* Evicts the loads that have been running longer than the shortest of the configured
+       * expiration intervals.
+       *
+       * A load has no timestamp of its own, so its age is counted from the first run of the routine
+       * that has seen it, which may be up to one run interval later than the load actually started.
+       * The bookkeeping is keyed by the `Deferred` of the load rather than by the key alone, so
+       * that a new load of the same key starts its own countdown instead of inheriting the one of
+       * its predecessor.
+       */
       def removeExpiredLoading(loading: List[(K, LoadingCache.EntryRef[F, E], DeferredE)]): F[Unit] = {
         val threshold = expireAfterWriteMs.fold(expireAfterReadMs) { _ min expireAfterReadMs }
         for {
