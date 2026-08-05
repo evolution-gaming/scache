@@ -12,6 +12,68 @@ import com.evolutiongaming.catshelper.ParallelHelper.*
 import java.util.concurrent.ConcurrentHashMap
 import scala.jdk.CollectionConverters.*
 
+/**
+ * Cache able to load values, i.e. to deduplicate concurrent computations of the same key.
+ *
+ * =State=
+ *
+ * The state is kept on two levels:
+ *   - the outer level, [[LoadingCache.EntryMap]], answers "is there an entry for this key?" and is
+ *     backed by a [[java.util.concurrent.ConcurrentHashMap]] exposed as a per-key
+ *     [[cats.effect.std.MapRef]];
+ *   - the inner level, [[LoadingCache.EntryRef]], answers "what happened to the value of this
+ *     entry?" and is a `Ref` holding an [[LoadingCache.EntryState]].
+ *
+ * A key is in the cache if, and only if, the outer level holds an `EntryRef` for it and that
+ * `EntryRef` is not in [[LoadingCache.EntryState.Removed]] state.
+ *
+ * =Why a ConcurrentHashMap=
+ *
+ * The outer level used to be a single `Ref[F, Map[K, EntryRef]]`, so every insertion or removal of
+ * any key had to CAS one and the same `Ref`. That had two consequences:
+ *   - operations on unrelated keys invalidated each other, so a `getOrUpdate` of one key could be
+ *     starved by a steady stream of writes of other keys, and the retry limit guarding that loop
+ *     turned such contention into a failure;
+ *   - every write copied the entire map.
+ *
+ * With `MapRef.fromConcurrentHashMap` a CAS is scoped to a single key: operations on distinct keys
+ * never contend, and no retry limit is needed, because the loops below only spin on a real race
+ * over the same key, and every such race is won by a fiber that makes progress. Enumeration
+ * (`keys`, `entries`, `size`) is served by the `ConcurrentHashMap` itself, i.e. it is a weakly
+ * consistent view rather than an atomic snapshot.
+ *
+ * =Entry lifecycle=
+ *
+ * `getOrUpdate` installs an entry in `Loading` state, holding a `Deferred` that every other fiber
+ * asking for the same key awaits, and only then computes the value. The load then either
+ *   - stores the computed value, moving the entry to `Value` state, or
+ *   - drops the entry from the map and propagates the error to the caller and to the waiters, if
+ *     the computation failed, or
+ *   - discards its own result, if it lost a race to `put`, `modify`, `remove`, `clear` or
+ *     cancellation, in which case the value of the winner is returned to the caller.
+ *
+ * `Removed` is a tombstone meaning "this `EntryRef` is no longer in the map, look the key up
+ * again". It is needed because the two levels cannot be updated atomically together, so a fiber
+ * that looked an `EntryRef` up earlier needs a way to notice that its reference went stale. All
+ * retry loops here are driven by it: seeing `Removed` means re-reading the key, and the fiber that
+ * installed the tombstone is already committed to unlinking that key, hence the loops terminate.
+ *
+ * =Releasing values=
+ *
+ * A value is released exactly once, by the fiber that took it out of the entry, i.e. replaced or
+ * removed it. A fiber whose computed value did not make it into the map releases it itself. To
+ * avoid making unrelated callers wait for a foreign `release`, releases of values the caller did
+ * not ask about are started in the background.
+ *
+ * =Cancellation=
+ *
+ * Only the user-supplied computation is cancelable, all state transitions are masked. Cancelling a
+ * load flips its own `Loading` state to `Removed`, unlinks the key, completes the `Deferred` with
+ * [[CancelledError]] so that waiters fail instead of hanging, and releases the value if the
+ * computation did manage to produce one. Without that cleanup a cancelled load would leave behind a
+ * `Loading` entry with a `Deferred` nobody is going to complete, which makes the key unusable
+ * forever and blocks the waiters, `clear`, and therefore the release of the cache itself.
+ */
 private[scache] object LoadingCache {
 
   def of[F[_]: Async, K, V]: Resource[F, Cache[F, K, V]] = {
@@ -21,6 +83,10 @@ private[scache] object LoadingCache {
     } yield cache
   }
 
+  /**
+   * Cache over an existing [[EntryMap]], clearing it, and thus releasing all the values, when the
+   * resource is released.
+   */
   def of[F[_]: Async, K, V](
     entryMap: EntryMap[F, K, V],
   ): Resource[F, Cache[F, K, V]] = {
@@ -35,17 +101,39 @@ private[scache] object LoadingCache {
    * Per-key view over the cache state: mutations go through [[cats.effect.std.MapRef]], so
    * operations on distinct keys never contend, while enumeration is served by the backing
    * [[java.util.concurrent.ConcurrentHashMap]].
+   *
+   * Exposed as a trait rather than used directly, because [[ExpiringCache]] needs to walk and evict
+   * entries behind the back of the [[Cache]] interface, and because it makes the contention
+   * behaviour testable.
    */
   trait EntryMap[F[_], K, V] {
 
+    /**
+     * Atomic per-key handle on the map, where `None` stands for "no entry for this key": setting it
+     * to `None` removes the key, setting it to `Some` inserts or replaces the entry. This is the
+     * only way the mapping itself is modified, and the CAS it performs is scoped to `key`.
+     */
     def ref(key: K): Ref[F, Option[EntryRef[F, V]]]
 
+    /**
+     * Non-atomic read of the entry, used when the mapping is not going to be modified.
+     */
     def lookup(key: K): F[Option[EntryRef[F, V]]]
 
+    /**
+     * Weakly consistent view of the keys, i.e. concurrent modifications may or may not be seen.
+     */
     def keys: F[Set[K]]
 
+    /**
+     * Weakly consistent view of the entries, see [[keys]].
+     */
     def entries: F[List[(K, EntryRef[F, V])]]
 
+    /**
+     * Number of entries, including the ones being loaded or removed, hence an upper bound of the
+     * number of values available.
+     */
     def size: F[Int]
 
     def contains(key: K): F[Boolean]
@@ -89,6 +177,10 @@ private[scache] object LoadingCache {
     }
   }
 
+  /**
+   * Cache over an existing [[EntryMap]], which never releases the values it still holds, hence
+   * meant to be wrapped into a resource by [[of]] rather than used directly.
+   */
   def apply[F[_]: Async, K, V](
     entryMap: EntryMap[F, K, V],
   ): Cache[F, K, V] = {
@@ -156,8 +248,33 @@ private[scache] object LoadingCache {
         }
       }
 
+      /**
+       * Returns the value of the key, computing it if the key is not in the cache yet.
+       *
+       * The result is `Left` if this call did compute the value, and `Right` if the value came from
+       * the cache, either already computed (`Right`) or still being computed by another fiber
+       * (`Left`), so that the callers can tell a cache hit from a miss without waiting.
+       *
+       * The flow is: look the key up and return what is there, or, if there is nothing, install a
+       * `Loading` entry and compute the value. Installing the entry is masked and done with a
+       * single per-key CAS, so of the fibers racing to install one exactly one wins and the losers
+       * simply await its `Deferred`. A `Removed` entry is a stale reference, and means the lookup
+       * has to be repeated.
+       */
       def getOrUpdate1[A](key: K)(value: => F[(A, V, Option[Release])]): F[Either[A, Either[F[V], V]]] = {
 
+        /* Runs the value computation for the `Loading` entry this fiber installed, and publishes
+         * its result.
+         *
+         * The computation is the only cancelable part of `getOrUpdate1`, hence it runs under
+         * `poll`, and `cleanupOnCancel` has to undo the installed entry: unlink the key, complete
+         * the `deferred` with `CancelledError` to unblock the waiters, and release the value if
+         * the computation completed before the cancellation was observed.
+         *
+         * The computation is raced against `deferred` to also handle being overtaken by a `put` of
+         * the same key: whoever completes the `deferred` first defines the value of the entry, and
+         * the loser releases the value it produced.
+         */
         def load(
           poll: Poll[F],
           entryRef: EntryRef[F, V],
@@ -455,6 +572,16 @@ private[scache] object LoadingCache {
         }
       }
 
+      /**
+       * Stores the value under the key, returning the replaced value, if any.
+       *
+       * The outer effect performs the replacement, the inner one awaits the release of the replaced
+       * value, so that the caller can decide whether to wait for it.
+       *
+       * A `Loading` entry is not waited for: its `deferred` is completed with the new value, which
+       * both unblocks the waiters immediately and tells the loading fiber that it lost the race and
+       * has to release the value it computes.
+       */
       def put(key: K, value: V, release: Option[Release]): F[F[Option[V]]] = {
         val entry = entryOf(value, release)
         ().tailRecM { _ =>
@@ -572,6 +699,14 @@ private[scache] object LoadingCache {
         }
       }
 
+      /**
+       * Applies the decision of `f` to the current value of the key, atomically.
+       *
+       * `f` is called with the value of the key, or `None` if there is none, and may be called more
+       * than once, because a lost CAS means the decision was made on a stale value and has to be
+       * taken again. A `Loading` entry is presented to `f` as `None`, as there is no value to
+       * decide upon yet, and is only overwritten if `f` decides to put one.
+       */
       override def modify[A](key: K)(f: Option[V] => (A, Directive[F, V])): F[(A, Option[F[Unit]])] = {
         ().tailRecM { _ =>
           entryMap
@@ -787,6 +922,16 @@ private[scache] object LoadingCache {
           .map { _.toMap }
       }
 
+      /**
+       * Removes the key from the cache, returning the removed value, if any.
+       *
+       * Unlinking the key and marking the entry `Removed` happen in that order and uncancelably:
+       * the mark is what makes this fiber the one responsible for the release, and what tells the
+       * fibers holding this `EntryRef` that they are looking at a stale reference.
+       *
+       * A `Loading` entry has no value to return, and is left to the loading fiber to release,
+       * which it will do upon discovering the `Removed` mark.
+       */
       def remove(key: K): F[F[Option[V]]] = {
         entryMap
           .ref(key)
@@ -830,6 +975,14 @@ private[scache] object LoadingCache {
           .uncancelable
       }
 
+      /**
+       * Removes all the entries, returning an effect awaiting the release of all their values.
+       *
+       * The keys are unlinked one by one, as there is no atomic bulk operation on a per-key `Ref`,
+       * so entries added concurrently may survive the clearing. Values of entries that are still
+       * loading are awaited before being released, which is why a load that never completes would
+       * make this, and the release of the cache resource, hang.
+       */
       def clear: F[F[Unit]] = {
         entryMap
           .keys
@@ -898,6 +1051,9 @@ private[scache] object LoadingCache {
     }
   }
 
+  /**
+   * Cached value together with the effect releasing it, if it needs releasing.
+   */
   final case class Entry[+F[_], +A](value: A, release: Option[F[Unit]])
 
   object Entry {
@@ -909,10 +1065,36 @@ private[scache] object LoadingCache {
     }
   }
 
+  /**
+   * State of a cache entry.
+   *
+   * The possible transitions are `Loading -> Value`, `Loading -> Removed`, `Value -> Value` and
+   * `Value -> Removed`, with `Removed` being terminal, so that a stale reference stays recognizable
+   * as such.
+   */
   sealed trait EntryState[+F[_], +A]
   object EntryState {
+
+    /**
+     * The value is being computed, and `deferred` will hold it, or the reason it will never be
+     * available: [[CancelledError]] if the load got cancelled, [[ExpiredError]] if it was evicted
+     * for taking too long, or the error the computation failed with.
+     *
+     * The `deferred` doubles as the identity of the load: a fiber may only act on the entry as long
+     * as it still holds the very same `deferred` it installed, which is what keeps a fiber from
+     * interfering with a load started after its own one ended.
+     */
     final case class Loading[F[_], A](deferred: Deferred[F, Either[Throwable, Entry[F, A]]]) extends EntryState[F, A]
+
+    /**
+     * The value is computed and available.
+     */
     final case class Value[F[_], A](entry: Entry[F, A]) extends EntryState[F, A]
+
+    /**
+     * The entry is gone, and this reference to it is stale: the key it used to be mapped to is
+     * either unlinked already, or is about to be, and has to be looked up anew.
+     */
     case object Removed extends EntryState[Nothing, Nothing]
   }
 
@@ -945,6 +1127,9 @@ private[scache] object LoadingCache {
 
   implicit class EntryStateOps[F[_], A](val self: EntryState[F, A]) extends AnyVal {
 
+    /**
+     * Value of the entry, awaiting it if it is still loading, and `None` if it will never arrive.
+     */
     def getOption(
       implicit
       F: Applicative[F],
@@ -956,6 +1141,10 @@ private[scache] object LoadingCache {
       }
     }
 
+    /**
+     * The entry as the cache API sees it: `None` for an entry that is gone, `Left` for a value that
+     * is still being computed, and `Right` for a value that is already there.
+     */
     def optEither(
       implicit
       F: MonadThrow[F],
@@ -1020,6 +1209,10 @@ private[scache] object LoadingCache {
         }
     }
 
+    /**
+     * Updates the value of the entry, if there is one, retrying on a lost CAS, and doing nothing at
+     * all if the entry is still loading or is gone.
+     */
     def update1(
       f: A => A,
     )(implicit
@@ -1049,6 +1242,15 @@ private[scache] object LoadingCache {
   }
 
   implicit class Ops[F[_], A, E](val fa: F[A]) extends AnyVal {
+
+    /**
+     * Races `fa` against `fb`, returning `Left` if `fa` won, and `Right` with the still running
+     * `fa` if `fb` did.
+     *
+     * Unlike `race`, a losing `fa` is not cancelled, but handed over to the caller instead, because
+     * `fa` computes a value that will have to be released once it is there. A cancelled `fa`
+     * cancels the race, while a cancelled `fb` leaves the race waiting for `fa`.
+     */
     def race1[B](
       fb: F[B],
     )(implicit
