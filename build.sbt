@@ -67,7 +67,7 @@ lazy val root = (project in file("."))
     publish / skip := true,
     publishArtifact := false,
   )
-  .aggregate(`cache-adt`, scache)
+  .aggregate(`cache-adt`, scache, benchmark)
 
 lazy val `cache-adt` = (project in file("cache-adt"))
   .settings(commonSettings)
@@ -92,6 +92,23 @@ lazy val scache = (project in file("scache"))
     ),
   )
   .dependsOn(`cache-adt`)
+
+lazy val benchmark = (project in file("benchmark"))
+  .enablePlugins(JmhPlugin)
+  .settings(commonSettings)
+  .settings(
+    name := "scache-benchmark",
+    description := "JMH benchmarks for scache",
+    publish / skip := true,
+    publishArtifact := false,
+    versionPolicyCheck / skip := true,
+    versionPolicyReportDependencyIssues / skip := true,
+    coverageEnabled := false,
+    // The frozen pre-MapRef copy is not going to be cleaned up, and the benchmarks do use the
+    // deprecated members it exposes.
+    scalacOptsFailOnWarn := Some(false),
+  )
+  .dependsOn(scache)
 
 addCommandAlias("fmt", "+scalafmtRepo")
 addCommandAlias("check", "+all versionPolicyCheck Compile/doc scalafmtCheckRepo")

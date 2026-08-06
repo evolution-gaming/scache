@@ -68,11 +68,12 @@ import scala.jdk.CollectionConverters.*
  * =Cancellation=
  *
  * Only the user-supplied computation is cancelable, all state transitions are masked. Cancelling a
- * load flips its own `Loading` state to `Removed`, unlinks the key, completes the `Deferred` with
- * [[CancelledError]] so that waiters fail instead of hanging, and releases the value if the
- * computation did manage to produce one. Without that cleanup a cancelled load would leave behind a
- * `Loading` entry with a `Deferred` nobody is going to complete, which makes the key unusable
- * forever and blocks the waiters, `clear`, and therefore the release of the cache itself.
+ * load flips its own `Loading` state to `Removed`, unlinks the key, always completes the `Deferred`
+ * with [[CancelledError]] so that waiters fail instead of hanging, even if the entry had already
+ * been taken away by `remove`, and releases the value if the computation did manage to produce one.
+ * Without that cleanup a cancelled load would leave behind a `Loading` entry with a `Deferred`
+ * nobody is going to complete, which makes the key unusable forever and blocks the waiters,
+ * `clear`, and therefore the release of the cache itself.
  */
 private[scache] object LoadingCache {
 
@@ -147,19 +148,26 @@ private[scache] object LoadingCache {
         .map { chm => apply(chm) }
     }
 
+    /**
+     * Built over an explicitly passed [[java.util.concurrent.ConcurrentHashMap]] rather than via
+     * `MapRef.ofConcurrentHashMap`, because the latter only hands out the per-key `Ref`s, while
+     * [[EntryMap.keys]], [[EntryMap.entries]], [[EntryMap.size]] and [[EntryMap.contains]] need the
+     * map itself.
+     */
     def apply[F[_]: Sync, K, V](chm: ConcurrentHashMap[K, EntryRef[F, V]]): EntryMap[F, K, V] = {
       val mapRef = MapRef.fromConcurrentHashMap[F, K, EntryRef[F, V]](chm)
       new EntryMap[F, K, V] {
 
-        def ref(key: K): Ref[F, Option[EntryRef[F, V]]] = mapRef(key)
+        def ref(key: K): Ref[F, Option[EntryRef[F, V]]] =
+          mapRef(key)
 
-        def lookup(key: K): F[Option[EntryRef[F, V]]] = Sync[F].delay { Option(chm.get(key)) }
+        def lookup(key: K): F[Option[EntryRef[F, V]]] =
+          Sync[F].delay { Option(chm.get(key)) }
 
-        def keys: F[Set[K]] = {
+        def keys: F[Set[K]] =
           Sync[F].delay { chm.keySet().asScala.toSet }
-        }
 
-        def entries: F[List[(K, EntryRef[F, V])]] = {
+        def entries: F[List[(K, EntryRef[F, V])]] =
           Sync[F].delay {
             chm
               .entrySet()
@@ -168,11 +176,12 @@ private[scache] object LoadingCache {
               .map { entry => (entry.getKey, entry.getValue) }
               .toList
           }
-        }
 
-        def size: F[Int] = Sync[F].delay { chm.mappingCount().toInt }
+        def size: F[Int] =
+          Sync[F].delay { chm.mappingCount().toInt }
 
-        def contains(key: K): F[Boolean] = Sync[F].delay { chm.containsKey(key) }
+        def contains(key: K): F[Boolean] =
+          Sync[F].delay { chm.containsKey(key) }
       }
     }
   }
@@ -297,10 +306,14 @@ private[scache] object LoadingCache {
                         case Some(`entryRef`) => none
                         case other => other
                       }
-                      .productR { deferred.complete(CancelledError.asLeft).void }
                   case false =>
                     ().pure[F]
                 }
+                // Completed regardless of whether the entry was still ours: the waiters hold this
+                // very `deferred`, and if the entry was taken away without completing it, as
+                // `remove` does, we are the only one left to unblock them. A `deferred` already
+                // completed by `put` ignores this.
+                .productR { deferred.complete(CancelledError.asLeft).void }
                 .productR {
                   computed
                     .get
@@ -308,8 +321,8 @@ private[scache] object LoadingCache {
                 }
 
             poll {
-              F.uncancelable { poll1 =>
-                poll1 {
+              F.uncancelable {
+                _ {
                   value.map { case (a, value, release) =>
                     val entry = entryOf(value, release)
                     (a, entry)
@@ -362,12 +375,12 @@ private[scache] object LoadingCache {
                         def tryPutNewValue: F[Either[A, Either[F[V], V]]] =
                           Ref[F]
                             .of[EntryState[F, V]](EntryState.Value(entry))
-                            .flatMap { newRef =>
+                            .flatMap { newEntryRef =>
                               ().tailRecM { _ =>
                                 entryMap
                                   .ref(key)
                                   .modify {
-                                    case None => (newRef.some, none[EntryRef[F, V]])
+                                    case None => (newEntryRef.some, none[EntryRef[F, V]])
                                     case some => (some, some)
                                   }
                                   .flatMap {
@@ -411,7 +424,9 @@ private[scache] object LoadingCache {
                                     a
                                       .asLeft[Either[F[V], V]]
                                       .pure[F]
-                                  // Failed to set our value, meaning the entry was either:
+
+                                  // Failed to set our value: while we were loading, `put`, `modify`,
+                                  // `remove` or `clear` got to the same entry, so it was either:
                                   // - Updated: in that case we release our computed value, and return
                                   //   the value (or its computation), giving it the priority
                                   // - Removed: in that case we try to put our value back in the map
@@ -584,6 +599,20 @@ private[scache] object LoadingCache {
        */
       def put(key: K, value: V, release: Option[Release]): F[F[Option[V]]] = {
         val entry = entryOf(value, release)
+
+        // Our value did not make it into the map, so nothing was replaced and we own its release,
+        // which we start and forget, as no caller is waiting for it.
+        def releaseAndExit: F[Either[Unit, F[Option[V]]]] = {
+          entry
+            .release
+            .traverse { _.start }
+            .as {
+              none[V]
+                .pure[F]
+                .asRight[Unit]
+            }
+        }
+
         ().tailRecM { _ =>
           entryMap
             .lookup(key)
@@ -629,17 +658,11 @@ private[scache] object LoadingCache {
                                   .as { state.entry.value.some }
                                   .asRight[Unit]
                               }
+
                           // Failed to set the entryRef to our value
                           // so we just release our value and exit.
                           case false =>
-                            entry
-                              .release
-                              .traverse { _.start } // Start releasing and forget
-                              .as {
-                                none[V]
-                                  .pure[F]
-                                  .asRight[Unit]
-                              }
+                            releaseAndExit
                         }
 
                     // The value is still loading, so we first try to complete the deferred with it,
@@ -658,41 +681,22 @@ private[scache] object LoadingCache {
                                   .pure[F]
                                   .asRight[Unit]
                                   .pure[F]
+
                               // Another fiber placed their new value before us
                               // so we just release our value and exit.
                               case false =>
-                                entry
-                                  .release
-                                  .traverse { _.start } // Start releasing and forget
-                                  .as {
-                                    none[V]
-                                      .pure[F]
-                                      .asRight[Unit]
-                                  }
+                                releaseAndExit
                             }
+
                           // Someone just completed the deferred we saw
                           // so we just release our value and exit.
                           case false =>
-                            entry
-                              .release
-                              .traverse { _.start } // Start releasing and forget
-                              .as {
-                                none[V]
-                                  .pure[F]
-                                  .asRight[Unit]
-                              }
+                            releaseAndExit
                         }
 
                     // The key was just removed from the map, so just release the value and exit.
                     case (EntryState.Removed, _) =>
-                      entry
-                        .release
-                        .traverse { _.start } // Start releasing and forget
-                        .as {
-                          none[V]
-                            .pure[F]
-                            .asRight[Unit]
-                        }
+                      releaseAndExit
                   }
                   .uncancelable
             }
