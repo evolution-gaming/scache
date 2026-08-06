@@ -1,17 +1,24 @@
-package com.evolution.scache
+package com.evolution.scache.v1
+
+import com.evolution.scache.Cache
 
 import cats.effect.syntax.all.*
-import cats.effect.{Async, Clock, Ref, Resource}
+import cats.effect.{Clock, Ref, Resource, Temporal}
 import cats.kernel.CommutativeMonoid
 import cats.syntax.all.*
-import cats.{Applicative, MonadThrow, Monoid}
+import cats.{Applicative, Monad, MonadThrow, Monoid}
 import com.evolution.scache.Cache.Directive
-import com.evolution.scache.LoadingCache.EntryState
+import com.evolution.scache.v1.LoadingCache.EntryState
 import com.evolutiongaming.catshelper.ClockHelper.*
 import com.evolutiongaming.catshelper.Schedule
 
 import scala.concurrent.duration.*
 
+/**
+ * Frozen copy of `ExpiringCache` as it was before the cache was rebuilt on `MapRef`, running over
+ * [[LoadingCache]] of this package. Kept here only so the benchmarks can measure the old and the
+ * new implementation in one run, do not change it.
+ */
 object ExpiringCache {
 
   type Timestamp = Long
@@ -19,56 +26,33 @@ object ExpiringCache {
   private[scache] def of[F[_], K, V](
     config: Config[F, K, V],
   )(implicit
-    G: Async[F],
+    G: Temporal[F],
   ): Resource[F, Cache[F, K, V]] = {
 
-    type TimestampedValue = Entry[V]
-
-    type LoadingDeferred = LoadingCache.DeferredThrow[F, LoadingCache.Entry[F, TimestampedValue]]
+    type E = Entry[V]
 
     val cooldown = math.max(config.expireAfterRead.toMillis / 5, 10L)
     val expireAfterReadMs = config.expireAfterRead.toMillis + cooldown / 2
     val expireAfterWriteMs = config.expireAfterWrite.map { _.toMillis }
-    val expireAfterMs = expireAfterWriteMs.fold(expireAfterReadMs) { _ min expireAfterReadMs }
-    val loadingTimeoutMs = config
-      .loadingTimeout
-      .fold(expireAfterMs) { _.toMillis }
-    val expireInterval = ((expireAfterMs min loadingTimeoutMs) / 10).millis
+    val expireInterval = {
+      val expireInterval = expireAfterWriteMs.fold(expireAfterReadMs) { _ min expireAfterReadMs }
+      (expireInterval / 10).millis
+    }
 
-    /* One run of the expiration routine: drops the values that are too old, evicts the loads that
-     * are taking too long, and enforces `maxSize`.
-     *
-     * Loads are expired as well, because a load that never completes would otherwise stay in the
-     * map forever, holding the key hostage: nothing can be stored under it, everyone asking for it
-     * waits on a `Deferred` that will never complete, and so does the release of the cache itself.
-     *
-     * The three pieces of state are one and the same map seen from three angles, and are not kept
-     * in sync by hand: `entryMap` is the raw per-key state, needed here because the [[Cache]]
-     * interface exposes neither the entry states nor the `Deferred` of a load; `cache` is the very
-     * same map behind that interface, used for the removals, so that they go through the regular
-     * release logic; `loadingSince` is bookkeeping private to this routine, holding the moment each
-     * of the currently loading keys was first seen loading, carried over between the runs, as this
-     * is the only way to tell how long a load is running. Anything stale in `loadingSince` is
-     * ignored and dropped on the next run.
-     */
-    def removeExpiredAndCheckSize(
-      entryMap: LoadingCache.EntryMap[F, K, TimestampedValue],
-      cache: Cache[F, K, TimestampedValue],
-      loadingSince: Ref[F, Map[K, (LoadingDeferred, Timestamp)]],
-    ): F[Unit] = {
+    def removeExpiredAndCheckSize(ref: Ref[F, LoadingCache.EntryRefs[F, K, E]], cache: Cache[F, K, E]) = {
 
-      def remove(key: K): F[Unit] = {
+      def remove(key: K) = {
         cache
           .remove(key)
           .flatten
           .void
       }
 
-      def removeExpired(key: K, entryRef: LoadingCache.EntryRef[F, TimestampedValue]): F[Unit] = {
+      def removeExpired(key: K, entryRef: LoadingCache.EntryRef[F, Entry[V]]) = {
         entryRef
           .get
           .flatMap {
-            case state: EntryState.Value[F, TimestampedValue] =>
+            case state: EntryState.Value[F, Entry[V]] =>
               for {
                 now <- Clock[F].millis
                 expiredAfterRead = expireAfterReadMs + state.entry.value.touched < now
@@ -76,93 +60,26 @@ object ExpiringCache {
                 expired = expiredAfterRead || expiredAfterWrite()
                 result <- if (expired) remove(key) else ().pure[F]
               } yield result
-            case _: EntryState.Loading[F, TimestampedValue] => ().pure[F]
+            case _: EntryState.Loading[F, Entry[V]] => ().pure[F]
             case EntryState.Removed => ().pure[F]
           }
       }
 
-      /* Drops an entry that is still loading, failing everyone waiting for it with `ExpiredError`.
-       *
-       * Does nothing unless the entry is still loading the very same `deferred`, so that a load
-       * that has completed, or has been replaced by a newer one, in the meantime is left alone.
-       */
-      def evictLoading(
-        key: K,
-        entryRef: LoadingCache.EntryRef[F, TimestampedValue],
-        deferred: LoadingDeferred,
-      ): F[Unit] = {
-        entryRef
-          .modify {
-            case state: EntryState.Loading[F, TimestampedValue] if state.deferred == deferred =>
-              (EntryState.Removed, true)
-            case state =>
-              (state, false)
-          }
-          .flatMap {
-            case true =>
-              entryMap
-                .ref(key)
-                .update {
-                  case Some(`entryRef`) => none
-                  case other => other
-                }
-                .productR { deferred.complete(ExpiredError.asLeft).void }
-            case false =>
-              ().pure[F]
-          }
-          .uncancelable
-      }
+      def notExceedMaxSize(maxSize: Int) = {
 
-      /* Evicts the loads that have been running longer than `Config.loadingTimeout`.
-       *
-       * A load has no timestamp of its own, so its age is counted from the first run of the routine
-       * that has seen it, which may be up to one run interval later than the load actually started.
-       * The bookkeeping is keyed by the `Deferred` of the load rather than by the key alone, so
-       * that a new load of the same key starts its own countdown instead of inheriting the one of
-       * its predecessor.
-       */
-      def removeExpiredLoading(
-        loading: List[(K, LoadingCache.EntryRef[F, TimestampedValue], LoadingDeferred)],
-      ): F[Unit] = {
-        val threshold = loadingTimeoutMs
-        for {
-          now <- Clock[F].millis
-          expired <- loadingSince.modify { seen =>
-            val seen1 = loading
-              .map { case (key, _, deferred) =>
-                val since = seen
-                  .get(key)
-                  .collect { case (`deferred`, since) => since }
-                  .getOrElse(now)
-                (key, (deferred, since))
-              }
-              .toMap
-            val expired = loading.filter { case (key, _, deferred) =>
-              seen1.get(key).exists { case (deferred1, since) =>
-                (deferred1 == deferred) && (since + threshold < now)
-              }
-            }
-            (seen1 -- expired.map { case (key, _, _) => key }, expired)
-          }
-          result <- expired.foldMapM { case (key, entryRef, deferred) => evictLoading(key, entryRef, deferred) }
-        } yield result
-      }
-
-      def notExceedMaxSize(maxSize: Int): F[Unit] = {
-
-        def drop(entries: List[(K, LoadingCache.EntryRef[F, TimestampedValue])]): F[Unit] = {
+        def drop(entryRefs: LoadingCache.EntryRefs[F, K, E]) = {
 
           final case class Elem(key: K, timestamp: Timestamp)
 
           val zero = List.empty[Elem]
-          entries
+          entryRefs
             .foldLeft(zero.pure[F]) { case (result, (key, entryRef)) =>
               result.flatMap { result =>
                 entryRef
                   .get
                   .map {
-                    case state: EntryState.Value[F, TimestampedValue] => Elem(key, state.entry.value.touched) :: result
-                    case _: EntryState.Loading[F, TimestampedValue] => result
+                    case state: EntryState.Value[F, Entry[V]] => Elem(key, state.entry.value.touched) :: result
+                    case _: EntryState.Loading[F, Entry[V]] => result
                     case EntryState.Removed => result
                   }
               }
@@ -176,22 +93,14 @@ object ExpiringCache {
         }
 
         for {
-          size <- entryMap.size
-          result <- Async[F].whenA(size > maxSize) { entryMap.entries.flatMap(drop) }
+          entryRefs <- ref.get
+          result <- if (entryRefs.size > maxSize) drop(entryRefs) else ().pure[F]
         } yield result
       }
 
       for {
-        entries <- entryMap.entries
-        result <- entries.foldMapM { case (key, entryRef) => removeExpired(key, entryRef) }
-        loading <- entries.foldLeftM(List.empty[(K, LoadingCache.EntryRef[F, TimestampedValue], LoadingDeferred)]) {
-          case (acc, (key, entryRef)) =>
-            entryRef.get.map {
-              case state: EntryState.Loading[F, TimestampedValue] => (key, entryRef, state.deferred) :: acc
-              case _ => acc
-            }
-        }
-        _ <- removeExpiredLoading(loading)
+        entryRefs <- ref.get
+        result <- entryRefs.foldMapM { case (key, entryRef) => removeExpired(key, entryRef) }
         _ <- config
           .maxSize
           .foldMapM { maxSize => notExceedMaxSize(maxSize) }
@@ -200,17 +109,17 @@ object ExpiringCache {
 
     def refreshEntries(
       refresh: Refresh[K, F[Option[V]]],
-      entryMap: LoadingCache.EntryMap[F, K, TimestampedValue],
-      cache: Cache[F, K, TimestampedValue],
-    ): F[Unit] = {
-      entryMap
-        .entries
-        .flatMap { entries =>
-          entries.foldMapM { case (key, entryRef) =>
+      ref: Ref[F, LoadingCache.EntryRefs[F, K, E]],
+      cache: Cache[F, K, E],
+    ) = {
+      ref
+        .get
+        .flatMap { entryRefs =>
+          entryRefs.foldMapM { case (key, entryRef) =>
             entryRef
               .get
               .flatMap {
-                case _: EntryState.Value[F, TimestampedValue] =>
+                case _: EntryState.Value[F, Entry[V]] =>
                   refresh
                     .value(key)
                     .flatMap {
@@ -218,39 +127,39 @@ object ExpiringCache {
                       case None => cache.remove(key).void
                     }
                     .handleError { _ => () }
-                case _: EntryState.Loading[F, TimestampedValue] => ().pure[F]
+                case _: EntryState.Loading[F, Entry[V]] => ().pure[F]
                 case EntryState.Removed => ().pure[F]
               }
           }
         }
     }
 
-    def schedule(interval: FiniteDuration)(fa: F[Unit]): Resource[F, Unit] = Schedule(interval, interval)(fa)
+    def schedule(interval: FiniteDuration)(fa: F[Unit]) = Schedule(interval, interval)(fa)
 
+    val entryRefs = LoadingCache.EntryRefs.empty[F, K, E]
     for {
-      entryMap <- LoadingCache.EntryMap.of[F, K, TimestampedValue].toResource
-      loadingSince <- Ref[F].of(Map.empty[K, (LoadingDeferred, Timestamp)]).toResource
-      cache <- LoadingCache.of(entryMap)
-      _ <- schedule(expireInterval) { removeExpiredAndCheckSize(entryMap, cache, loadingSince) }
+      ref <- Ref[F].of(entryRefs).toResource
+      cache <- LoadingCache.of(ref)
+      _ <- schedule(expireInterval) { removeExpiredAndCheckSize(ref, cache) }
       _ <- config
         .refresh
         .foldMapM { refresh =>
-          schedule(refresh.interval) { refreshEntries(refresh, entryMap, cache) }
+          schedule(refresh.interval) { refreshEntries(refresh, ref, cache) }
         }
     } yield {
-      apply(entryMap, cache, cooldown)
+      apply(ref, cache, cooldown)
     }
   }
 
   def apply[F[_]: MonadThrow: Clock, K, V](
-    entryMap: LoadingCache.EntryMap[F, K, Entry[V]],
+    ref: Ref[F, LoadingCache.EntryRefs[F, K, Entry[V]]],
     cache: Cache[F, K, Entry[V]],
     cooldown: Long,
   ): Cache[F, K, V] = {
 
-    type TimestampedValue = Entry[V]
+    type E = Entry[V]
 
-    def entryOf(value: V): F[TimestampedValue] = {
+    def entryOf(value: V) = {
       Clock[F]
         .millis
         .map { timestamp =>
@@ -260,13 +169,17 @@ object ExpiringCache {
 
     implicit def monoidUnit: Monoid[F[Unit]] = Applicative.monoid[F, Unit]
 
-    def touch(key: K, entry: TimestampedValue): F[Unit] = {
+    def touch(key: K, entry: E) = {
       for {
         now <- Clock[F].millis
         result <- if ((entry.touched + cooldown) <= now) {
-          entryMap
-            .lookup(key)
-            .flatMap { _.foldMap { _.update1 { _.touch(now) } } }
+          ref
+            .get
+            .flatMap { entries =>
+              entries
+                .get(key)
+                .foldMap { _.update1 { _.touch(now) } }
+            }
         } else {
           ().pure[F]
         }
@@ -276,7 +189,7 @@ object ExpiringCache {
     abstract class ExpiringCache extends Cache.Abstract1[F, K, V]
 
     new ExpiringCache { self =>
-      def get(key: K): F[Option[V]] = {
+      def get(key: K) = {
         cache
           .get1(key)
           .flatMap {
@@ -295,7 +208,7 @@ object ExpiringCache {
           }
       }
 
-      def get1(key: K): F[Option[Either[F[V], V]]] = {
+      def get1(key: K) = {
         cache
           .get1(key)
           .flatMap {
@@ -317,7 +230,7 @@ object ExpiringCache {
           }
       }
 
-      def getOrUpdate(key: K)(value: => F[V]): F[V] = {
+      def getOrUpdate(key: K)(value: => F[V]) = {
         getOrUpdate1(key) { value.map { a => (a, a, none[Release]) } }
           .flatMap {
             case Right(Right(a)) => a.pure[F]
@@ -326,7 +239,7 @@ object ExpiringCache {
           }
       }
 
-      def getOrUpdate1[A](key: K)(value: => F[(A, V, Option[Release])]): F[Either[A, Either[F[V], V]]] = {
+      def getOrUpdate1[A](key: K)(value: => F[(A, V, Option[Release])]) = {
         cache
           .getOrUpdate1(key) {
             value.flatMap { case (a, value, release) =>
@@ -355,7 +268,7 @@ object ExpiringCache {
           }
       }
 
-      def put(key: K, value: V, release: Option[Release]): F[F[Option[V]]] = {
+      def put(key: K, value: V, release: Option[Release]) = {
         entryOf(value)
           .flatMap { entry =>
             cache
@@ -379,13 +292,13 @@ object ExpiringCache {
             cache.modify(key)(adaptedF)
           }
 
-      def contains(key: K): F[Boolean] = cache.contains(key)
+      def contains(key: K) = cache.contains(key)
 
-      def size: F[Int] = cache.size
+      def size = cache.size
 
-      def keys: F[Set[K]] = cache.keys
+      def keys = cache.keys
 
-      def values: F[Map[K, F[V]]] = {
+      def values = {
         cache
           .values
           .map { values =>
@@ -395,7 +308,7 @@ object ExpiringCache {
           }
       }
 
-      def values1: F[Map[K, Either[F[V], V]]] = {
+      def values1 = {
         cache
           .values1
           .map { entries =>
@@ -409,22 +322,22 @@ object ExpiringCache {
           }
       }
 
-      def remove(key: K): F[F[Option[V]]] = {
+      def remove(key: K) = {
         cache
           .remove(key)
           .map { _.map { _.map { _.value } } }
       }
 
-      def clear: F[F[Unit]] = cache.clear
+      def clear = cache.clear
 
-      def foldMap[A: CommutativeMonoid](f: (K, Either[F[V], V]) => F[A]): F[A] = {
+      def foldMap[A: CommutativeMonoid](f: (K, Either[F[V], V]) => F[A]) = {
         cache.foldMap {
           case (k, Right(v)) => f(k, v.value.asRight)
           case (k, Left(v)) => f(k, v.map { _.value }.asLeft)
         }
       }
 
-      def foldMapPar[A: CommutativeMonoid](f: (K, Either[F[V], V]) => F[A]): F[A] = {
+      def foldMapPar[A: CommutativeMonoid](f: (K, Either[F[V], V]) => F[A]) = {
         cache.foldMap {
           case (k, Right(v)) => f(k, v.value.asRight)
           case (k, Left(v)) => f(k, v.map { _.value }.asLeft)
@@ -515,20 +428,24 @@ object ExpiringCache {
    *   If set to [[scala.Some]], the cache will schedule a background job, which will refresh or
    *   remove the _existing_ values regularly. The keys not already present in a cache will not be
    *   affected anyhow. See [[Refresh]] documentation for more details.
-   * @param loadingTimeout
-   *   How long a value computation started by [[Cache#getOrUpdate]] is allowed to run before the
-   *   entry is evicted and everyone waiting for it fails with [[ExpiredError]]. Without it a
-   *   computation that never completes would hold the key forever. If set to [[scala.None]], the
-   *   smaller of `expireAfterRead` and `expireAfterWrite` is used. Note, that the load is not
-   *   cancelled, only detached from the cache, and that this, too, is best effort: the eviction
-   *   only happens on a cleanup run, so a load may outlive the timeout by up to one run interval.
    */
   final case class Config[F[_], -K, V](
     expireAfterRead: FiniteDuration,
     expireAfterWrite: Option[FiniteDuration] = None,
     maxSize: Option[Int] = None,
     refresh: Option[Refresh[K, F[Option[V]]]] = None,
-    loadingTimeout: Option[FiniteDuration] = None,
   )
 
+  private implicit class MapOps[K, V](val self: Map[K, V]) extends AnyVal {
+    def foldMapM[F[_]: Monad, A: Monoid](f: (K, V) => F[A]): F[A] = {
+      self.foldLeft(Monoid[A].empty.pure[F]) { case (a, (k, v)) =>
+        for {
+          a <- a
+          b <- f(k, v)
+        } yield {
+          a.combine(b)
+        }
+      }
+    }
+  }
 }
