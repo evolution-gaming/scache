@@ -184,6 +184,33 @@ Measured on 12 cores, JDK 25, Scala 2.13.18, in millions of operations per secon
 `foldMap` walks the whole cache, so it is measured per traversal of 10000 entries rather than per
 key: 1148 ± 51, 1109 ± 44 and 989 ± 46 traversals per second respectively.
 
+### Comparing against another revision
+
+The module builds against the `scache` sources next to it, so an older revision is measured by
+putting the module on top of that revision and running it there. Both runs have to happen on the
+same machine, one after the other, or the numbers are not comparable.
+
+```shell
+git worktree add /tmp/scache-old <revision>
+cp -r benchmark /tmp/scache-old/
+cp build.sbt /tmp/scache-old/build.sbt
+cp project/plugins.sbt /tmp/scache-old/project/plugins.sbt
+
+cd /tmp/scache-old && sbt "benchmark/Jmh/run -rf json -rff /tmp/old.json"
+cd -                && sbt "benchmark/Jmh/run -rf json -rff /tmp/new.json"
+```
+
+The `benchmark` project and the JMH plugin come from `build.sbt` and `project/plugins.sbt`, which is
+why those two are copied over as well. If the older revision has a different internal API, the
+benchmark will not compile there until the affected lines are adjusted. Going back past the `MapRef`
+rewrite, for instance, only the `single` flavor needs it:
+
+```scala
+case "single" => LoadingCache.of(LoadingCache.EntryRefs.empty[IO, Int, Int])
+```
+
+Finally, `git worktree remove /tmp/scache-old` when done.
+
 ## Migrating to 7.0
 
 The cache state moved from a single `Ref[F, Map[K, EntryRef]]` to a per-key `MapRef` over a
