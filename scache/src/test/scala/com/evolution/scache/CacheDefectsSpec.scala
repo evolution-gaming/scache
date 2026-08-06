@@ -28,82 +28,119 @@ class CacheDefectsSpec extends AsyncFunSuite with Matchers {
       entryMap <- EntryMap.of[IO, Int, Int]
       cache = LoadingCache(entryMap)
       started <- Deferred[IO, Unit]
-      gate <- Deferred[IO, Int]
-      loader <- cache.getOrUpdate(0) { started.complete(()) *> gate.get }.start
+      gate <- Deferred[IO, Unit]
+      loader <- cache.getOrUpdate(0) { started.complete(()) *> gate.get.as(1) }.start
       _ <- started.get
       cancelling <- loader.cancel.start
       result <- {
         for {
-          cancelled <- cancelling.join.timeout(500.millis).attempt
-          _ <- IO { cancelled should matchPattern { case Right(_) => } }
-          second <- cache.getOrUpdate(0)(1.pure[IO]).timeout(500.millis).attempt
-          _ <- IO { second shouldEqual 1.asRight }
-        } yield {}
-      }.guarantee { gate.complete(42) *> cancelling.join.void }
+          cancelled <- cancelling.join.timeout(500.millis)
+          _ = cancelled should matchPattern { case Outcome.Succeeded(_) => }
+          present <- cache.get(0)
+          _ = present shouldEqual none
+          second <- cache.getOrUpdate(0)(2.pure[IO]).timeout(500.millis)
+          _ = second shouldEqual 2
+        } yield ()
+      }.guarantee { gate.complete(()) *> cancelling.join.void }
     } yield result
     io.run()
   }
 
   test("claim 2: expiration cleanup must evict entries stuck in Loading state") {
-    val config = ExpiringCache.Config[IO, Int, Int](expireAfterRead = 100.millis)
+    val config = ExpiringCache.Config[IO, Int, Int](
+      expireAfterRead = 100.millis,
+      loadingTimeout = 100.millis.some,
+    )
     val io = ExpiringCache.of[IO, Int, Int](config).use { cache =>
       for {
         started <- Deferred[IO, Unit]
-        gate <- Deferred[IO, Int]
-        loader <- cache.getOrUpdate(0) { started.complete(()) *> gate.get }.start
+        gate <- Deferred[IO, Unit]
+        loader <- cache.getOrUpdate(0) { started.complete(()) *> gate.get.as(1) }.start
         _ <- started.get
         result <- {
           for {
             _ <- cache.put(1, 1).flatten
             _ <- IO.sleep(500.millis)
+            // Control: an ordinary value of the same age is gone, so the cleanup did run.
             control <- cache.contains(1)
-            _ <- IO { control shouldEqual false }
+            _ = control shouldEqual false
             poisoned <- cache.contains(0)
-            _ <- IO { poisoned shouldEqual false }
-            second <- cache.getOrUpdate(0)(2.pure[IO]).timeout(500.millis).attempt
-            _ <- IO { second shouldEqual 2.asRight }
-          } yield {}
-        }.guarantee { gate.complete(42) *> loader.join.void }
+            _ = poisoned shouldEqual false
+            second <- cache.getOrUpdate(0)(2.pure[IO]).timeout(500.millis)
+            _ = second shouldEqual 2
+          } yield ()
+        }.guarantee { gate.complete(()) *> loader.join.void }
       } yield result
     }
     io.run()
   }
 
-  test("claim 3: remove must unblock fibers waiting on a Loading entry") {
+  test("claim 3: cancelling a load must unblock the fibers waiting on it") {
     val io = for {
       entryMap <- EntryMap.of[IO, Int, Int]
       cache = LoadingCache(entryMap)
       started <- Deferred[IO, Unit]
-      gate <- Deferred[IO, Int]
-      loader <- cache.getOrUpdate(0) { started.complete(()) *> gate.get }.start
+      gate <- Deferred[IO, Unit]
+      loader <- cache.getOrUpdate(0) { started.complete(()) *> gate.get.as(1) }.start
       _ <- started.get
       waiter <- cache.getOrUpdate(0)(99.pure[IO]).start
       _ <- IO.sleep(100.millis)
       cancelling <- loader.cancel.start
-      _ <- IO.sleep(100.millis)
-      _ <- cache.remove(0).flatten
       result <- {
         for {
-          outcome <- waiter.join.timeout(500.millis).attempt
-          _ <- IO { outcome should matchPattern { case Right(_) => } }
-        } yield {}
-      }.guarantee { gate.complete(42) *> cancelling.join.void }
+          outcome <- waiter.join.timeout(500.millis)
+          _ = outcome should matchPattern { case Outcome.Errored(CancelledError) => }
+          present <- cache.get(0)
+          _ = present shouldEqual none
+        } yield ()
+      }.guarantee { gate.complete(()) *> cancelling.join.void }
     } yield result
     io.run()
   }
 
-  test("claim 4: getOrUpdate must not fail due to sustained writes of unrelated keys") {
+  test("claim 3: cancelling a load removed while loading must unblock the fibers waiting on it") {
     val io = for {
-      underlying <- EntryMap.of[IO, Int, Int]
-      counter <- Ref[IO].of(0)
-      noise = counter
-        .updateAndGet { _ + 1 }
-        .flatMap { key => insertUnrelated(underlying, key) }
-      cache = LoadingCache(intercepted(underlying, noise, none))
-      result <- cache.getOrUpdate(0)(1.pure[IO]).timeout(10.seconds).attempt
-      _ <- IO { result shouldEqual 1.asRight }
-    } yield {}
+      entryMap <- EntryMap.of[IO, Int, Int]
+      cache = LoadingCache(entryMap)
+      started <- Deferred[IO, Unit]
+      gate <- Deferred[IO, Unit]
+      loader <- cache.getOrUpdate(0) { started.complete(()) *> gate.get.as(1) }.start
+      _ <- started.get
+      waiter <- cache.getOrUpdate(0)(99.pure[IO]).start
+      _ <- IO.sleep(100.millis)
+      // The entry stops being the loader's, so only the loader itself can still unblock the waiter.
+      _ <- cache.remove(0).flatten
+      cancelling <- loader.cancel.start
+      result <- {
+        for {
+          outcome <- waiter.join.timeout(500.millis)
+          _ = outcome should matchPattern { case Outcome.Errored(CancelledError) => }
+        } yield ()
+      }.guarantee { gate.complete(()) *> cancelling.join.void }
+    } yield result
     io.run()
+  }
+
+  test("claim 4: getOrUpdate must complete under sustained writes of unrelated keys") {
+    val io = LoadingCache.of[IO, Int, Int].use { cache =>
+      for {
+        writers <- (1 to 8)
+          .toList
+          .traverse { key =>
+            (cache.put(key, key).flatten *> cache.remove(key).flatten)
+              .foreverM
+              .start
+          }
+        _ <- IO.sleep(100.millis)
+        result <- {
+          for {
+            value <- cache.getOrUpdate(0)(1.pure[IO]).timeout(5.seconds)
+            _ = value shouldEqual 1
+          } yield ()
+        }.guarantee { writers.parTraverse_ { _.cancel } }
+      } yield result
+    }
+    io.run(timeout = 30.seconds)
   }
 
   test("claim 4 mechanism: insert of an unrelated key must not force a retry of getOrUpdate") {
@@ -113,12 +150,12 @@ class CacheDefectsSpec extends AsyncFunSuite with Matchers {
       noise = insertUnrelated(underlying, 1)
       cache = LoadingCache(intercepted(underlying, noise, attempts.some))
       value <- cache.getOrUpdate(0)(1.pure[IO])
-      _ <- IO { value shouldEqual 1 }
+      _ = value shouldEqual 1
       attempts <- attempts.get
-      _ <- IO { attempts shouldEqual 1 }
+      _ = attempts shouldEqual 1
       keys <- cache.keys
-      _ <- IO { keys shouldEqual Set(0, 1) }
-    } yield {}
+      _ = keys shouldEqual Set(0, 1)
+    } yield ()
     io.run()
   }
 
@@ -129,56 +166,62 @@ class CacheDefectsSpec extends AsyncFunSuite with Matchers {
       cache = LoadingCache(intercepted(underlying, IO.unit, attempts.some))
       _ <- (0 until 10000).toList.parTraverse { key => cache.getOrUpdate(key)(key.pure[IO]) }
       size <- cache.size
-      _ <- IO { size shouldEqual 10000 }
+      _ = size shouldEqual 10000
       attempts <- attempts.get
-      _ <- IO { attempts shouldEqual 10000 }
-    } yield {}
+      _ = attempts shouldEqual 10000
+    } yield ()
     io.run(timeout = 30.seconds)
   }
 
   test("evicting a stuck Loading entry unblocks fibers waiting on it") {
-    val config = ExpiringCache.Config[IO, Int, Int](expireAfterRead = 100.millis)
+    val config = ExpiringCache.Config[IO, Int, Int](
+      expireAfterRead = 1.minute,
+      loadingTimeout = 100.millis.some,
+    )
     val io = ExpiringCache.of[IO, Int, Int](config).use { cache =>
       for {
         started <- Deferred[IO, Unit]
-        gate <- Deferred[IO, Int]
-        loader <- cache.getOrUpdate(0) { started.complete(()) *> gate.get }.start
+        gate <- Deferred[IO, Unit]
+        loader <- cache.getOrUpdate(0) { started.complete(()) *> gate.get.as(1) }.start
         _ <- started.get
         waiter <- cache.getOrUpdate(0)(99.pure[IO]).attempt.start
         result <- {
           for {
             outcome <- waiter.joinWithNever.timeout(2.seconds)
-            _ <- IO { outcome should matchPattern { case Left(ExpiredError) => } }
-          } yield {}
-        }.guarantee { gate.complete(42) *> loader.join.void }
+            _ = outcome should matchPattern { case Left(ExpiredError) => }
+          } yield ()
+        }.guarantee { gate.complete(()) *> loader.join.void }
       } yield result
     }
     io.run()
   }
 
   test("a new load generation does not inherit the previous generation's stuck-timer") {
-    val config = ExpiringCache.Config[IO, Int, Int](expireAfterRead = 200.millis)
+    val config = ExpiringCache.Config[IO, Int, Int](
+      expireAfterRead = 1.minute,
+      loadingTimeout = 200.millis.some,
+    )
     val io = ExpiringCache.of[IO, Int, Int](config).use { cache =>
       for {
         started1 <- Deferred[IO, Unit]
-        gate1 <- Deferred[IO, Int]
-        loader1 <- cache.getOrUpdate(0) { started1.complete(()) *> gate1.get }.start
+        gate1 <- Deferred[IO, Unit]
+        loader1 <- cache.getOrUpdate(0) { started1.complete(()) *> gate1.get.as(1) }.start
         _ <- started1.get
         _ <- IO.sleep(150.millis)
-        _ <- gate1.complete(1)
+        _ <- gate1.complete(())
         _ <- loader1.join
         _ <- cache.remove(0).flatten
         started2 <- Deferred[IO, Unit]
-        gate2 <- Deferred[IO, Int]
-        loader2 <- cache.getOrUpdate(0) { started2.complete(()) *> gate2.get }.start
+        gate2 <- Deferred[IO, Unit]
+        loader2 <- cache.getOrUpdate(0) { started2.complete(()) *> gate2.get.as(2) }.start
         _ <- started2.get
         result <- {
           for {
             _ <- IO.sleep(150.millis)
             present <- cache.contains(0)
-            _ <- IO { present shouldEqual true }
-          } yield {}
-        }.guarantee { gate2.complete(2) *> loader2.join.void }
+            _ = present shouldEqual true
+          } yield ()
+        }.guarantee { gate2.complete(()) *> loader2.join.void }
       } yield result
     }
     io.run()
@@ -194,12 +237,17 @@ class CacheDefectsSpec extends AsyncFunSuite with Matchers {
           fiber <- cache.getOrUpdate1(0) { balance.update { _ + 1 }.as((i, i, balance.update { _ - 1 }.some)) }.start
           _ <- fiber.cancel.start
           _ <- fiber.join
-          _ <- cache.getOrUpdate(0)((-1).pure[IO]).timeout(1.second)
+          // The key must be usable right away, holding either the value of the load that made it
+          // in before the cancellation, or the one we compute here.
+          value <- cache.getOrUpdate(0)((-1).pure[IO]).timeout(1.second)
+          _ = value should (equal(i) or equal(-1))
           _ <- cache.remove(0).flatten
-        } yield {}
+        } yield ()
       }
+      // Releases of values nobody asked about are started in the background, so the balance is
+      // settled shortly after the last removal rather than at the moment of it.
       _ <- (IO.sleep(10.millis) *> balance.get).iterateUntil { _ == 0 }.timeout(3.seconds)
-    } yield {}
+    } yield ()
     io.run(timeout = 60.seconds)
   }
 
@@ -209,14 +257,19 @@ class CacheDefectsSpec extends AsyncFunSuite with Matchers {
         LoadingCache.EntryState.Value(LoadingCache.Entry(key, none)),
       )
       _ <- underlying.ref(key).set(entryRef.some)
-    } yield {}
+    } yield ()
   }
 
   /**
-   * EntryMap that runs `noise` before every entry transition going through the cache (simulating a
-   * concurrent writer of other keys) and counts those transitions, so the tests can assert that
-   * writes to unrelated keys neither invalidate the transition nor force retries. `noise` writes
-   * through `underlying` directly and is not counted.
+   * `underlying` with every per-key `Ref` wrapped, so that each attempt of the cache to modify the
+   * mapping first runs `noise`, a write of some other key, and then is counted in `attempts`.
+   *
+   * That gives the deterministic version of what the `claim 4` test does with background fibers: an
+   * unrelated write is guaranteed to land between reading and writing the mapping, i.e. exactly
+   * where the shared `Ref[F, Map[K, EntryRef]]` used to lose its CAS. With a per-key `Ref` the
+   * attempt still succeeds, so the count stays at one attempt per insert.
+   *
+   * `noise` writes through `underlying` directly and is not counted.
    */
   private def intercepted(
     underlying: EntryMap[IO, Int, Int],

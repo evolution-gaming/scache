@@ -139,6 +139,40 @@ libraryDependencies += "com.evolution" %% "scache" % "<latest version from badge
 * Touch, despite its name, is not called after refresh.
 * expireAfterWrite, despite its name, is calculated from date of creation, not time of update.
 
+## Migrating to 7.0
+
+The cache state moved from a single `Ref[F, Map[K, EntryRef]]` to a per-key `MapRef` over a
+`ConcurrentHashMap`. What that means for the users:
+
+**Type classes.** `Cache.loading`, `Cache.expiring`, `SerialMap.of` and `SerialMap.apply` now ask
+for `Async[F]` instead of `Concurrent[F]` / `Temporal[F]`, because the new state needs `Sync` for
+the `ConcurrentHashMap` next to `Concurrent` for the fibers. Nothing to do for `IO` or for any stack
+that already has an `Async` instance, otherwise the call sites have to provide one.
+
+**Removed.** `LoadingCache.EntryRefs`, and with it the overload
+`LoadingCache.of(map: EntryRefs[F, K, V])`. Both were `private[scache]`, so this only affects code
+inside this library. `LoadingCache.of[F, K, V]` replaces them.
+
+**No more contention failures.** `getOrUpdate` used to give up with
+`IllegalStateException("extreme contention")` after 10000 lost CAS attempts on the shared state.
+Operations on distinct keys no longer contend at all, so the limit is gone along with that failure
+mode.
+
+**Cancelling a load cleans up.** Cancelling `getOrUpdate` now removes the entry it installed and
+fails everyone waiting for that entry with `CancelledError`, instead of leaving the key unusable and
+its waiters blocked forever. Code that cancels loads and expects the waiters to keep waiting has to
+be adjusted.
+
+**Loads can expire.** `ExpiringCache` evicts entries that have been loading longer than
+`Config.loadingTimeout`, failing their waiters with `ExpiredError`. The load itself is not
+cancelled, only detached from the cache. `loadingTimeout` defaults to the smaller of
+`expireAfterRead` and `expireAfterWrite`, so set it explicitly if the loads are legitimately slower
+than the expiration.
+
+**Enumeration is weakly consistent.** `keys`, `values`, `values1`, `size`, `foldMap` and
+`foldMapPar` are served by the `ConcurrentHashMap` and no longer observe an atomic snapshot of the
+map: an entry added or removed concurrently may or may not be included.
+
 ## Release process
 The release process is based on Git tags and makes use of [evolution-gaming/scala-github-actions](https://github.com/evolution-gaming/scala-github-actions) which uses [sbt-dynver](https://github.com/sbt/sbt-dynver) to automatically obtain the version from the latest Git tag. The flow is defined in `.github/workflows/release.yml`.  
 A typical release process is as follows:
