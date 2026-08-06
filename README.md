@@ -164,25 +164,36 @@ The whole suite is kept under ten minutes, which is one warmup and five measurem
 scenario. That is enough to compare implementations or spot a regression, not to argue about a few
 percent, and some of the scenarios below are visibly noisy.
 
-Measured on 12 cores, JDK 25, Scala 2.13.18, in millions of operations per second, higher is better:
+### Results
+
+Two runs back to back on the same machine, 12 cores, JDK 25, Scala 2.13.18: the cache as of commit
+`7c9fa9f`, where the whole map sat in one `Ref[F, Map[K, EntryRef]]`, and the same cache after it
+was rebuilt on `MapRef`. Millions of operations per second, before to after, higher is better.
 
 | Scenario | single | partitioned | expiring |
 |---|---:|---:|---:|
-| `getOrUpdate`, insert distinct keys | 2.32 ± 1.38 | 2.40 ± 0.44 | 1.84 ± 0.30 |
-| `getOrUpdate`, hit random keys | 12.71 ± 1.43 | 11.37 ± 1.47 | 9.22 ± 3.27 |
-| `getOrUpdate`, hit single hot key | 11.65 ± 1.56 | 12.47 ± 1.66 | 10.52 ± 0.47 |
-| `get`, hit random keys | 28.21 ± 0.33 | 23.54 ± 1.25 | 13.14 ± 0.91 |
-| `get1`, hit random keys | 23.52 ± 0.48 | 20.51 ± 0.99 | 13.18 ± 0.43 |
-| `contains`, random keys | 34.11 ± 36.63 | 37.59 ± 2.81 | 34.21 ± 1.04 |
-| `put`, insert distinct keys | 10.91 ± 2.85 | 10.31 ± 2.70 | 9.05 ± 1.42 |
-| `put`, replace random keys | 9.93 ± 0.68 | 8.76 ± 0.42 | 8.23 ± 0.60 |
-| `modify`, insert distinct keys | 11.77 ± 5.37 | 11.42 ± 1.74 | 10.91 ± 2.24 |
-| `modify`, update random keys | 11.21 ± 1.42 | 9.26 ± 3.56 | 10.42 ± 2.03 |
-| `remove` and `put`, random keys | 4.05 ± 0.11 | 3.87 ± 0.16 | 2.72 ± 2.33 |
-| mixed `get`/`getOrUpdate`/`put`/`modify`/`remove` | 7.78 ± 0.10 | 7.20 ± 0.20 | 5.78 ± 0.14 |
+| `getOrUpdate`, insert distinct keys | 1.25 to 2.06 (1.65x) | 2.11 to 2.41 (1.14x) | 1.91 to 1.99 (1.04x) |
+| `getOrUpdate`, hit random keys | 9.56 to 12.60 (1.32x) | 10.68 to 11.46 (1.07x) | 7.89 to 9.12 (1.16x) |
+| `getOrUpdate`, hit single hot key | 10.65 to 13.82 (1.30x) | 12.14 to 12.58 (1.04x) | 9.38 to 10.40 (1.11x) |
+| `get`, hit random keys | 21.74 to 26.10 (1.20x) | 21.37 to 23.02 (1.08x) | 12.68 to 13.22 (1.04x) |
+| `get1`, hit random keys | 19.47 to 23.66 (1.21x) | 18.78 to 22.14 (1.18x) | 12.59 to 12.92 (1.03x) |
+| `contains`, random keys | 26.69 to 31.97 (1.20x) | 23.59 to 33.70 (1.43x) | 23.22 to 33.68 (1.45x) |
+| `put`, insert distinct keys | 1.66 to 9.24 (5.56x) | 5.40 to 10.30 (1.91x) | 5.47 to 8.86 (1.62x) |
+| `put`, replace random keys | 8.13 to 9.53 (1.17x) | 7.37 to 8.83 (1.20x) | 7.88 to 8.00 (1.01x) |
+| `modify`, insert distinct keys | 1.88 to 11.44 (6.09x) | 6.13 to 10.65 (1.74x) | 7.15 to 11.76 (1.65x) |
+| `modify`, update random keys | 7.24 to 11.13 (1.54x) | 8.03 to 9.27 (1.15x) | 9.63 to 10.53 (1.09x) |
+| `remove` and `put`, random keys | 0.84 to 3.87 (4.59x) | 2.45 to 4.05 (1.65x) | 2.42 to 2.97 (1.23x) |
+| mixed `get`/`getOrUpdate`/`put`/`modify`/`remove` | 5.40 to 7.45 (1.38x) | 6.32 to 7.40 (1.17x) | 5.08 to 5.56 (1.09x) |
 
-`foldMap` walks the whole cache, so it is measured per traversal of 10000 entries rather than per
-key: 1148 ± 51, 1109 ± 44 and 989 ± 46 traversals per second respectively.
+The gains are largest exactly where the old implementation had to CAS the shared map, i.e. inserting
+and removing keys, and they shrink with partitioning, which is what partitioning was there to work
+around in the first place. Reads gain less, and `foldMap`, the one operation that used to get an
+atomic snapshot and now walks a `ConcurrentHashMap`, is a few percent slower: 1176 to 1146, 1142 to
+1105 and 1009 to 996 traversals of 10000 entries per second.
+
+Do not read too much into a single digit of these numbers. The suite is short by design, several
+scenarios have error margins of tens of percent, and the two runs were taken on a shared machine.
+The raw JMH output of both runs, error margins and all, is in `benchmark/results`.
 
 ### Comparing against another revision
 
