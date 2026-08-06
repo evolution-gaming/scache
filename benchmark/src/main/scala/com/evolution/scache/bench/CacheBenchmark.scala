@@ -3,20 +3,20 @@ package com.evolution.scache.bench
 import cats.effect.IO
 import cats.effect.unsafe.implicits.global
 import cats.syntax.all.*
-import com.evolution.scache.v1.CacheV1
-import com.evolution.scache.{Cache, ExpiringCache, LoadingCache, v1}
+import com.evolution.scache.{Cache, ExpiringCache, LoadingCache}
 import org.openjdk.jmh.annotations.*
 
 import java.util.concurrent.TimeUnit
 import scala.concurrent.duration.*
 
 /**
- * Compares the cache before and after it was rebuilt on `MapRef`, measuring both implementations in
- * one run: `impl=v1` is the frozen copy in [[com.evolution.scache.v1]], `impl=v2` is the current
- * one.
+ * Cache operations under contention.
  *
  * One invocation is the whole workload, `Fibers` fibers running `OpsPerFiber` cache operations
  * each, so the reported number is cache operations per second, contention included.
+ *
+ * A full run takes under ten minutes, hence the modest iteration counts: the numbers are good
+ * enough to compare implementations or spot a regression, not to split hairs over a few percent.
  *
  * {{{
  * sbt "benchmark/Jmh/run"
@@ -56,15 +56,12 @@ object CacheBenchmark {
 /**
  * Cache under benchmark, allocated once per trial.
  *
- * `impl` selects the implementation, `flavor` selects how it is put together: a single unpartitioned
- * [[com.evolution.scache.LoadingCache]], the partitioned `Cache.loading`, or the partitioned
- * `Cache.expiring` with expiration far enough away not to interfere.
+ * `flavor` selects how it is put together: a single unpartitioned `LoadingCache`, the partitioned
+ * `Cache.loading`, or the partitioned `Cache.expiring` with expiration far enough away not to
+ * interfere.
  */
 @State(Scope.Benchmark)
 abstract class CacheState {
-
-  @Param(Array("v1", "v2"))
-  var impl: String = "v2"
 
   @Param(Array("single", "partitioned", "expiring"))
   var flavor: String = "partitioned"
@@ -75,14 +72,11 @@ abstract class CacheState {
 
   private def resource = {
     val expireAfterRead = 1.hour
-    (impl, flavor) match {
-      case ("v1", "single") => v1.LoadingCache.of(v1.LoadingCache.EntryRefs.empty[IO, Int, Int])
-      case ("v1", "partitioned") => CacheV1.loading[IO, Int, Int]()
-      case ("v1", "expiring") => CacheV1.expiring[IO, Int, Int](v1.ExpiringCache.Config[IO, Int, Int](expireAfterRead))
-      case ("v2", "single") => LoadingCache.of[IO, Int, Int]
-      case ("v2", "partitioned") => Cache.loading[IO, Int, Int]
-      case ("v2", "expiring") => Cache.expiring[IO, Int, Int](ExpiringCache.Config[IO, Int, Int](expireAfterRead))
-      case (impl, flavor) => sys.error(s"unknown impl=$impl flavor=$flavor")
+    flavor match {
+      case "single" => LoadingCache.of[IO, Int, Int]
+      case "partitioned" => Cache.loading[IO, Int, Int]
+      case "expiring" => Cache.expiring[IO, Int, Int](ExpiringCache.Config[IO, Int, Int](expireAfterRead))
+      case flavor => sys.error(s"unknown flavor=$flavor")
     }
   }
 
@@ -127,8 +121,8 @@ class PopulatedCacheState extends CacheState {
 @BenchmarkMode(Array(Mode.Throughput))
 @OutputTimeUnit(TimeUnit.SECONDS)
 @OperationsPerInvocation(160000)
-@Warmup(iterations = 3, time = 3, timeUnit = TimeUnit.SECONDS)
-@Measurement(iterations = 5, time = 3, timeUnit = TimeUnit.SECONDS)
+@Warmup(iterations = 1, time = 3, timeUnit = TimeUnit.SECONDS)
+@Measurement(iterations = 5, time = 2, timeUnit = TimeUnit.SECONDS)
 @Fork(1)
 @Threads(1)
 class CacheBenchmark {

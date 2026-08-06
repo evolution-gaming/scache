@@ -107,9 +107,6 @@ lazy val benchmark = (project in file("benchmark"))
     versionPolicyCheck / skip := true,
     versionPolicyReportDependencyIssues / skip := true,
     coverageEnabled := false,
-    // The frozen pre-MapRef copy is not going to be cleaned up, and the benchmarks do use the
-    // deprecated members it exposes.
-    scalacOptsFailOnWarn := Some(false),
   )
   .dependsOn(scache)
 
