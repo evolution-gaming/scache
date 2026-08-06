@@ -139,6 +139,51 @@ libraryDependencies += "com.evolution" %% "scache" % "<latest version from badge
 * Touch, despite its name, is not called after refresh.
 * expireAfterWrite, despite its name, is calculated from date of creation, not time of update.
 
+## Benchmarks
+
+The `benchmark` module holds a JMH benchmark of the cache operations under contention. One
+invocation is the whole workload, 8 fibers running 20000 operations each against a key space of
+10000, so the reported number is cache operations per second with the contention included.
+
+```scala
+// everything, around 10 minutes
+sbt "benchmark/Jmh/run"
+
+// one scenario, one flavor
+sbt "benchmark/Jmh/run -p flavor=partitioned .*getOrUpdateHitRandomKeys.*"
+
+// longer run when the defaults are too noisy to tell two numbers apart
+sbt "benchmark/Jmh/run -wi 5 -i 10 -r 5s"
+```
+
+`flavor` picks how the cache is put together: `single` is one unpartitioned `LoadingCache`,
+`partitioned` is `Cache.loading`, `expiring` is `Cache.expiring` with the expiration set far enough
+away not to interfere.
+
+The whole suite is kept under ten minutes, which is one warmup and five measurement iterations per
+scenario. That is enough to compare implementations or spot a regression, not to argue about a few
+percent, and some of the scenarios below are visibly noisy.
+
+Measured on 12 cores, JDK 25, Scala 2.13.18, in millions of operations per second, higher is better:
+
+| Scenario | single | partitioned | expiring |
+|---|---:|---:|---:|
+| `getOrUpdate`, insert distinct keys | 2.32 ± 1.38 | 2.40 ± 0.44 | 1.84 ± 0.30 |
+| `getOrUpdate`, hit random keys | 12.71 ± 1.43 | 11.37 ± 1.47 | 9.22 ± 3.27 |
+| `getOrUpdate`, hit single hot key | 11.65 ± 1.56 | 12.47 ± 1.66 | 10.52 ± 0.47 |
+| `get`, hit random keys | 28.21 ± 0.33 | 23.54 ± 1.25 | 13.14 ± 0.91 |
+| `get1`, hit random keys | 23.52 ± 0.48 | 20.51 ± 0.99 | 13.18 ± 0.43 |
+| `contains`, random keys | 34.11 ± 36.63 | 37.59 ± 2.81 | 34.21 ± 1.04 |
+| `put`, insert distinct keys | 10.91 ± 2.85 | 10.31 ± 2.70 | 9.05 ± 1.42 |
+| `put`, replace random keys | 9.93 ± 0.68 | 8.76 ± 0.42 | 8.23 ± 0.60 |
+| `modify`, insert distinct keys | 11.77 ± 5.37 | 11.42 ± 1.74 | 10.91 ± 2.24 |
+| `modify`, update random keys | 11.21 ± 1.42 | 9.26 ± 3.56 | 10.42 ± 2.03 |
+| `remove` and `put`, random keys | 4.05 ± 0.11 | 3.87 ± 0.16 | 2.72 ± 2.33 |
+| mixed `get`/`getOrUpdate`/`put`/`modify`/`remove` | 7.78 ± 0.10 | 7.20 ± 0.20 | 5.78 ± 0.14 |
+
+`foldMap` walks the whole cache, so it is measured per traversal of 10000 entries rather than per
+key: 1148 ± 51, 1109 ± 44 and 989 ± 46 traversals per second respectively.
+
 ## Migrating to 7.0
 
 The cache state moved from a single `Ref[F, Map[K, EntryRef]]` to a per-key `MapRef` over a
