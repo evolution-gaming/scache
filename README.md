@@ -243,8 +243,10 @@ mode.
 
 **Cancelling a load cleans up.** Cancelling `getOrUpdate` now removes the entry it installed and
 fails everyone waiting for that entry with `CancelledError`, instead of leaving the key unusable and
-its waiters blocked forever. Code that cancels loads and expects the waiters to keep waiting has to
-be adjusted.
+its waiters blocked forever. Note that the load is shared, so this reaches callers that were not
+cancelled themselves: if two requests ask for the same key, the first one runs the load and the
+second one waits for it, then a timeout cancelling the first fails the second with `CancelledError`
+as well. It gets to retry, where before it would have hung.
 
 **Loads can expire.** `ExpiringCache` evicts entries that have been loading longer than
 `Config.loadingTimeout`, failing their waiters with `ExpiredError`. The load itself is not
