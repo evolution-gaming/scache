@@ -16,6 +16,11 @@ object ExpiringCache {
 
   type Timestamp = Long
 
+  /**
+   * Shortest delay the cleanup routine is ever scheduled with, in milliseconds.
+   */
+  private val MinExpireInterval = 10L
+
   private[scache] def of[F[_], K, V](
     config: Config[F, K, V],
   )(implicit
@@ -33,7 +38,17 @@ object ExpiringCache {
     val loadingTimeoutMs = config
       .loadingTimeout
       .fold(expireAfterMs) { _.toMillis }
-    val expireInterval = ((expireAfterMs min loadingTimeoutMs) / 10).millis
+    /* One cleanup run walks every entry, so the interval is what the cost of the routine is traded
+     * against. Values are sampled ten times per expiration, as before, while loads are sampled only
+     * twice per `loadingTimeout`, because a load overstaying its welcome by half the timeout is
+     * harmless and a short `loadingTimeout` next to a long expiration would otherwise turn the
+     * routine into a busy scan of the whole cache. The floor keeps a tiny configured duration from
+     * scheduling the routine with no delay at all.
+     */
+    val expireInterval = {
+      val interval = (expireAfterMs / 10) min (loadingTimeoutMs / 2)
+      (interval max MinExpireInterval).millis
+    }
 
     /* One run of the expiration routine: drops the values that are too old, evicts the loads that
      * are taking too long, and enforces `maxSize`.
