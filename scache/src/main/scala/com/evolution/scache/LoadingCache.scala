@@ -49,8 +49,14 @@ import scala.jdk.CollectionConverters.*
  *   - stores the computed value, moving the entry to `Value` state, or
  *   - drops the entry from the map and propagates the error to the caller and to the waiters, if
  *     the computation failed, or
- *   - discards its own result, if it lost a race to `put`, `modify`, `remove`, `clear` or
- *     cancellation, in which case the value of the winner is returned to the caller.
+ *   - discards and releases its own result, if `put` or `modify` stored another value under the key
+ *     meanwhile, in which case the value of the winner is returned to the caller, or
+ *   - discards and releases its own result, if the load was cancelled.
+ *
+ * Neither `remove` nor `clear` cancels a load in flight, so a load that outlives one of them still
+ * has a value on its hands. After a `remove` it stores that value under the key again, putting the
+ * key back into the cache; after a `clear` it stores it into the entry the `clear` has already
+ * unlinked, and the `clear` is the one that awaits and releases it.
  *
  * `Removed` is a tombstone meaning "this `EntryRef` is no longer in the map, look the key up
  * again". It is needed because the two levels cannot be updated atomically together, so a fiber
@@ -933,8 +939,9 @@ private[scache] object LoadingCache {
        * the mark is what makes this fiber the one responsible for the release, and what tells the
        * fibers holding this `EntryRef` that they are looking at a stale reference.
        *
-       * A `Loading` entry has no value to return, and is left to the loading fiber to release,
-       * which it will do upon discovering the `Removed` mark.
+       * A `Loading` entry has no value to return, and removing it does not cancel the load: the
+       * loading fiber finds the `Removed` mark, sees that the key is now free, and stores its value
+       * under it, so a load that outlives the `remove` puts the key back into the cache.
        */
       def remove(key: K): F[F[Option[V]]] = {
         entryMap
@@ -983,9 +990,12 @@ private[scache] object LoadingCache {
        * Removes all the entries, returning an effect awaiting the release of all their values.
        *
        * The keys are unlinked one by one, as there is no atomic bulk operation on a per-key `Ref`,
-       * so entries added concurrently may survive the clearing. Values of entries that are still
-       * loading are awaited before being released, which is why a load that never completes would
-       * make this, and the release of the cache resource, hang.
+       * so entries added concurrently may survive the clearing. As this also runs on the release of
+       * the cache resource, an entry added while a large cache is being cleared can outlive the
+       * cache itself, with its value never released.
+       *
+       * Values of entries that are still loading are awaited before being released, which is why a
+       * load that never completes would make this, and the release of the cache resource, hang.
        */
       def clear: F[F[Unit]] = {
         entryMap

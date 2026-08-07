@@ -84,13 +84,16 @@ class CacheDefectsSpec extends AsyncFunSuite with Matchers {
       gate <- Deferred[IO, Unit]
       loader <- cache.getOrUpdate(0) { started.complete(()) *> gate.get.as(1) }.start
       _ <- started.get
-      waiter <- cache.getOrUpdate(0)(99.pure[IO]).start
+      // Attempted, so that the failure this test is after is observed as a value: a fiber left to
+      // end in `Errored` reports the error to the runtime as unhandled the moment it finishes,
+      // which here races with the `join` below.
+      waiter <- cache.getOrUpdate(0)(99.pure[IO]).attempt.start
       _ <- IO.sleep(100.millis)
       cancelling <- loader.cancel.start
       result <- {
         for {
-          outcome <- waiter.join.timeout(500.millis)
-          _ = outcome should matchPattern { case Outcome.Errored(CancelledError) => }
+          outcome <- waiter.joinWithNever.timeout(500.millis)
+          _ = outcome should matchPattern { case Left(CancelledError) => }
           present <- cache.get(0)
           _ = present shouldEqual none
         } yield ()
@@ -107,15 +110,16 @@ class CacheDefectsSpec extends AsyncFunSuite with Matchers {
       gate <- Deferred[IO, Unit]
       loader <- cache.getOrUpdate(0) { started.complete(()) *> gate.get.as(1) }.start
       _ <- started.get
-      waiter <- cache.getOrUpdate(0)(99.pure[IO]).start
+      // Attempted, see the test above.
+      waiter <- cache.getOrUpdate(0)(99.pure[IO]).attempt.start
       _ <- IO.sleep(100.millis)
       // The entry stops being the loader's, so only the loader itself can still unblock the waiter.
       _ <- cache.remove(0).flatten
       cancelling <- loader.cancel.start
       result <- {
         for {
-          outcome <- waiter.join.timeout(500.millis)
-          _ = outcome should matchPattern { case Outcome.Errored(CancelledError) => }
+          outcome <- waiter.joinWithNever.timeout(500.millis)
+          _ = outcome should matchPattern { case Left(CancelledError) => }
         } yield ()
       }.guarantee { gate.complete(()) *> cancelling.join.void }
     } yield result
