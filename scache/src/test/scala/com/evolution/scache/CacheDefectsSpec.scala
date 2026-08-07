@@ -55,7 +55,8 @@ class CacheDefectsSpec extends AsyncFunSuite with Matchers {
       for {
         started <- Deferred[IO, Unit]
         gate <- Deferred[IO, Unit]
-        loader <- cache.getOrUpdate(0) { started.complete(()) *> gate.get.as(1) }.start
+        // Attempted, see the test evicting a stuck Loading entry below.
+        loader <- cache.getOrUpdate(0) { started.complete(()) *> gate.get.as(1) }.attempt.start
         _ <- started.get
         result <- {
           for {
@@ -182,15 +183,22 @@ class CacheDefectsSpec extends AsyncFunSuite with Matchers {
       for {
         started <- Deferred[IO, Unit]
         gate <- Deferred[IO, Unit]
-        loader <- cache.getOrUpdate(0) { started.complete(()) *> gate.get.as(1) }.start
+        // Attempted, because the eviction makes this load fail too, and a fiber left to end in
+        // `Errored` reports the error to the runtime as unhandled the moment it finishes, before
+        // the `join` below gets to observe it.
+        loader <- cache.getOrUpdate(0) { started.complete(()) *> gate.get.as(1) }.attempt.start
         _ <- started.get
         waiter <- cache.getOrUpdate(0)(99.pure[IO]).attempt.start
         result <- {
           for {
             outcome <- waiter.joinWithNever.timeout(2.seconds)
             _ = outcome should matchPattern { case Left(ExpiredError) => }
+            _ <- gate.complete(())
+            // The fiber whose load was evicted learns about it as well.
+            evicted <- loader.joinWithNever.timeout(2.seconds)
+            _ = evicted should matchPattern { case Left(ExpiredError) => }
           } yield ()
-        }.guarantee { gate.complete(()) *> loader.join.void }
+        }.guarantee { gate.complete(()).attempt *> loader.join.void }
       } yield result
     }
     io.run()
