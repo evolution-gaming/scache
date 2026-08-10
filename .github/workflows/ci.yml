@@ -30,12 +30,16 @@ jobs:
       
       - name: setup SBT
         uses: sbt/setup-sbt@v1
+        with:
+          # sbt 2's disk cache is restored across runs and is not keyed on scoverage's
+          # instrumentation, so a cached compile would be reused without re-emitting coverage data.
+          disk-cache: false
 
       - name: check code ${{ matrix.scala }}
         run: sbt "++${{ matrix.scala }}; clean; check"
 
       - name: build ${{ matrix.scala }}
-        run: sbt "++${{ matrix.scala }}; clean; coverage; test; coverageAggregate"
+        run: sbt "++${{ matrix.scala }}; clean; coverage; testFull; coverageAggregate"
 
       - name: locate coverage report
         id: coverage
