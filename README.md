@@ -1,4 +1,5 @@
 # SCache
+
 [![Build Status](https://github.com/evolution-gaming/scache/workflows/CI/badge.svg)](https://github.com/evolution-gaming/scache/actions?query=workflow%3ACI)
 [![Coverage Status](https://coveralls.io/repos/evolution-gaming/scache/badge.svg)](https://coveralls.io/r/evolution-gaming/scache)
 [![Codacy Badge](https://app.codacy.com/project/badge/Grade/c44790f3e44a495488141d9eed4aa757)](https://www.codacy.com/gh/evolution-gaming/scache/dashboard?utm_source=github.com&amp;utm_medium=referral&amp;utm_content=evolution-gaming/scache&amp;utm_campaign=Badge_Grade)
@@ -7,23 +8,23 @@
 
 ## Key features
 
-* Available for: Scala 2.13.x, 3.3.x and later
-* Auto loading of missing values
+* Available for: Scala 2.13.x and 3.3.x
+* Autoloading of missing values
 * Expiry of not used records
-* Deleting oldest values in case of exceeding max size
+* Deleting the oldest values in case of exceeding max size
 * Tagless Final
-* Partition entries by `hashCode` into multiple caches in order to avoid thread contention for some corner cases
+* Partition entries by `hashCode` into multiple caches in order to avoid thread contention for some
+  corner cases
 
 ## Introduction
 
-`Cache` is a main entry point towards `scache` library. Most users may want to
-call `Cache#expiring` method to get the instance of the trait. The
-documentation could be found in source code of
+`Cache` is a main entry point towards `scache` library. Most users may want to call `Cache#expiring`
+method to get the instance of the trait. The documentation could be found in source code of
 [Cache.scala](src/main/scala/com/evolution/scache/Cache.scala) and also at
 [javadoc.io](https://javadoc.io/doc/com.evolution/scache_2.13/latest/com/evolution/scache/Cache$.html).
 
-See [Setup](https://github.com/evolution-gaming/scache#setup) for more details
-on how to add the library itself.
+See [Setup](https://github.com/evolution-gaming/scache#setup) for more details on how to add the
+library itself.
 
 ## Cache.scala
 
@@ -35,19 +36,19 @@ trait Cache[F[_], K, V] {
   def getOrElse(key: K, default: => F[V]): F[V]
 
   /**
-    * Does not run `value` concurrently for the same key
-    */
+   * Does not run `value` concurrently for the same key
+   */
   def getOrUpdate(key: K)(value: => F[V]): F[V]
 
   /**
-    * Does not run `value` concurrently for the same key
-    * Releasable.release will be called upon key removal from the cache
-    */
+   * Does not run `value` concurrently for the same key
+   * Releasable.release will be called upon key removal from the cache
+   */
   def getOrUpdateReleasable(key: K)(value: => F[Releasable[F, V]]): F[V]
 
   /**
-    * @return previous value if any, possibly not yet loaded
-    */
+   * @return previous value if any, possibly not yet loaded
+   */
   def put(key: K, value: V): F[F[Option[V]]]
 
 
@@ -60,19 +61,19 @@ trait Cache[F[_], K, V] {
   def keys: F[Set[K]]
 
   /**
-    * Might be an expensive call
-    */
+   * Might be an expensive call
+   */
   def values: F[Map[K, F[V]]]
 
   /**
-    * @return previous value if any, possibly not yet loaded
-    */
+   * @return previous value if any, possibly not yet loaded
+   */
   def remove(key: K): F[F[Option[V]]]
 
 
   /**
-    * Removes loading values from the cache, however does not cancel them
-    */
+   * Removes loading values from the cache, however does not cancel them
+   */
   def clear: F[F[Unit]]
 }
 ```
@@ -87,20 +88,20 @@ trait SerialMap[F[_], K, V] {
   def getOrElse(key: K, default: => F[V]): F[V]
 
   /**
-    * Does not run `value` concurrently for the same key
-    */
+   * Does not run `value` concurrently for the same key
+   */
   def getOrUpdate(key: K, value: => F[V]): F[V]
 
   def put(key: K, value: V): F[Option[V]]
 
   /**
-    * `f` will be run serially for the same key, entry will be removed in case of `f` returns `none`
-    */
+   * `f` will be run serially for the same key, entry will be removed in case of `f` returns `none`
+   */
   def modify[A](key: K)(f: Option[V] => F[(Option[V], A)]): F[A]
 
   /**
-    * `f` will be run serially for the same key, entry will be removed in case of `f` returns `none`
-    */
+   * `f` will be run serially for the same key, entry will be removed in case of `f` returns `none`
+   */
   def update[A](key: K)(f: Option[V] => F[Option[V]]): F[Unit]
 
   def size: F[Int]
@@ -108,8 +109,8 @@ trait SerialMap[F[_], K, V] {
   def keys: F[Set[K]]
 
   /**
-    * Might be an expensive call
-    */
+   * Might be an expensive call
+   */
   def values: F[Map[K, V]]
 
   def remove(key: K): F[Option[V]]
@@ -120,8 +121,8 @@ trait SerialMap[F[_], K, V] {
 
 ## Setup
 
-`scache`, along with its dependencies, is available on Evolution's JFrog Artifactory. That is why one needs to include
-a dependency on https://github.com/evolution-gaming/sbt-artifactory-plugin.
+`scache`, along with its dependencies, is available on Evolution's JFrog Artifactory. That is why
+one needs to include a dependency on https://github.com/evolution-gaming/sbt-artifactory-plugin.
 
 ```scala
 addSbtPlugin("com.evolution" % "sbt-artifactory-plugin" % "0.0.2")
@@ -135,7 +136,8 @@ libraryDependencies += "com.evolution" %% "scache" % "<latest version from badge
 
 ### Recommendations
 
-* There is no use to make refresh.interval bigger than expireAfterWrite. It's just the waste of resources.
+* There is no use to make `refresh.interval` bigger than `expireAfterWrite`. It's just the waste of
+  resources.
 * Touch, despite its name, is not called after refresh.
 * expireAfterWrite, despite its name, is calculated from date of creation, not time of update.
 
@@ -170,20 +172,20 @@ Two runs back to back on the same machine, 12 cores, JDK 25, Scala 2.13.18: the 
 `7c9fa9f`, where the whole map sat in one `Ref[F, Map[K, EntryRef]]`, and the same cache after it
 was rebuilt on `MapRef`. Millions of operations per second, before to after, higher is better.
 
-| Scenario | single | partitioned | expiring |
-|---|---:|---:|---:|
-| `getOrUpdate`, insert distinct keys | 1.25 to 2.06 (1.65x) | 2.11 to 2.41 (1.14x) | 1.91 to 1.99 (1.04x) |
-| `getOrUpdate`, hit random keys | 9.56 to 12.60 (1.32x) | 10.68 to 11.46 (1.07x) | 7.89 to 9.12 (1.16x) |
-| `getOrUpdate`, hit single hot key | 10.65 to 13.82 (1.30x) | 12.14 to 12.58 (1.04x) | 9.38 to 10.40 (1.11x) |
-| `get`, hit random keys | 21.74 to 26.10 (1.20x) | 21.37 to 23.02 (1.08x) | 12.68 to 13.22 (1.04x) |
-| `get1`, hit random keys | 19.47 to 23.66 (1.21x) | 18.78 to 22.14 (1.18x) | 12.59 to 12.92 (1.03x) |
-| `contains`, random keys | 26.69 to 31.97 (1.20x) | 23.59 to 33.70 (1.43x) | 23.22 to 33.68 (1.45x) |
-| `put`, insert distinct keys | 1.66 to 9.24 (5.56x) | 5.40 to 10.30 (1.91x) | 5.47 to 8.86 (1.62x) |
-| `put`, replace random keys | 8.13 to 9.53 (1.17x) | 7.37 to 8.83 (1.20x) | 7.88 to 8.00 (1.01x) |
-| `modify`, insert distinct keys | 1.88 to 11.44 (6.09x) | 6.13 to 10.65 (1.74x) | 7.15 to 11.76 (1.65x) |
-| `modify`, update random keys | 7.24 to 11.13 (1.54x) | 8.03 to 9.27 (1.15x) | 9.63 to 10.53 (1.09x) |
-| `remove` and `put`, random keys | 0.84 to 3.87 (4.59x) | 2.45 to 4.05 (1.65x) | 2.42 to 2.97 (1.23x) |
-| mixed `get`/`getOrUpdate`/`put`/`modify`/`remove` | 5.40 to 7.45 (1.38x) | 6.32 to 7.40 (1.17x) | 5.08 to 5.56 (1.09x) |
+| Scenario                                          |                 single |            partitioned |               expiring |
+|---------------------------------------------------|-----------------------:|-----------------------:|-----------------------:|
+| `getOrUpdate`, insert distinct keys               |   1.25 to 2.06 (1.65x) |   2.11 to 2.41 (1.14x) |   1.91 to 1.99 (1.04x) |
+| `getOrUpdate`, hit random keys                    |  9.56 to 12.60 (1.32x) | 10.68 to 11.46 (1.07x) |   7.89 to 9.12 (1.16x) |
+| `getOrUpdate`, hit single hot key                 | 10.65 to 13.82 (1.30x) | 12.14 to 12.58 (1.04x) |  9.38 to 10.40 (1.11x) |
+| `get`, hit random keys                            | 21.74 to 26.10 (1.20x) | 21.37 to 23.02 (1.08x) | 12.68 to 13.22 (1.04x) |
+| `get1`, hit random keys                           | 19.47 to 23.66 (1.21x) | 18.78 to 22.14 (1.18x) | 12.59 to 12.92 (1.03x) |
+| `contains`, random keys                           | 26.69 to 31.97 (1.20x) | 23.59 to 33.70 (1.43x) | 23.22 to 33.68 (1.45x) |
+| `put`, insert distinct keys                       |   1.66 to 9.24 (5.56x) |  5.40 to 10.30 (1.91x) |   5.47 to 8.86 (1.62x) |
+| `put`, replace random keys                        |   8.13 to 9.53 (1.17x) |   7.37 to 8.83 (1.20x) |   7.88 to 8.00 (1.01x) |
+| `modify`, insert distinct keys                    |  1.88 to 11.44 (6.09x) |  6.13 to 10.65 (1.74x) |  7.15 to 11.76 (1.65x) |
+| `modify`, update random keys                      |  7.24 to 11.13 (1.54x) |   8.03 to 9.27 (1.15x) |  9.63 to 10.53 (1.09x) |
+| `remove` and `put`, random keys                   |   0.84 to 3.87 (4.59x) |   2.45 to 4.05 (1.65x) |   2.42 to 2.97 (1.23x) |
+| mixed `get`/`getOrUpdate`/`put`/`modify`/`remove` |   5.40 to 7.45 (1.38x) |   6.32 to 7.40 (1.17x) |   5.08 to 5.56 (1.09x) |
 
 The gains are largest exactly where the old implementation had to CAS the shared map, i.e. inserting
 and removing keys, and they shrink with partitioning, which is what partitioning was there to work
@@ -259,8 +261,19 @@ than the expiration.
 map: an entry added or removed concurrently may or may not be included.
 
 ## Release process
-The release process is based on Git tags and makes use of [evolution-gaming/scala-github-actions](https://github.com/evolution-gaming/scala-github-actions) which uses [sbt-dynver](https://github.com/sbt/sbt-dynver) to automatically obtain the version from the latest Git tag. The flow is defined in `.github/workflows/release.yml`.  
+
+The release process is based on Git tags and makes use
+of [evolution-gaming/scala-github-actions](https://github.com/evolution-gaming/scala-github-actions)
+which uses [sbt-dynver](https://github.com/sbt/sbt-dynver) to automatically obtain the version from
+the latest Git tag. The flow is defined in `.github/workflows/release.yml`.  
 A typical release process is as follows:
-1. Create and push a new Git tag. The version should be in the format `vX.Y.Z` (example: `v4.1.0`). Example: `git tag v4.1.0 && git push origin v4.1.0`
-2. On success, a new GitHub release is automatically created with a calculated diff and auto-generated release notes. You can see it on `Releases` page, change the description if needed
-3. On failure, the tag is deleted from the remote repository. Please note that your local tag isn't deleted, so if the failure is recoverable then you can delete the local tag and try again (an example of *unrecoverable* failure is successfully publishing only a few of the artifacts to Artifactory which means a new attempt would fail since Artifactory doesn't allow overwriting its contents)
+
+1. Create and push a new Git tag. The version should be in the format `vX.Y.Z` (example: `v4.1.0`).
+   Example: `git tag v4.1.0 && git push origin v4.1.0`
+2. On success, a new GitHub release is automatically created with a calculated diff and
+   auto-generated release notes. You can see it on `Releases` page, change the description if needed
+3. On failure, the tag is deleted from the remote repository. Please note that your local tag isn't
+   deleted, so if the failure is recoverable then you can delete the local tag and try again (an
+   example of *unrecoverable* failure is successfully publishing only a few of the artifacts to
+   Artifactory which means a new attempt would fail since Artifactory doesn't allow overwriting its
+   contents)
