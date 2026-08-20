@@ -197,6 +197,12 @@ Do not read too much into a single digit of these numbers. The suite is short by
 scenarios have error margins of tens of percent, and the two runs were taken on a shared machine.
 The raw JMH output of both runs, error margins and all, is in `benchmark/results`.
 
+Two scenarios exercise cancellation and have no old number to compare against, because loads were
+not cancelable before the rewrite and both would hang there: `getOrUpdateCancelDistinctKeys`
+cancels an in-flight load, and `getOrUpdateCancelWithWaiter` does the same with another fiber
+blocked on the loading entry. On the machine above they make around a million start-load-cancel
+cycles per second, half that with the waiter in the picture.
+
 ### Comparing against another revision
 
 The module builds against the `scache` sources next to it, so an older revision is measured by
