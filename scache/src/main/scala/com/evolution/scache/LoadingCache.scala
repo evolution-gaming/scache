@@ -830,16 +830,27 @@ private[scache] object LoadingCache {
                               .flatMap {
                                 // We successfully completed the deferred, now trying to set the value.
                                 case true =>
-                                  setRef(EntryState.Value(entry)).map {
+                                  setRef(EntryState.Value(entry)).flatMap {
                                     // We successfully replaced the entry with our value, so we are done.
                                     case true =>
                                       (a, none[F[Unit]])
                                         .asRight[Unit]
                                         .asRight[Unit]
-                                    // Another fiber placed their new value (only Removed should be possible)
-                                    // before us so we retry accessing the entry.
+                                        .pure[F]
+                                    // The entry was removed (only Removed is possible here) before our
+                                    // value made it in. Completing the deferred made us the owner of the
+                                    // release, and published the decision to the waiters, so instead of
+                                    // deciding again we release the value and exit, the same way `put`
+                                    // does when its value loses this very race.
                                     case false =>
-                                      ().asLeft[Either[Unit, (A, Option[F[Unit]])]]
+                                      entry
+                                        .release
+                                        .traverse { _.start }
+                                        .as {
+                                          (a, none[F[Unit]])
+                                            .asRight[Unit]
+                                            .asRight[Unit]
+                                        }
                                   }
                                 // Failed to complete the deferred, meaning someone else completed it, and will
                                 // now set the new value in the entryRef. Retrying the lookup.

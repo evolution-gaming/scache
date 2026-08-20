@@ -263,6 +263,89 @@ class CacheDefectsSpec extends AsyncFunSuite with Matchers {
     io.run(timeout = 60.seconds)
   }
 
+  test("modify racing remove over a loading key neither leaks nor double-releases") {
+    val io = for {
+      entryMap <- EntryMap.of[IO, Int, Int]
+      cache = LoadingCache(entryMap)
+      balance <- Ref[IO].of(0)
+      _ <- (1 to 500).toList.traverse_ { i =>
+        for {
+          started <- Deferred[IO, Unit]
+          gate <- Deferred[IO, Unit]
+          loader <- cache.getOrUpdate(0) { started.complete(()) *> gate.get.as(-i) }.start
+          _ <- started.get
+          // The waiters widen the window between modify completing the deferred and committing the
+          // entry, which is exactly where the concurrent remove has to land.
+          waiters <- (1 to 8).toList.traverse { _ => cache.getOrUpdate(0)((-i).pure[IO]).start }
+          _ <- balance.update { _ + 1 }
+          _ <- (
+            cache.modify(0) { _ => ((), Cache.Directive.Put(i, balance.update { _ - 1 }.some)) },
+            cache.remove(0).flatten,
+          ).parTupled
+          _ <- gate.complete(())
+          _ <- loader.join
+          _ <- waiters.traverse_ { _.join }
+          _ <- cache.remove(0).flatten
+        } yield ()
+      }
+      // Exactly one release per iteration must run: the balance ends below zero on a double
+      // release and above zero on a leak, and either keeps this from ever reaching zero.
+      _ <- (IO.sleep(10.millis) *> balance.get).iterateUntil { _ == 0 }.timeout(3.seconds)
+    } yield ()
+    io.run(timeout = 60.seconds)
+  }
+
+  test("modify must release the value it published when its commit loses to remove") {
+    val io = for {
+      entryMap <- EntryMap.of[IO, Int, Int]
+      cache = LoadingCache(entryMap)
+      balance <- Ref[IO].of(0)
+      deferred <- Deferred[IO, Either[Throwable, LoadingCache.Entry[IO, Int]]]
+      inner <- Ref[IO].of[LoadingCache.EntryState[IO, Int]](LoadingCache.EntryState.Loading(deferred))
+      armed <- Ref[IO].of(true)
+      // Fired by the commit attempt of `modify`, i.e. between it completing the deferred and
+      // writing the entry: the remove steals the entry, the put takes the key over.
+      noise = armed.getAndSet(false).flatMap {
+        case true => cache.remove(0).flatten *> cache.put(0, 99).flatten.void
+        case false => IO.unit
+      }
+      _ <- entryMap.ref(0).set(interceptedCommit(inner, noise).some)
+      _ <- balance.update { _ + 1 }
+      _ <- cache.modify(0) {
+        case None => ((), Cache.Directive.Put(1, balance.update { _ - 1 }.some))
+        case Some(_) => ((), Cache.Directive.Ignore)
+      }
+      published <- deferred.get.timeout(1.second)
+      _ = published.map { _.value } shouldEqual 1.asRight
+      _ <- cache.remove(0).flatten
+      _ <- (IO.sleep(10.millis) *> balance.get).iterateUntil { _ == 0 }.timeout(3.seconds)
+    } yield ()
+    io.run()
+  }
+
+  /**
+   * An entry `Ref` whose `access` setter runs `noise` before committing, so that a test can inject
+   * a concurrent state transition exactly between an operation reading the entry state and writing
+   * it back. Every other method, `getAndSet` of `remove` included, goes to `inner` untouched.
+   */
+  private def interceptedCommit(
+    inner: Ref[IO, LoadingCache.EntryState[IO, Int]],
+    noise: IO[Unit],
+  ): EntryRef[IO, Int] = {
+    type A = LoadingCache.EntryState[IO, Int]
+    new Ref[IO, A] {
+      def get: IO[A] = inner.get
+      def set(a: A): IO[Unit] = inner.set(a)
+      def access: IO[(A, A => IO[Boolean])] = inner.access.map { case (a, set) => (a, (a1: A) => noise *> set(a1)) }
+      def tryUpdate(f: A => A): IO[Boolean] = inner.tryUpdate(f)
+      def tryModify[B](f: A => (A, B)): IO[Option[B]] = inner.tryModify(f)
+      def update(f: A => A): IO[Unit] = inner.update(f)
+      def modify[B](f: A => (A, B)): IO[B] = inner.modify(f)
+      def tryModifyState[B](state: cats.data.State[A, B]): IO[Option[B]] = inner.tryModifyState(state)
+      def modifyState[B](state: cats.data.State[A, B]): IO[B] = inner.modifyState(state)
+    }
+  }
+
   private def insertUnrelated(underlying: EntryMap[IO, Int, Int], key: Int): IO[Unit] = {
     for {
       entryRef <- Ref[IO].of[LoadingCache.EntryState[IO, Int]](
