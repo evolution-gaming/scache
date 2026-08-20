@@ -1,8 +1,8 @@
 package com.evolution.scache.bench
 
-import cats.effect.{Deferred, IO}
 import cats.effect.implicits.*
 import cats.effect.unsafe.implicits.global
+import cats.effect.{Deferred, IO}
 import cats.syntax.all.*
 import com.evolution.scache.{Cache, ExpiringCache, LoadingCache}
 import org.openjdk.jmh.annotations.*

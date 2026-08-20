@@ -317,6 +317,10 @@ class CacheDefectsSpec extends AsyncFunSuite with Matchers {
       }
       published <- deferred.get.timeout(1.second)
       _ = published.map { _.value } shouldEqual 1.asRight
+      // The key must be held by the value the injected put installed, which is what proves the
+      // remove-put pair did land between the deferred completion and the commit.
+      taken <- cache.get(0)
+      _ = taken shouldEqual 99.some
       _ <- cache.remove(0).flatten
       _ <- (IO.sleep(10.millis) *> balance.get).iterateUntil { _ == 0 }.timeout(3.seconds)
     } yield ()
