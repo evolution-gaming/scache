@@ -1,6 +1,7 @@
 package com.evolution.scache.bench
 
-import cats.effect.IO
+import cats.effect.{Deferred, IO}
+import cats.effect.implicits.*
 import cats.effect.unsafe.implicits.global
 import cats.syntax.all.*
 import com.evolution.scache.{Cache, ExpiringCache, LoadingCache}
@@ -222,6 +223,48 @@ class CacheBenchmark {
         case 2 => state.cache.modify(k) { _ => ((), Cache.Directive.Put(i, none)) }.void
         case 3 | 4 => state.cache.get(k).void
         case _ => state.cache.getOrUpdate(k)(i.pure[IO]).void
+      }
+    }.unsafeRunSync()
+  }
+
+  /**
+   * Cancellation of an in-flight load: install a `Loading` entry, wait until the load has actually
+   * started, cancel it, which unlinks the key and completes the entry's `Deferred`.
+   *
+   * One operation is the whole start-load-cancel cycle. No number to compare against before the
+   * `MapRef` rewrite: loads were not cancelable there, so this scenario would hang.
+   */
+  @Benchmark
+  def getOrUpdateCancelDistinctKeys(state: EmptyCacheState): Unit = {
+    parRun { (fiber, i) =>
+      val key = fiber * OpsPerFiber + i
+      Deferred[IO, Unit].flatMap { started =>
+        state
+          .cache
+          .getOrUpdate(key) { started.complete(()) *> IO.never }
+          .start
+          .flatMap { loading => started.get *> loading.cancel }
+      }
+    }.unsafeRunSync()
+  }
+
+  /**
+   * Same as [[getOrUpdateCancelDistinctKeys]], but with another fiber blocked on the loading entry
+   * when the load is canceled, so the cycle also covers unblocking the waiter, which either fails
+   * with the cancellation error or repeats the lookup and installs its own value.
+   */
+  @Benchmark
+  def getOrUpdateCancelWithWaiter(state: EmptyCacheState): Unit = {
+    parRun { (fiber, i) =>
+      val key = fiber * OpsPerFiber + i
+      Deferred[IO, Unit].flatMap { started =>
+        for {
+          loading <- state.cache.getOrUpdate(key) { started.complete(()) *> IO.never }.start
+          _ <- started.get
+          waiter <- state.cache.getOrUpdate(key)(i.pure[IO]).attempt.start
+          _ <- loading.cancel
+          _ <- waiter.joinWithNever
+        } yield ()
       }
     }.unsafeRunSync()
   }
