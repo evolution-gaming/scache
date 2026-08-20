@@ -94,10 +94,11 @@ class ExpiringCacheSpec extends AsyncFunSuite with Matchers {
         value <- value
         _ <- Sync[F].delay { value shouldEqual none }
         _ <- List.fill(6)(touch).foldMapM(identity)
+        // The cleanup routine owns the moment of the eviction, so key 1 is polled for rather than
+        // checked at an instant, with key 0 kept in use by the very same polling.
+        _ <- Temporal[F].timeout((touch *> cache.get(1)).iterateUntil { _.isEmpty }, 5.seconds)
         value <- cache.get(0)
         _ <- Sync[F].delay { value shouldEqual 0.some }
-        value <- cache.get(1)
-        _ <- Sync[F].delay { value shouldEqual none }
         release <- release.get
         _ <- Sync[F].delay { release shouldEqual false }
       } yield {}
