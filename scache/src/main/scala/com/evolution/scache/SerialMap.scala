@@ -20,12 +20,12 @@ trait SerialMap[F[_], K, V] {
   def put(key: K, value: V): F[Option[V]]
 
   /**
-   * `f` will be run serially for the same key, entry will be removed in case of `f` returns `none`
+   * `f` will be run serially for the same key, entry will be removed in case of `f` returns `None`
    */
   def modify[A](key: K)(f: Option[V] => F[(Option[V], A)]): F[A]
 
   /**
-   * `f` will be run serially for the same key, entry will be removed in case of `f` returns `none`
+   * `f` will be run serially for the same key, entry will be removed in case of `f` returns `None`
    */
   def update[A](key: K)(f: Option[V] => F[Option[V]]): F[Unit]
 
