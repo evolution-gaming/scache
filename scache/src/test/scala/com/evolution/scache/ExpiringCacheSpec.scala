@@ -90,14 +90,19 @@ class ExpiringCacheSpec extends AsyncFunSuite with Matchers {
         value <- cache.put(0, 0, release.set(true))
         value <- value
         _ <- Sync[F].delay { value shouldEqual none }
-        value <- cache.put(1, 1)
+        released <- Deferred[F, Unit]
+        value <- cache.put(1, 1, released.complete(()).void)
         value <- value
         _ <- Sync[F].delay { value shouldEqual none }
         _ <- List.fill(6)(touch).foldMapM(identity)
-        value <- cache.get(0)
-        _ <- Sync[F].delay { value shouldEqual 0.some }
+        // The cleanup routine owns the moment of the eviction, and key 1 must not be read while it
+        // is being waited out, as a read would refresh it. Its release callback signals the
+        // eviction instead, with key 0 kept in use by the very same waiting.
+        _ <- Temporal[F].timeout((touch *> released.tryGet).iterateUntil { _.isDefined }, 5.seconds)
         value <- cache.get(1)
         _ <- Sync[F].delay { value shouldEqual none }
+        value <- cache.get(0)
+        _ <- Sync[F].delay { value shouldEqual 0.some }
         release <- release.get
         _ <- Sync[F].delay { release shouldEqual false }
       } yield {}
