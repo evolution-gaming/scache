@@ -235,8 +235,9 @@ Finally, `git worktree remove /tmp/scache-old` when done.
 The cache state moved from a single `Ref[F, Map[K, EntryRef]]` to a per-key `MapRef` over a
 `ConcurrentHashMap`. What that means for the users:
 
-**Type classes.** `Cache.loading`, `Cache.expiring`, `SerialMap.of` and `SerialMap.apply` now ask
-for `Async[F]` instead of `Concurrent[F]` / `Temporal[F]`, because the new state needs `Sync` for
+**Type classes.** `Cache.loading`, `Cache.expiring`, `SerialMap.of`, and the factory-style
+`SerialMap.apply[F]` now ask for `Async[F]` instead of `Concurrent[F]` / `Temporal[F]`, because
+the new state needs `Sync` for
 the `ConcurrentHashMap` next to `Concurrent` for the fibers. Nothing to do for `IO` or for any stack
 that already has an `Async` instance, otherwise the call sites have to provide one.
 
