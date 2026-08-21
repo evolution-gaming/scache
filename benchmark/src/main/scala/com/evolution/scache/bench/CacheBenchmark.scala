@@ -1,14 +1,14 @@
 package com.evolution.scache.bench
 
-import cats.effect.implicits.*
+import cats.effect.implicits._
 import cats.effect.unsafe.implicits.global
 import cats.effect.{Deferred, IO}
-import cats.syntax.all.*
+import cats.syntax.all._
 import com.evolution.scache.{Cache, ExpiringCache, LoadingCache}
-import org.openjdk.jmh.annotations.*
+import org.openjdk.jmh.annotations._
 
 import java.util.concurrent.TimeUnit
-import scala.concurrent.duration.*
+import scala.concurrent.duration._
 
 /**
  * Cache operations under contention.
