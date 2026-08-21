@@ -58,6 +58,11 @@ lazy val commonSettings = Seq(
   licenses := Seq(("MIT", uri("https://opensource.org/licenses/MIT"))),
   Test / publishArtifact := false,
   publishTo := Some(Resolver.evolutionReleases),
+  versionPolicyIntention := Compatibility.BinaryCompatible,
+  versionPolicyIgnored ++= Seq(
+    // add libraries here that are known to be binary compatible, like:
+    "com.evolutiongaming" %% "smetrics",
+  ),
 )
 
 lazy val root = (project in file("."))
@@ -74,7 +79,6 @@ lazy val `cache-adt` = (project in file("cache-adt"))
   .settings(
     name := "cache-adt",
     description := "Directive ADT for scache",
-    versionPolicyIntention := Compatibility.BinaryCompatible,
   )
 
 lazy val scache = (project in file("scache"))
@@ -82,7 +86,6 @@ lazy val scache = (project in file("scache"))
   .settings(
     name := "scache",
     description := "Cache in Scala with cats-effect",
-    versionPolicyIntention := Compatibility.None,
     libraryDependencies ++= Seq(
       Cats.core,
       Cats.effect,
