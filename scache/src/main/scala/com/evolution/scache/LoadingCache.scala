@@ -11,14 +11,18 @@ import com.evolutiongaming.catshelper.ParallelHelper.*
 private[scache] object LoadingCache {
 
   /**
-   * Maximum number of CAS retry attempts before giving up. This is a safety net against infinite
-   * spinning under extreme contention.
-   */
-  /**
-   * Maximum number of CAS retry attempts on the outer map before giving up. Inner entry-level CAS
-   * loops are unbounded as they always make progress.
+   * Maximum number of CAS retry attempts on the outer map before giving up. This is a safety net
+   * against infinite spinning under extreme contention. Inner entry-level CAS loops are unbounded
+   * as they always make progress.
    */
   private val MaxRetries: Int = 10000
+
+  def of[F[_]: Concurrent, K, V]: Resource[F, Cache[F, K, V]] = {
+    for {
+      ref <- Ref[F].of(EntryRefs.empty[F, K, V]).toResource
+      cache <- of(ref)
+    } yield cache
+  }
 
   def of[F[_]: Concurrent, K, V](
     map: EntryRefs[F, K, V],
