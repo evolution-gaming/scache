@@ -233,7 +233,22 @@ Finally, `git worktree remove /tmp/scache-old` when done.
 ## Migrating to 7.0
 
 The cache state moved from a single `Ref[F, Map[K, EntryRef]]` to a per-key `MapRef` over a
-`ConcurrentHashMap`. What that means for the users:
+`ConcurrentHashMap`. What that means for the users, signature by signature:
+
+| member | 6.0.2 | 7.0.0 |
+|---|---|---|
+| `Cache.loading`, all three overloads | `Concurrent: Parallel: Runtime` | `Async: Parallel: Runtime` |
+| `Cache.expiring` | `Temporal: Runtime: Parallel` | `Async: Runtime: Parallel` |
+| `SerialMap.of`, all three overloads | `Concurrent: Runtime` | `Async: Runtime` |
+| `SerialMap.apply[F]` | `implicit F: Concurrent[F]` | `implicit F: Async[F]` |
+| `ExpiringCache.Config` | four fields | fifth field `loadingTimeout: Option[FiniteDuration] = None` |
+| `ExpiringCache.apply` | `Ref[F, LoadingCache.EntryRefs[F, K, Entry[V]]]` | `LoadingCache.EntryMap[F, K, Entry[V]]` |
+| `LoadingCache.EntryRefs` | `private[scache]` type and object | gone, `LoadingCache.EntryMap` took over |
+| `ExpiredError` | not there | new, fails the waiters of a load that outlived `loadingTimeout` |
+
+Everything else kept its shape: `trait Cache` and all of its methods, `Cache.Ops`, the
+`SerialMap.apply(cache)` constructor, which still asks for `Concurrent`, `ExpiringCache.Entry`,
+`Refresh`, `CancelledError`, and the whole `cache-adt` module.
 
 **Type classes.** `Cache.loading`, `Cache.expiring`, `SerialMap.of`, and the factory-style
 `SerialMap.apply[F]` now ask for `Async[F]` instead of `Concurrent[F]` / `Temporal[F]`, because
