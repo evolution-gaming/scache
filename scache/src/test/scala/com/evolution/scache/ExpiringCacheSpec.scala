@@ -173,10 +173,10 @@ class ExpiringCacheSpec extends AsyncFunSuite with Matchers {
     ExpiringCache.of[F, Int, Int](config).use { cache =>
       for {
         value <- cache.getOrUpdate(0) { 0.pure[F] }
-        _ <- Sync[F].delay { value shouldEqual 0 }
+        _ = value shouldEqual 0
         _ <- Temporal[F].sleep(500.millis)
         value <- cache.get(0)
-        _ <- Sync[F].delay { value shouldEqual 0.some }
+        _ = value shouldEqual 0.some
       } yield {}
     }
   }
