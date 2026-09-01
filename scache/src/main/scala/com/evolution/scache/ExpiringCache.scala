@@ -50,8 +50,10 @@ object ExpiringCache {
       (interval max MinExpireInterval).millis
     }
 
-    /* One run of the expiration routine: drops the values that are too old, evicts the loads that
-     * are taking too long, and enforces `maxSize`.
+    /* One run of the expiration routine: 
+     *  - drops the values that are too old,
+     *  - evicts the loads that are taking too long,
+     *  - enforces `maxSize`.
      *
      * Loads are expired as well, because a load that never completes would otherwise stay in the
      * map forever, holding the key hostage: nothing can be stored under it, everyone asking for it
