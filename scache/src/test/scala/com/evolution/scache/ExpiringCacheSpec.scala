@@ -154,11 +154,11 @@ class ExpiringCacheSpec extends AsyncFunSuite with Matchers {
           for {
             waiter <- cache.getOrUpdate(0) { 1.pure[F] }.attempt.start
             outcome <- Temporal[F].timeout(waiter.joinWithNever, 5.seconds)
-            _ = outcome should matchPattern { case Left(ExpiredError) => }
+            _ <- Sync[F].delay { outcome should matchPattern { case Left(ExpiredError) => } }
             value <- cache.get(0)
-            _ = value shouldEqual none
+            _ <- Sync[F].delay { value shouldEqual none }
             value <- Temporal[F].timeout(cache.getOrUpdate(0) { 2.pure[F] }, 5.seconds)
-            _ = value shouldEqual 2
+            _ <- Sync[F].delay { value shouldEqual 2 }
           } yield {}
         }.guarantee { gate.complete(()) *> loader.join.void }
       } yield result
@@ -173,10 +173,10 @@ class ExpiringCacheSpec extends AsyncFunSuite with Matchers {
     ExpiringCache.of[F, Int, Int](config).use { cache =>
       for {
         value <- cache.getOrUpdate(0) { 0.pure[F] }
-        _ = value shouldEqual 0
+        _ <- Sync[F].delay { value shouldEqual 0 }
         _ <- Temporal[F].sleep(500.millis)
         value <- cache.get(0)
-        _ = value shouldEqual 0.some
+        _ <- Sync[F].delay { value shouldEqual 0.some }
       } yield {}
     }
   }
