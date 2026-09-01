@@ -94,7 +94,7 @@ object ExpiringCache {
                 expiredAfterRead = expireAfterReadMs + state.entry.value.touched < now
                 expiredAfterWrite = () => expireAfterWriteMs.exists { _ + state.entry.value.created < now }
                 expired = expiredAfterRead || expiredAfterWrite()
-                result <- if (expired) remove(key) else ().pure[F]
+                result <- Async[F].whenA(expired) { remove(key) }
               } yield result
             case _: EntryState.Loading[F, TimestampedValue] => ().pure[F]
             case EntryState.Removed => ().pure[F]
