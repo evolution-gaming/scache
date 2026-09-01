@@ -157,8 +157,8 @@ object ExpiringCache {
               }
               .toMap
             val expired = loading.filter { case (key, _, deferred) =>
-              seen1.get(key).exists { case (deferred1, since) =>
-                (deferred1 == deferred) && (since + threshold < now)
+              seen1.get(key).exists { case (`deferred`, since) =>
+                since + threshold < now
               }
             }
             (seen1 -- expired.map { case (key, _, _) => key }, expired)
