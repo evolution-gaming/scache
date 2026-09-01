@@ -19,7 +19,7 @@ object ExpiringCache {
   /**
    * Shortest delay the cleanup routine is ever scheduled with, in milliseconds.
    */
-  private val MinExpireInterval = 10L
+  private val MinExpireIntervalMs = 10L
 
   private[scache] def of[F[_], K, V](
     config: Config[F, K, V],
