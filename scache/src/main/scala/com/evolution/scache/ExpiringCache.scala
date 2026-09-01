@@ -17,14 +17,12 @@ object ExpiringCache {
   type Timestamp = Long
 
   /**
-   * Shortest delay the cleanup routine is ever scheduled with, in milliseconds.
+   * Shortest delay the cleanup routine is ever scheduled with.
    */
-  private val MinExpireIntervalMs = 10L
+  private val MinExpireInterval = 10.millis
 
-  private[scache] def of[F[_], K, V](
+  private[scache] def of[F[_]: Async, K, V](
     config: Config[F, K, V],
-  )(implicit
-    G: Async[F],
   ): Resource[F, Cache[F, K, V]] = {
 
     type TimestampedValue = Entry[V]
@@ -42,15 +40,15 @@ object ExpiringCache {
      * against. Values are sampled ten times per expiration, as before, while loads are sampled only
      * twice per `loadingTimeout`, because a load overstaying its welcome by half the timeout is
      * harmless and a short `loadingTimeout` next to a long expiration would otherwise turn the
-     * routine into a busy scan of the whole cache. The`MinExpireInterval` keeps a tiny configured duration from
-     * scheduling the routine with no delay at all.
+     * routine into a busy scan of the whole cache. `MinExpireInterval` keeps a tiny configured
+     * duration from scheduling the routine with no delay at all.
      */
     val expireInterval = {
       val interval = (expireAfterMs / 10) min (loadingTimeoutMs / 2)
-      (interval max MinExpireInterval).millis
+      interval.millis max MinExpireInterval
     }
 
-    /* One run of the expiration routine: 
+    /* One run of the expiration routine:
      *  - drops the values that are too old,
      *  - evicts the loads that are taking too long,
      *  - enforces `maxSize`.
@@ -61,15 +59,14 @@ object ExpiringCache {
      *
      * The three pieces of state are one and the same map seen from three angles, and are not kept
      * in sync by hand:
-     *  - `entryMap` is the raw per-key state, needed here because the [[Cache]]
-     * interface exposes neither the entry states nor the `Deferred` of a load;
-     *  - `cache` is the very
-     * same map behind that interface, used for the removals, so that they go through the regular
-     * release logic;
-     *  - `loadingSince` is bookkeeping private to this routine, holding the moment each
-     * of the currently loading keys was first seen loading, carried over between the runs, as this
-     * is the only way to tell how long a load is running. Anything stale in `loadingSince` is
-     * ignored and dropped on the next run.
+     *  - `entryMap` is the raw per-key state, needed here because the [[Cache]] interface exposes
+     *    neither the entry states nor the `Deferred` of a load;
+     *  - `cache` is the very same map behind that interface, used for the removals, so that they go
+     *    through the regular release logic;
+     *  - `loadingSince` is bookkeeping private to this routine, holding the moment each of the
+     *    currently loading keys was first seen loading, carried over between the runs, as this is
+     *    the only way to tell how long a load is running. Anything stale in `loadingSince` is
+     *    ignored and dropped on the next run.
      */
     def removeExpiredAndCheckSize(
       entryMap: LoadingCache.EntryMap[F, K, TimestampedValue],
@@ -143,25 +140,22 @@ object ExpiringCache {
       def removeExpiredLoading(
         loading: List[(K, LoadingCache.EntryRef[F, TimestampedValue], LoadingDeferred)],
       ): F[Unit] = {
-        val threshold = loadingTimeoutMs
         for {
           now <- Clock[F].millis
           expired <- loadingSince.modify { seen =>
-            val seen1 = loading
-              .map { case (key, _, deferred) =>
+            val (expired, alive) = loading
+              .map { case load @ (key, _, deferred) =>
                 val since = seen
                   .get(key)
                   .collect { case (`deferred`, since) => since }
                   .getOrElse(now)
-                (key, (deferred, since))
+                (load, since)
               }
+              .partition { case (_, since) => since + loadingTimeoutMs < now }
+            val seen1 = alive
+              .map { case ((key, _, deferred), since) => (key, (deferred, since)) }
               .toMap
-            val expired = loading.filter { case (key, _, deferred) =>
-              seen1.get(key).exists { case (`deferred`, since) =>
-                since + threshold < now
-              }
-            }
-            (seen1 -- expired.map { case (key, _, _) => key }, expired)
+            (seen1, expired.map { case (load, _) => load })
           }
           result <- expired.foldMapM { case (key, entryRef, deferred) => evictLoading(key, entryRef, deferred) }
         } yield result
