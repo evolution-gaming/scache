@@ -266,10 +266,11 @@ private[scache] object LoadingCache {
       /**
        * Returns the value of the key, computing it if the key is not in the cache yet.
        *
-       * The result is (so that the callers can tell a cache hit from a miss without waiting):
-       *  - `Left` if this call did compute the value
-       *  - `Right[Right]` if the value came from the cache already computed (`Right`)
-       *  - `Right[Left]` if the value came from the cache and is still being computed by another fiber
+       * The result tells a cache hit from a miss without waiting for anything:
+       *   - `Left` if this call did compute the value;
+       *   - `Right(Right)` if the value came from the cache, already computed;
+       *   - `Right(Left)` if the value came from the cache and is still being computed by another
+       *     fiber.
        *
        * The flow is: look the key up and return what is there, or, if there is nothing, install a
        * `Loading` entry and compute the value. Installing the entry is masked and done with a
