@@ -42,7 +42,7 @@ object ExpiringCache {
      * against. Values are sampled ten times per expiration, as before, while loads are sampled only
      * twice per `loadingTimeout`, because a load overstaying its welcome by half the timeout is
      * harmless and a short `loadingTimeout` next to a long expiration would otherwise turn the
-     * routine into a busy scan of the whole cache. The floor keeps a tiny configured duration from
+     * routine into a busy scan of the whole cache. The`MinExpireInterval` keeps a tiny configured duration from
      * scheduling the routine with no delay at all.
      */
     val expireInterval = {
