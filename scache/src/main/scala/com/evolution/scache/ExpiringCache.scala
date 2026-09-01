@@ -93,8 +93,10 @@ object ExpiringCache {
                 expired = expiredAfterRead || expiredAfterWrite()
                 result <- Async[F].whenA(expired) { remove(key) }
               } yield result
-            case _: EntryState.Loading[F, TimestampedValue] => ().pure[F]
-            case EntryState.Removed => ().pure[F]
+            case _: EntryState.Loading[F, TimestampedValue] =>
+              ().pure[F]
+            case EntryState.Removed =>
+              ().pure[F]
           }
       }
 
@@ -278,12 +280,10 @@ object ExpiringCache {
     def touch(key: K, entry: TimestampedValue): F[Unit] = {
       for {
         now <- Clock[F].millis
-        result <- if ((entry.touched + cooldown) <= now) {
+        result <- MonadThrow[F].whenA((entry.touched + cooldown) <= now) {
           entryMap
             .lookup(key)
             .flatMap { _.foldMap { _.update1 { _.touch(now) } } }
-        } else {
-          ().pure[F]
         }
       } yield result
     }
