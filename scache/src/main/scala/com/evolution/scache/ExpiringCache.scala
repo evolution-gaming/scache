@@ -231,8 +231,10 @@ object ExpiringCache {
                       case None => cache.remove(key).void
                     }
                     .handleError { _ => () }
-                case _: EntryState.Loading[F, TimestampedValue] => ().pure[F]
-                case EntryState.Removed => ().pure[F]
+                case _: EntryState.Loading[F, TimestampedValue] =>
+                  ().pure[F]
+                case EntryState.Removed =>
+                  ().pure[F]
               }
           }
         }
