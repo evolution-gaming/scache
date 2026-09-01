@@ -118,8 +118,8 @@ object ExpiringCache {
             case state =>
               (state, false)
           }
-          .flatMap {
-            case true =>
+          .flatMap { removed =>
+            Async[F].whenA(removed) {
               entryMap
                 .ref(key)
                 .update {
@@ -127,8 +127,7 @@ object ExpiringCache {
                   case other => other
                 }
                 .productR { deferred.complete(ExpiredError.asLeft).void }
-            case false =>
-              ().pure[F]
+            }
           }
           .uncancelable
       }
