@@ -60,10 +60,13 @@ object ExpiringCache {
      * waits on a `Deferred` that will never complete, and so does the release of the cache itself.
      *
      * The three pieces of state are one and the same map seen from three angles, and are not kept
-     * in sync by hand: `entryMap` is the raw per-key state, needed here because the [[Cache]]
-     * interface exposes neither the entry states nor the `Deferred` of a load; `cache` is the very
+     * in sync by hand:
+     *  - `entryMap` is the raw per-key state, needed here because the [[Cache]]
+     * interface exposes neither the entry states nor the `Deferred` of a load;
+     *  - `cache` is the very
      * same map behind that interface, used for the removals, so that they go through the regular
-     * release logic; `loadingSince` is bookkeeping private to this routine, holding the moment each
+     * release logic;
+     *  - `loadingSince` is bookkeeping private to this routine, holding the moment each
      * of the currently loading keys was first seen loading, carried over between the runs, as this
      * is the only way to tell how long a load is running. Anything stale in `loadingSince` is
      * ignored and dropped on the next run.
