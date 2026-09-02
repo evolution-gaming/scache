@@ -7,6 +7,7 @@ import com.evolution.scache.CacheMetrics.Directive
 import com.evolutiongaming.smetrics.MetricsHelper.*
 import com.evolutiongaming.smetrics.{CollectorRegistry, LabelNames, Quantile, Quantiles}
 
+import java.util.concurrent.atomic.AtomicInteger
 import scala.concurrent.duration.FiniteDuration
 
 trait CacheMetrics[F[_]] {
@@ -21,6 +22,11 @@ trait CacheMetrics[F[_]] {
 
   def modify(entryExisted: Boolean, directive: Directive): F[Unit]
 
+  /**
+   * Reports the current number of entries. Several caches may report under one name, hence the
+   * reported value must be added to the values of the others rather than overwrite them, and a
+   * cache being released must report `0` to withdraw its share.
+   */
   def size(size: Int): F[Unit]
 
   def size(latency: FiniteDuration): F[Unit]
@@ -182,6 +188,10 @@ object CacheMetrics {
 
         val foldMapSummary = callSummary.labels(name, "foldMap")
 
+        val sizeGauge1 = sizeGauge.labels(name)
+
+        val sizeReported = new AtomicInteger(0)
+
         new CacheMetrics[F] {
 
           def get(hit: Boolean) = {
@@ -209,7 +219,10 @@ object CacheMetrics {
           }
 
           def size(size: Int) = {
-            sizeGauge.labels(name).set(size.toDouble)
+            ().pure[F].flatMap { _ =>
+              val delta = size - sizeReported.getAndSet(size)
+              if (delta == 0) ().pure[F] else sizeGauge1.inc(delta.toDouble)
+            }
           }
 
           def size(latency: FiniteDuration) = {
