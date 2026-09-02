@@ -221,7 +221,7 @@ object CacheMetrics {
           def size(size: Int) = {
             ().pure[F].flatMap { _ =>
               val delta = size - sizeReported.getAndSet(size)
-              if (delta == 0) ().pure[F] else sizeGauge1.inc(delta.toDouble)
+              sizeGauge1.inc(delta.toDouble).whenA(delta != 0)
             }
           }
 
