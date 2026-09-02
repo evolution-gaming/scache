@@ -139,6 +139,6 @@ lazy val benchmark = (project in file("benchmark"))
   )
   .dependsOn(scache)
 
-addCommandAlias("fmt", "+scalafmtRepo")
+addCommandAlias("fmt", "scalafmtRepo")
 addCommandAlias("check", "+all versionPolicyCheck Compile/doc scalafmtCheckRepo")
 addCommandAlias("build", "all test package")
