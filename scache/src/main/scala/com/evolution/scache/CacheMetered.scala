@@ -1,9 +1,11 @@
 package com.evolution.scache
 
+import cats.effect.implicits.*
 import cats.effect.{Resource, Temporal}
 import cats.kernel.CommutativeMonoid
 import cats.syntax.all.*
 import com.evolution.scache.Cache.Directive
+import com.evolution.scache.CacheMetrics.LoadResult
 import com.evolutiongaming.catshelper.{MeasureDuration, Schedule}
 
 import scala.concurrent.duration.*
@@ -66,13 +68,13 @@ object CacheMetered {
               for {
                 _ <- metrics.get(false)
                 start <- MeasureDuration[F].start
-                value <- value.attempt
+                value <- value.attempt.onCancel { start.flatMap { metrics.load(_, LoadResult.Cancelled) } }
                 duration <- start
-                loadSucceed = value match {
-                  case Right(_) | Left(CacheOpsCompat.NoneError) => true
-                  case Left(_) => false
+                result = value match {
+                  case Right(_) | Left(CacheOpsCompat.NoneError) => LoadResult.Success
+                  case Left(_) => LoadResult.Failure
                 }
-                _ <- metrics.load(duration, loadSucceed)
+                _ <- metrics.load(duration, result)
                 value <- value.liftTo[F]
               } yield {
                 val (a, v, release) = value
