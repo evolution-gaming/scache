@@ -1,0 +1,47 @@
+queue_rules:
+  - name: default
+    merge_method: rebase
+    update_method: rebase
+    merge_conditions:
+      - check-success=test / formatting
+      - check-success=test / sbt-tasks
+      - check-success=test / test-coverage (2.13.18)
+      - check-success=test / test-coverage (3.3.8)
+      - check-success=test / binary-compatibility (2.13.18)
+      - check-success=test / binary-compatibility (3.3.8)
+      - check-success=test / scaladoc (2.13.18)
+      - check-success=test / scaladoc (3.3.8)
+      - check-success=test / coverage-finished
+
+pull_request_rules:
+  - name: queue approved pull requests
+    conditions:
+      - base=master
+      - "#approved-reviews-by>=1"
+      - "#changes-requested-reviews-by=0"
+      - label!=do-not-merge
+    actions:
+      queue:
+
+  - name: queue scala-steward updates
+    conditions:
+      - base=master
+      - author=scala-steward
+      - label!=do-not-merge
+    actions:
+      queue:
+
+  - name: rebase stale pull requests
+    conditions:
+      - base=master
+      - -conflict
+      - "#commits-behind>0"
+    actions:
+      update:
+        method: rebase
+
+  - name: delete head branch after merge
+    conditions:
+      - merged
+    actions:
+      delete_head_branch:
