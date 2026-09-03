@@ -3,7 +3,7 @@ package com.evolution.scache
 import cats.effect.{Concurrent, Ref, Resource}
 import cats.syntax.all.*
 import cats.{Applicative, Monad}
-import com.evolution.scache.CacheMetrics.Directive
+import com.evolution.scache.CacheMetrics.{Directive, LoadResult}
 import com.evolutiongaming.smetrics.MetricsHelper.*
 import com.evolutiongaming.smetrics.{CollectorRegistry, LabelNames, Quantile, Quantiles}
 
@@ -14,7 +14,11 @@ trait CacheMetrics[F[_]] {
 
   def get(hit: Boolean): F[Unit]
 
-  def load(time: FiniteDuration, success: Boolean): F[Unit]
+  def load(time: FiniteDuration, result: LoadResult): F[Unit]
+
+  @deprecated("use load(time, LoadResult)", "7.0.0")
+  def load(time: FiniteDuration, success: Boolean): F[Unit] =
+    load(time, if (success) LoadResult.Success else LoadResult.Failure)
 
   def life(time: FiniteDuration): F[Unit]
 
@@ -48,7 +52,7 @@ object CacheMetrics {
 
     def get(hit: Boolean) = unit
 
-    def load(time: FiniteDuration, success: Boolean) = unit
+    def load(time: FiniteDuration, result: LoadResult) = unit
 
     def life(time: FiniteDuration) = unit
 
@@ -80,6 +84,25 @@ object CacheMetrics {
     case object Put extends Directive
     case object Ignore extends Directive
     case object Remove extends Directive
+  }
+
+  /**
+   * Outcome of a value computation started by `getOrUpdate`: it produced a value, failed, or was
+   * cancelled before doing either.
+   */
+  sealed trait LoadResult {
+    override def toString: Prefix = this match {
+      case LoadResult.Success => "success"
+      case LoadResult.Failure => "failure"
+      case LoadResult.Cancelled => "cancelled"
+    }
+  }
+  object LoadResult {
+    case object Success extends LoadResult
+    case object Failure extends LoadResult
+    case object Cancelled extends LoadResult
+
+    val values: List[LoadResult] = List(Success, Failure, Cancelled)
   }
 
   type Name = String
@@ -121,7 +144,7 @@ object CacheMetrics {
 
     val loadResultCounter = collectorRegistry.counter(
       name = s"${ prefix }_load_result",
-      help = "Load result: success or failure",
+      help = "Load result: success, failure or cancelled",
       labels = LabelNames("name", "result"),
     )
 
@@ -176,13 +199,13 @@ object CacheMetrics {
 
         val missCounter = getsCounter.labels(name, "miss")
 
-        val successCounter = loadResultCounter.labels(name, "success")
+        val loadCounters = LoadResult.values.map { result =>
+          (result, loadResultCounter.labels(name, result.toString))
+        }.toMap
 
-        val failureCounter = loadResultCounter.labels(name, "failure")
-
-        val successSummary = loadTimeSummary.labels(name, "success")
-
-        val failureSummary = loadTimeSummary.labels(name, "failure")
+        val loadSummaries = LoadResult.values.map { result =>
+          (result, loadTimeSummary.labels(name, result.toString))
+        }.toMap
 
         val putCounter1 = putCounter.labels(name)
 
@@ -205,12 +228,10 @@ object CacheMetrics {
             counter.inc()
           }
 
-          def load(time: FiniteDuration, success: Boolean) = {
-            val resultCounter = if (success) successCounter else failureCounter
-            val timeSummary = if (success) successSummary else failureSummary
+          def load(time: FiniteDuration, result: LoadResult) = {
             for {
-              _ <- resultCounter.inc()
-              _ <- timeSummary.observe(time.toNanos.nanosToSeconds)
+              _ <- loadCounters(result).inc()
+              _ <- loadSummaries(result).observe(time.toNanos.nanosToSeconds)
             } yield {}
           }
 
@@ -283,7 +304,7 @@ object CacheMetrics {
 
     val loadResultCounter = collectorRegistry.counter(
       name = s"${ prefix }_load_result",
-      help = "Load result: success or failure",
+      help = "Load result: success, failure or cancelled",
       labels = LabelNames("name", "result"),
     )
 
@@ -336,13 +357,13 @@ object CacheMetrics {
 
         val missCounter = getsCounter.labels(name, "miss")
 
-        val successCounter = loadResultCounter.labels(name, "success")
+        val loadCounters = LoadResult.values.map { result =>
+          (result, loadResultCounter.labels(name, result.toString))
+        }.toMap
 
-        val failureCounter = loadResultCounter.labels(name, "failure")
-
-        val successSummary = loadTimeSummary.labels(name, "success")
-
-        val failureSummary = loadTimeSummary.labels(name, "failure")
+        val loadSummaries = LoadResult.values.map { result =>
+          (result, loadTimeSummary.labels(name, result.toString))
+        }.toMap
 
         val putCounter1 = putCounter.labels(name)
 
@@ -365,12 +386,10 @@ object CacheMetrics {
             counter.inc()
           }
 
-          def load(time: FiniteDuration, success: Boolean) = {
-            val resultCounter = if (success) successCounter else failureCounter
-            val timeSummary = if (success) successSummary else failureSummary
+          def load(time: FiniteDuration, result: LoadResult) = {
             for {
-              _ <- resultCounter.inc()
-              _ <- timeSummary.observe(time.toNanos.nanosToSeconds)
+              _ <- loadCounters(result).inc()
+              _ <- loadSummaries(result).observe(time.toNanos.nanosToSeconds)
             } yield {}
           }
 
