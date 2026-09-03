@@ -74,7 +74,7 @@ abstract class CacheState {
   private def resource = {
     val expireAfterRead = 1.hour
     flavor match {
-      case "single" => LoadingCache.of[IO, Int, Int]
+      case "single" => Cache.loading[IO, Int, Int](partitions = 1)
       case "partitioned" => Cache.loading[IO, Int, Int]
       case "expiring" => Cache.expiring[IO, Int, Int](ExpiringCache.Config[IO, Int, Int](expireAfterRead))
       case flavor => sys.error(s"unknown flavor=$flavor")
