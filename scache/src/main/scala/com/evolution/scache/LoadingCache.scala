@@ -10,6 +10,7 @@ import com.evolution.scache.Cache.Directive
 import com.evolutiongaming.catshelper.ParallelHelper.*
 
 import java.util.concurrent.ConcurrentHashMap
+import scala.concurrent.duration.FiniteDuration
 import scala.jdk.CollectionConverters.*
 
 /**
@@ -56,7 +57,9 @@ import scala.jdk.CollectionConverters.*
  * Neither `remove` nor `clear` cancels a load in flight, so a load that outlives one of them still
  * has a value on its hands. After a `remove` it stores that value under the key again, putting the
  * key back into the cache; after a `clear` it stores it into the entry the `clear` has already
- * unlinked, and the `clear` is the one that awaits and releases it.
+ * unlinked, and the `clear` is the one that awaits and releases it, unless the load outstays the
+ * `loadingTimeout` of the `clear`, in which case the load is failed with [[ExpiredError]] and left
+ * to release its own value.
  *
  * `Removed` is a tombstone meaning "this `EntryRef` is no longer in the map, look the key up
  * again". It is needed because the two levels cannot be updated atomically together, so a fiber
@@ -93,12 +96,17 @@ private[scache] object LoadingCache {
   /**
    * Cache over an existing [[EntryMap]], clearing it, and thus releasing all the values, when the
    * resource is released.
+   *
+   * @param loadingTimeout
+   *   how long `clear`, and hence the release, waits for a load in flight before giving up on it,
+   *   see [[apply]].
    */
   def of[F[_]: Async, K, V](
     entryMap: EntryMap[F, K, V],
+    loadingTimeout: Option[FiniteDuration] = None,
   ): Resource[F, Cache[F, K, V]] = {
     Resource.make {
-      apply(entryMap).pure[F]
+      apply(entryMap, loadingTimeout).pure[F]
     } { cache =>
       cache.clear.flatten
     }
@@ -195,9 +203,15 @@ private[scache] object LoadingCache {
   /**
    * Cache over an existing [[EntryMap]], which never releases the values it still holds, hence
    * meant to be wrapped into a resource by [[of]] rather than used directly.
+   *
+   * @param loadingTimeout
+   *   how long `clear` waits for a load in flight before giving up on it and failing the load, and
+   *   everyone waiting for it, with [[ExpiredError]]. `None` waits indefinitely, which makes a load
+   *   that never completes hang `clear`.
    */
   def apply[F[_]: Async, K, V](
     entryMap: EntryMap[F, K, V],
+    loadingTimeout: Option[FiniteDuration] = None,
   ): Cache[F, K, V] = {
 
     val F = Async[F]
@@ -1007,13 +1021,37 @@ private[scache] object LoadingCache {
        * the cache resource, an entry added while a large cache is being cleared can outlive the
        * cache itself, with its value never released.
        *
-       * Values of entries that are still loading are awaited before being released, which is why a
-       * load that never completes would make this, and the release of the cache resource, hang.
-       * `ExpiringCache.Config.loadingTimeout` does not help here: the entries are unlinked before
-       * being awaited, so the cleanup routine no longer sees them, and on release that routine is
-       * already stopped.
+       * Values of entries that are still loading are awaited before being released, for at most
+       * `loadingTimeout`, if there is one. A load that is still running by then is given up on: its
+       * `deferred` is completed with [[ExpiredError]], which fails the waiters and tells the
+       * loading fiber to release the value it computes itself. Without a `loadingTimeout` a load
+       * that never completes makes this, and the release of the cache resource, hang.
        */
       def clear: F[F[Unit]] = {
+
+        def awaitLoading(deferred: DeferredThrow[F, Entry[F, V]]): F[Option[Entry[F, V]]] = {
+          loadingTimeout.fold(deferred.getOption) { timeout =>
+            deferred
+              .getOption
+              .timeoutTo(
+                timeout,
+                deferred
+                  .complete(ExpiredError.asLeft)
+                  .productR { deferred.getOption },
+              )
+          }
+        }
+
+        def release(entryRef: EntryRef[F, V]): F[Unit] = {
+          entryRef
+            .get
+            .flatMap {
+              case state: EntryState.Value[F, V] => state.entry.release1
+              case state: EntryState.Loading[F, V] => awaitLoading(state.deferred).flatMap { _.foldMapM { _.release1 } }
+              case EntryState.Removed => ().pure[F]
+            }
+        }
+
         entryMap
           .keys
           .flatMap { keys =>
@@ -1024,12 +1062,7 @@ private[scache] object LoadingCache {
           }
           .flatMap { entryRefs =>
             entryRefs
-              .parFoldMap1 { entryRef =>
-                entryRef
-                  .getOption
-                  .flatMap { _.foldMapM { _.release1 } }
-                  .uncancelable
-              }
+              .parFoldMap1 { entryRef => release(entryRef).uncancelable }
               .start
           }
           .uncancelable
