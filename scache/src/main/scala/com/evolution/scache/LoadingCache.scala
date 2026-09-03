@@ -1009,6 +1009,9 @@ private[scache] object LoadingCache {
        *
        * Values of entries that are still loading are awaited before being released, which is why a
        * load that never completes would make this, and the release of the cache resource, hang.
+       * `ExpiringCache.Config.loadingTimeout` does not help here: the entries are unlinked before
+       * being awaited, so the cleanup routine no longer sees them, and on release that routine is
+       * already stopped.
        */
       def clear: F[F[Unit]] = {
         entryMap
