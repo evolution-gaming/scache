@@ -158,7 +158,7 @@ sbt "benchmark/Jmh/run -p flavor=partitioned .*getOrUpdateHitRandomKeys.*"
 sbt "benchmark/Jmh/run -wi 5 -i 10 -r 5s"
 ```
 
-`flavor` picks how the cache is put together: `single` is one unpartitioned `LoadingCache`,
+`flavor` picks how the cache is put together: `single` is `Cache.loading` with one partition,
 `partitioned` is `Cache.loading`, `expiring` is `Cache.expiring` with the expiration set far enough
 away not to interfere.
 
@@ -220,13 +220,8 @@ cd -                && sbt "benchmark/Jmh/run -rf json -rff /tmp/new.json"
 ```
 
 The `benchmark` project and the JMH plugin come from `build.sbt` and `project/plugins.sbt`, which is
-why those two are copied over as well. If the older revision has a different internal API, the
-benchmark will not compile there until the affected lines are adjusted. Going back past the `MapRef`
-rewrite, for instance, only the `single` flavor needs it:
-
-```scala
-case "single" => LoadingCache.of(LoadingCache.EntryRefs.empty[IO, Int, Int])
-```
+why those two are copied over as well. The benchmark only uses the public `Cache` API, so it compiles
+against any revision that still has it.
 
 Finally, `git worktree remove /tmp/scache-old` when done.
 

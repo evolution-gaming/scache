@@ -4,7 +4,7 @@ import cats.effect.implicits.*
 import cats.effect.unsafe.implicits.global
 import cats.effect.{Deferred, IO}
 import cats.syntax.all.*
-import com.evolution.scache.{Cache, ExpiringCache, LoadingCache}
+import com.evolution.scache.{Cache, ExpiringCache}
 import org.openjdk.jmh.annotations.*
 
 import java.util.concurrent.TimeUnit
@@ -57,7 +57,7 @@ object CacheBenchmark {
 /**
  * Cache under benchmark, allocated once per trial.
  *
- * `flavor` selects how it is put together: a single unpartitioned `LoadingCache`, the partitioned
+ * `flavor` selects how it is put together: `Cache.loading` with a single partition, the partitioned
  * `Cache.loading`, or the partitioned `Cache.expiring` with expiration far enough away not to
  * interfere.
  */

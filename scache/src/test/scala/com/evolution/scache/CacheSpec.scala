@@ -30,7 +30,10 @@ class CacheSpec extends AsyncFunSuite with Matchers {
       ("expiring", expiringCache),
       (
         "expiring no partitions",
-        Cache.expiring[IO, Int, Int](ExpiringCache.Config[IO, Int, Int](expireAfterRead = 1.minute), partitions = Some(1)),
+        Cache.expiring[IO, Int, Int](
+          ExpiringCache.Config[IO, Int, Int](expireAfterRead = 1.minute),
+          partitions = Some(1),
+        ),
       ),
     )
   } yield {
