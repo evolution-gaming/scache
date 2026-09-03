@@ -471,7 +471,7 @@ object Cache {
    * parallel.
    *
    * Note, that the values getting into this cache never expire, i.e. the cache will grow
-   * indefinetely unless [[Cache#remove]] is called. See [[#expiring]] for the implementation, which
+   * indefinitely unless [[Cache#remove]] is called. See [[#expiring]] for the implementation, which
    * allows automatic expriation of the values.
    *
    * Here is a short description of why some of the context bounds are required on `F[_]`:
