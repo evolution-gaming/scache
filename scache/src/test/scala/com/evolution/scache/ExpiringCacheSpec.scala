@@ -1,6 +1,7 @@
 package com.evolution.scache
 
 import cats.effect.*
+import cats.effect.syntax.all.*
 import cats.syntax.all.*
 import com.evolution.scache.IOSuite.*
 import org.scalatest.funsuite.AsyncFunSuite
@@ -25,6 +26,14 @@ class ExpiringCacheSpec extends AsyncFunSuite with Matchers {
 
   test(s"not exceed max size") {
     notExceedMaxSize[IO].run()
+  }
+
+  test("expire stuck loads") {
+    `expire stuck loads`[IO].run()
+  }
+
+  test("loading timeout does not expire loaded values") {
+    `loading timeout does not expire loaded values`[IO].run()
   }
 
   test(s"refresh periodically") {
@@ -90,14 +99,19 @@ class ExpiringCacheSpec extends AsyncFunSuite with Matchers {
         value <- cache.put(0, 0, release.set(true))
         value <- value
         _ <- Sync[F].delay { value shouldEqual none }
-        value <- cache.put(1, 1)
+        released <- Deferred[F, Unit]
+        value <- cache.put(1, 1, released.complete(()).void)
         value <- value
         _ <- Sync[F].delay { value shouldEqual none }
         _ <- List.fill(6)(touch).foldMapM(identity)
-        value <- cache.get(0)
-        _ <- Sync[F].delay { value shouldEqual 0.some }
+        // The cleanup routine owns the moment of the eviction, and key 1 must not be read while it
+        // is being waited out, as a read would refresh it. Its release callback signals the
+        // eviction instead, with key 0 kept in use by the very same waiting.
+        _ <- Temporal[F].timeout((touch *> released.tryGet).iterateUntil { _.isDefined }, 5.seconds)
         value <- cache.get(1)
         _ <- Sync[F].delay { value shouldEqual none }
+        value <- cache.get(0)
+        _ <- Sync[F].delay { value shouldEqual 0.some }
         release <- release.get
         _ <- Sync[F].delay { release shouldEqual false }
       } yield {}
@@ -119,6 +133,50 @@ class ExpiringCacheSpec extends AsyncFunSuite with Matchers {
         _ <- Sync[F].delay { value shouldEqual 0.some }
         _ <- cache.put(10, 10)
         _ <- release.get
+      } yield {}
+    }
+  }
+
+  private def `expire stuck loads`[F[_]: Async] = {
+    val config = ExpiringCache.Config[F, Int, Int](
+      expireAfterRead = 1.minute,
+      loadingTimeout = 100.millis.some,
+    )
+    ExpiringCache.of[F, Int, Int](config).use { cache =>
+      for {
+        started <- Deferred[F, Unit]
+        // The load is held by a gate rather than by `never`, so that a failed assertion below ends
+        // the test instead of hanging the release of the cache.
+        gate <- Deferred[F, Unit]
+        loader <- cache.getOrUpdate(0) { started.complete(()) *> gate.get.as(0) }.attempt.start
+        _ <- started.get
+        result <- {
+          for {
+            waiter <- cache.getOrUpdate(0) { 1.pure[F] }.attempt.start
+            outcome <- Temporal[F].timeout(waiter.joinWithNever, 5.seconds)
+            _ <- Sync[F].delay { outcome should matchPattern { case Left(ExpiredError) => } }
+            value <- cache.get(0)
+            _ <- Sync[F].delay { value shouldEqual none }
+            value <- Temporal[F].timeout(cache.getOrUpdate(0) { 2.pure[F] }, 5.seconds)
+            _ <- Sync[F].delay { value shouldEqual 2 }
+          } yield {}
+        }.guarantee { gate.complete(()) *> loader.join.void }
+      } yield result
+    }
+  }
+
+  private def `loading timeout does not expire loaded values`[F[_]: Async] = {
+    val config = ExpiringCache.Config[F, Int, Int](
+      expireAfterRead = 1.minute,
+      loadingTimeout = 100.millis.some,
+    )
+    ExpiringCache.of[F, Int, Int](config).use { cache =>
+      for {
+        value <- cache.getOrUpdate(0) { 0.pure[F] }
+        _ <- Sync[F].delay { value shouldEqual 0 }
+        _ <- Temporal[F].sleep(500.millis)
+        value <- cache.get(0)
+        _ <- Sync[F].delay { value shouldEqual 0.some }
       } yield {}
     }
   }

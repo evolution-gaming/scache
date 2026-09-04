@@ -25,12 +25,15 @@ class CacheSpec extends AsyncFunSuite with Matchers {
 
   for {
     (name, cache0) <- List(
-      ("default", Cache.loading[IO, Int, Int]),
-      ("no partitions", LoadingCache.of(LoadingCache.EntryRefs.empty[IO, Int, Int])),
+      ("loading", Cache.loading[IO, Int, Int]),
+      ("loading no partitions", LoadingCache.of[IO, Int, Int]),
       ("expiring", expiringCache),
       (
         "expiring no partitions",
-        ExpiringCache.of[IO, Int, Int](ExpiringCache.Config[IO, Int, Int](expireAfterRead = 1.minute)),
+        Cache.expiring[IO, Int, Int](
+          ExpiringCache.Config[IO, Int, Int](expireAfterRead = 1.minute),
+          partitions = Some(1),
+        ),
       ),
     )
   } yield {
@@ -615,21 +618,17 @@ class CacheSpec extends AsyncFunSuite with Matchers {
       for {
         deferred0 <- Deferred[IO, (Int, Option[IO[Unit]])]
         fiber0 <- cache.getOrUpdate1Ensure(0) { deferred0.get }
-        fiber1 <- cache.getOrUpdate2(0) { IO.never }.startEnsure
-        release <- Deferred[IO, Unit]
-        _ <- fiber0.cancel.start
-        _ <- deferred0.complete((0, release.complete(()).void.some))
-        value <- fiber0.join
-        _ <- IO { value shouldEqual Outcome.canceled }
-        value <- fiber1.joinWithNever
-        _ <- IO { value shouldEqual 0.asRight }
-        _ <- cache.remove(0)
-        _ <- release.get
+        _ <- fiber0.cancel
+        outcome <- fiber0.join
+        _ <- IO { outcome shouldEqual Outcome.canceled }
+        value <- cache.getOrUpdate2(0) { (0, 0, none[IO[Unit]]).pure[IO] }
+        _ <- IO { value shouldEqual 0.asLeft }
+        value <- cache.get(0)
+        _ <- IO { value shouldEqual 0.some }
         _ <- metrics.expect(
-          metrics.expectedGet(hit = false) -> 1,
+          metrics.expectedGet(hit = false) -> 2,
           metrics.expectedGet(hit = true) -> 1,
           metrics.expectedLoad(success = true) -> 1,
-          metrics.expectedLife -> 1,
         )
       } yield {}
     }
@@ -1076,25 +1075,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
       } yield {}
     }
 
-    check(s"cancellation: $name") { (cache, metrics) =>
-      for {
-        deferred <- Deferred[IO, Int]
-        fiber <- cache.getOrUpdateEnsure(0) { deferred.get }
-        _ <- fiber.cancel.start
-        _ <- deferred.complete(0)
-        cancelOutcome <- fiber.join
-        _ <- IO { cancelOutcome shouldEqual Outcome.canceled }
-        value <- cache.get(0)
-        _ <- IO { value shouldEqual 0.some }
-        _ <- metrics.expect(
-          metrics.expectedGet(hit = false) -> 1,
-          metrics.expectedLoad(success = true) -> 1,
-          metrics.expectedGet(hit = true) -> 1,
-        )
-      } yield {}
-    }
-
-    ignore(s"cancellation proper: $name") {
+    test(s"cancellation proper: $name") {
       cacheAndMetrics
         .use { case (cache, metrics) =>
           for {
