@@ -1,11 +1,19 @@
+shared:
+  ci_passed: &ci_passed
+    - check-success~=^test /
+    - -check-pending~=^test /
+    - -check-failure~=^test /
+    - check-success=AI Policy Check
+
+merge_queue:
+  max_parallel_checks: 1
+
 queue_rules:
   - name: default
     merge_method: rebase
     update_method: rebase
-    merge_conditions:
-      - check-success~=^test /
-      - -check-pending~=^test /
-      - -check-failure~=^test /
+    queue_conditions: *ci_passed
+    merge_conditions: *ci_passed
 
 pull_request_rules:
   - name: queue approved pull requests
@@ -24,13 +32,3 @@ pull_request_rules:
       - label!=do-not-merge
     actions:
       queue:
-
-  - name: rebase stale pull requests
-    conditions:
-      - base=master
-      - -conflict
-      - "#commits-behind>0"
-    actions:
-      update:
-        method: rebase
-
