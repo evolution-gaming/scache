@@ -3,15 +3,9 @@ queue_rules:
     merge_method: rebase
     update_method: rebase
     merge_conditions:
-      - check-success=test / formatting
-      - check-success=test / sbt-tasks
-      - check-success=test / test-coverage (2.13.18)
-      - check-success=test / test-coverage (3.3.8)
-      - check-success=test / binary-compatibility (2.13.18)
-      - check-success=test / binary-compatibility (3.3.8)
-      - check-success=test / scaladoc (2.13.18)
-      - check-success=test / scaladoc (3.3.8)
-      - check-success=test / coverage-finished
+      - check-success~=^test /
+      - -check-pending~=^test /
+      - -check-failure~=^test /
 
 pull_request_rules:
   - name: queue approved pull requests
@@ -40,8 +34,3 @@ pull_request_rules:
       update:
         method: rebase
 
-  - name: delete head branch after merge
-    conditions:
-      - merged
-    actions:
-      delete_head_branch:
