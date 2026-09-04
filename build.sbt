@@ -114,6 +114,8 @@ lazy val scache = (project in file("scache"))
       ProblemFilters.exclude[MissingClassProblem]("com.evolution.scache.LoadingCache$EntryRefs$"),
       ProblemFilters.exclude[MissingClassProblem]("com.evolution.scache.ExpiringCache$MapOps"),
       ProblemFilters.exclude[MissingClassProblem]("com.evolution.scache.ExpiringCache$MapOps$"),
+      // CacheMetrics.load takes LoadResult, reviewed in https://github.com/evolution-gaming/scache/issues/386
+      ProblemFilters.exclude[ReversedMissingMethodProblem]("com.evolution.scache.CacheMetrics.load"),
     ),
     libraryDependencies ++= Seq(
       Cats.core,
