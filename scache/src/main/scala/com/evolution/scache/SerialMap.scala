@@ -2,7 +2,7 @@ package com.evolution.scache
 
 import cats.Applicative
 import cats.effect.implicits.*
-import cats.effect.{Concurrent, Ref}
+import cats.effect.{Async, Concurrent, Ref}
 import cats.syntax.all.*
 import com.evolutiongaming.catshelper.{Runtime, SerialRef}
 
@@ -20,12 +20,12 @@ trait SerialMap[F[_], K, V] {
   def put(key: K, value: V): F[Option[V]]
 
   /**
-   * `f` will be run serially for the same key, entry will be removed in case of `f` returns `none`
+   * `f` will be run serially for the same key, entry will be removed in case if `f` returns `None`
    */
   def modify[A](key: K)(f: Option[V] => F[(Option[V], A)]): F[A]
 
   /**
-   * `f` will be run serially for the same key, entry will be removed in case of `f` returns `none`
+   * `f` will be run serially for the same key, entry will be removed in case if `f` returns `None`
    */
   def update[A](key: K)(f: Option[V] => F[Option[V]]): F[Unit]
 
@@ -72,14 +72,14 @@ object SerialMap { self =>
 
   def apply[F[_]](
     implicit
-    F: Concurrent[F],
+    F: Async[F],
   ): Apply[F] = new Apply(F)
 
-  def of[F[_]: Concurrent: Runtime, K, V]: F[SerialMap[F, K, V]] = of(None)
+  def of[F[_]: Async: Runtime, K, V]: F[SerialMap[F, K, V]] = of(None)
 
-  def of[F[_]: Concurrent: Runtime, K, V](partitions: Int): F[SerialMap[F, K, V]] = of(Some(partitions))
+  def of[F[_]: Async: Runtime, K, V](partitions: Int): F[SerialMap[F, K, V]] = of(Some(partitions))
 
-  def of[F[_]: Concurrent: Runtime, K, V](partitions: Option[Int] = None): F[SerialMap[F, K, V]] = {
+  def of[F[_]: Async: Runtime, K, V](partitions: Option[Int] = None): F[SerialMap[F, K, V]] = {
     Cache
       .loading[F, K, SerialRef[F, State[V]]](partitions)
       .allocated
@@ -224,13 +224,13 @@ object SerialMap { self =>
     }
   }
 
-  class Apply[F[_]](val F: Concurrent[F]) extends AnyVal {
+  class Apply[F[_]](val F: Async[F]) extends AnyVal {
 
     def of[K, V](
       implicit
       runtime: Runtime[F],
     ): F[SerialMap[F, K, V]] = {
-      implicit val concurrent: Concurrent[F] = F
+      implicit val async: Async[F] = F
       self.of[F, K, V](None)
     }
   }
