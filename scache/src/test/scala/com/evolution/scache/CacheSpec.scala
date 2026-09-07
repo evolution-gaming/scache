@@ -55,7 +55,9 @@ class CacheSpec extends AsyncFunSuite with Matchers {
       for {
         value <- cache.get(0)
         _ <- IO { value shouldEqual none[Int] }
-        _ <- metrics.expect(metrics.expectedGet(hit = false) -> 1)
+        _ <- metrics.expect(
+          metrics.expectedGet(hit = false) -> 1,
+        )
       } yield {}
     }
 
@@ -102,7 +104,10 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         (cache, metrics) <- cacheAndMetrics.use { _.pure[IO] }
         a <- cache.get(0)
         _ <- IO { a shouldEqual none[Int] }
-        _ <- metrics.expect(metrics.expectedGet(hit = false) -> 1)
+        _ <- metrics.expect(
+          metrics.expectedGet(hit = false) -> 1,
+          metrics.expectedSize(0) -> 1,
+        )
       } yield {}
       result.run()
     }
@@ -127,7 +132,10 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         (cache, metrics) <- cacheAndMetrics.use { _.pure[IO] }
         a <- cache.getOrElse(0, 1.pure[IO])
         _ <- IO { a shouldEqual 1 }
-        _ <- metrics.expect(metrics.expectedGet(hit = false) -> 1)
+        _ <- metrics.expect(
+          metrics.expectedGet(hit = false) -> 1,
+          metrics.expectedSize(0) -> 1,
+        )
       } yield {}
       result.run()
     }
@@ -158,7 +166,10 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         (cache, metrics) <- cacheAndMetrics.use { _.pure[IO] }
         a <- cache.put(0, 0).flatten
         _ <- IO { a shouldEqual none[Int] }
-        _ <- metrics.expect(metrics.expectedPut -> 1)
+        _ <- metrics.expect(
+          metrics.expectedPut -> 1,
+          metrics.expectedSize(0) -> 1,
+        )
       } yield {}
       result.run()
     }
@@ -196,7 +207,9 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         (cache, metrics) <- cacheAndMetrics.use { _.pure[IO] }
         a <- cache.put(0, 0, ().pure[IO]).flatten.attempt
         _ <- IO { a shouldEqual CacheReleasedError.asLeft }
-        _ <- metrics.expect()
+        _ <- metrics.expect(
+          metrics.expectedSize(0) -> 1,
+        )
       } yield {}
       result.run()
     }
@@ -278,6 +291,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         a <- cache.size
         _ <- IO { a shouldEqual 0 }
         _ <- metrics.expect(
+          metrics.expectedSize(0) -> 1,
           metrics.expectedPut -> 1,
           metrics.expectedLife -> 1,
           metrics.expectedSize -> 1,
@@ -307,7 +321,9 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         (cache, metrics) <- cacheAndMetrics.use { _.pure[IO] }
         a <- cache.remove(0).flatten
         _ <- IO { a shouldEqual none }
-        _ <- metrics.expect()
+        _ <- metrics.expect(
+          metrics.expectedSize(0) -> 1,
+        )
       } yield {}
       result.run()
     }
@@ -334,7 +350,10 @@ class CacheSpec extends AsyncFunSuite with Matchers {
       val result = for {
         (cache, metrics) <- cacheAndMetrics.use { _.pure[IO] }
         _ <- cache.clear.flatten
-        _ <- metrics.expect(metrics.expectedClear -> 1)
+        _ <- metrics.expect(
+          metrics.expectedClear -> 1,
+          metrics.expectedSize(0) -> 1,
+        )
       } yield {}
       result.run()
     }
@@ -427,6 +446,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         a <- cache.getOrUpdate(0)(1.pure[IO])
         _ <- IO { a shouldEqual 1 }
         _ <- metrics.expect(
+          metrics.expectedSize(0) -> 1,
           metrics.expectedGet(hit = false) -> 1,
           metrics.expectedLoad(success = true) -> 1,
         )
@@ -568,6 +588,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         a <- cache.getOrUpdate1(0)((1, 1, none[IO[Unit]]).pure[IO])
         _ <- IO { a shouldEqual 1.asLeft }
         _ <- metrics.expect(
+          metrics.expectedSize(0) -> 1,
           metrics.expectedGet(hit = false) -> 1,
           metrics.expectedLoad(success = true) -> 1,
         )
@@ -581,6 +602,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         a <- cache.getOrUpdate1(0)((1, 1, IO.unit.some).pure[IO]).attempt
         _ <- IO { a shouldEqual CacheReleasedError.asLeft }
         _ <- metrics.expect(
+          metrics.expectedSize(0) -> 1,
           metrics.expectedGet(hit = false) -> 1,
           metrics.expectedLoad(success = false) -> 1,
         )
@@ -594,6 +616,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         a <- cache.getOrUpdateOpt1(0)((1, 1, none[IO[Unit]]).some.pure[IO])
         _ <- IO { a shouldEqual 1.asLeft.some }
         _ <- metrics.expect(
+          metrics.expectedSize(0) -> 1,
           metrics.expectedGet(hit = false) -> 1,
           metrics.expectedLoad(success = true) -> 1,
         )
@@ -607,6 +630,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         a <- cache.getOrUpdateOpt1(0)((1, 1, IO.unit.some).some.pure[IO]).attempt
         _ <- IO { a shouldEqual CacheReleasedError.asLeft }
         _ <- metrics.expect(
+          metrics.expectedSize(0) -> 1,
           metrics.expectedGet(hit = false) -> 1,
           metrics.expectedLoad(success = false) -> 1,
         )
@@ -1086,7 +1110,9 @@ class CacheSpec extends AsyncFunSuite with Matchers {
             _ <- IO { result shouldEqual none }
             _ <- deferred.complete(0)
             _ <- fiber.joinWithNever
-            _ <- metrics.expect(metrics.expectedGet(hit = false) -> 2)
+            _ <- metrics.expect(
+              metrics.expectedGet(hit = false) -> 2,
+            )
           } yield {}
         }
         .run()
