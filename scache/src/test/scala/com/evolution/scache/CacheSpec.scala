@@ -93,7 +93,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         _ <- metrics.expect(
           metrics.expectedGet(hit = false) -> 2,
           metrics.expectedGet(hit = true) -> 3,
-          metrics.expectedLoad(success = true) -> 1,
+          metrics.expectedLoad(CacheMetrics.LoadResult.Success) -> 1,
           metrics.expectedPut -> 1,
         )
       } yield {}
@@ -390,7 +390,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
           metrics.expectedPut -> 2,
           metrics.expectedLife -> 4,
           metrics.expectedClear -> 1,
-          metrics.expectedLoad(success = true) -> 2,
+          metrics.expectedLoad(CacheMetrics.LoadResult.Success) -> 2,
         )
       } yield {}
     }
@@ -434,7 +434,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         _ <- IO { value1 shouldEqual 0 }
         _ <- metrics.expect(
           metrics.expectedGet(hit = false) -> 1,
-          metrics.expectedLoad(success = true) -> 1,
+          metrics.expectedLoad(CacheMetrics.LoadResult.Success) -> 1,
           metrics.expectedGet(hit = true) -> 1,
         )
       } yield {}
@@ -448,7 +448,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         _ <- metrics.expect(
           metrics.expectedSize(0) -> 1,
           metrics.expectedGet(hit = false) -> 1,
-          metrics.expectedLoad(success = true) -> 1,
+          metrics.expectedLoad(CacheMetrics.LoadResult.Success) -> 1,
         )
       } yield {}
       result.run()
@@ -465,7 +465,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         _ <- IO { value shouldEqual 0.some }
         _ <- metrics.expect(
           metrics.expectedGet(hit = false) -> 2,
-          metrics.expectedLoad(success = true) -> 2,
+          metrics.expectedLoad(CacheMetrics.LoadResult.Success) -> 2,
         )
       } yield {}
     }
@@ -500,7 +500,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
           metrics.expectedGet(hit = false) -> 2,
           metrics.expectedLife -> 2,
           metrics.expectedClear -> 1,
-          metrics.expectedLoad(success = true) -> 2,
+          metrics.expectedLoad(CacheMetrics.LoadResult.Success) -> 2,
         )
       } yield {}
     }
@@ -525,7 +525,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         _ <- metrics.expect(
           metrics.expectedGet(hit = false) -> 1,
           metrics.expectedGet(hit = true) -> 1,
-          metrics.expectedLoad(success = true) -> 1,
+          metrics.expectedLoad(CacheMetrics.LoadResult.Success) -> 1,
         )
       } yield {}
     }
@@ -556,7 +556,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         _ <- released.complete(())
         _ <- metrics.expect(
           metrics.expectedGet(hit = false) -> 2,
-          metrics.expectedLoad(success = true) -> 2,
+          metrics.expectedLoad(CacheMetrics.LoadResult.Success) -> 2,
           metrics.expectedGet(hit = true) -> 1,
         )
       } yield {}
@@ -573,7 +573,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         _ <- IO { value shouldEqual 1.asLeft.some }
         _ <- metrics.expect(
           metrics.expectedGet(hit = false) -> 2,
-          metrics.expectedLoad(success = true) -> 2,
+          metrics.expectedLoad(CacheMetrics.LoadResult.Success) -> 2,
         )
       } yield {}
     }
@@ -586,7 +586,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         _ <- metrics.expect(
           metrics.expectedSize(0) -> 1,
           metrics.expectedGet(hit = false) -> 1,
-          metrics.expectedLoad(success = true) -> 1,
+          metrics.expectedLoad(CacheMetrics.LoadResult.Success) -> 1,
         )
       } yield {}
       result.run()
@@ -600,7 +600,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         _ <- metrics.expect(
           metrics.expectedSize(0) -> 1,
           metrics.expectedGet(hit = false) -> 1,
-          metrics.expectedLoad(success = false) -> 1,
+          metrics.expectedLoad(CacheMetrics.LoadResult.Failure) -> 1,
         )
       } yield {}
       result.run()
@@ -614,7 +614,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         _ <- metrics.expect(
           metrics.expectedSize(0) -> 1,
           metrics.expectedGet(hit = false) -> 1,
-          metrics.expectedLoad(success = true) -> 1,
+          metrics.expectedLoad(CacheMetrics.LoadResult.Success) -> 1,
         )
       } yield {}
       result.run()
@@ -628,7 +628,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         _ <- metrics.expect(
           metrics.expectedSize(0) -> 1,
           metrics.expectedGet(hit = false) -> 1,
-          metrics.expectedLoad(success = false) -> 1,
+          metrics.expectedLoad(CacheMetrics.LoadResult.Failure) -> 1,
         )
       } yield {}
       result.run()
@@ -648,7 +648,8 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         _ <- metrics.expect(
           metrics.expectedGet(hit = false) -> 2,
           metrics.expectedGet(hit = true) -> 1,
-          metrics.expectedLoad(success = true) -> 1,
+          metrics.expectedLoad(CacheMetrics.LoadResult.Cancelled) -> 1,
+          metrics.expectedLoad(CacheMetrics.LoadResult.Success) -> 1,
         )
       } yield {}
     }
@@ -667,7 +668,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         _ <- IO { value shouldEqual 1.some }
         _ <- metrics.expect(
           metrics.expectedGet(hit = true) -> 2,
-          metrics.expectedLoad(success = true) -> 1,
+          metrics.expectedLoad(CacheMetrics.LoadResult.Success) -> 1,
           metrics.expectedGet(hit = false) -> 1,
           metrics.expectedPut -> 1,
           metrics.expectedLife -> 1,
@@ -691,7 +692,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         _ <- IO { value shouldEqual 1.some }
         _ <- metrics.expect(
           metrics.expectedGet(hit = true) -> 2,
-          metrics.expectedLoad(success = true) -> 1,
+          metrics.expectedLoad(CacheMetrics.LoadResult.Success) -> 1,
           metrics.expectedGet(hit = false) -> 1,
           metrics.expectedPut -> 1,
           metrics.expectedLife -> 1,
@@ -750,7 +751,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         _ <- metrics.expect(
           metrics.expectedGet(hit = false) -> 1,
           metrics.expectedPut -> 1,
-          metrics.expectedLoad(success = false) -> 1,
+          metrics.expectedLoad(CacheMetrics.LoadResult.Failure) -> 1,
           metrics.expectedGet(hit = true) -> 2,
         )
       } yield {}
@@ -771,7 +772,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         _ <- metrics.expect(
           metrics.expectedGet(hit = false) -> 1,
           metrics.expectedPut -> 1,
-          metrics.expectedLoad(success = false) -> 1,
+          metrics.expectedLoad(CacheMetrics.LoadResult.Failure) -> 1,
           metrics.expectedGet(hit = true) -> 2,
         )
       } yield {}
@@ -789,7 +790,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         _ <- IO { value shouldEqual 0.some }
         _ <- metrics.expect(
           metrics.expectedGet(hit = false) -> 1,
-          metrics.expectedLoad(success = true) -> 1,
+          metrics.expectedLoad(CacheMetrics.LoadResult.Success) -> 1,
           metrics.expectedGet(hit = true) -> 1,
         )
       } yield {}
@@ -809,7 +810,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         _ <- released.complete(())
         _ <- metrics.expect(
           metrics.expectedGet(hit = false) -> 1,
-          metrics.expectedLoad(success = true) -> 1,
+          metrics.expectedLoad(CacheMetrics.LoadResult.Success) -> 1,
           metrics.expectedGet(hit = true) -> 1,
         )
       } yield {}
@@ -827,7 +828,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         _ <- IO { value shouldEqual none[Int] }
         _ <- metrics.expect(
           metrics.expectedGet(hit = false) -> 2,
-          metrics.expectedLoad(success = false) -> 1,
+          metrics.expectedLoad(CacheMetrics.LoadResult.Failure) -> 1,
         )
       } yield {}
     }
@@ -844,7 +845,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         _ <- IO { value shouldEqual none[Int] }
         _ <- metrics.expect(
           metrics.expectedGet(hit = false) -> 2,
-          metrics.expectedLoad(success = false) -> 1,
+          metrics.expectedLoad(CacheMetrics.LoadResult.Failure) -> 1,
         )
       } yield {}
     }
@@ -865,7 +866,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         _ <- metrics.expect(
           metrics.expectedGet(hit = false) -> 1,
           metrics.expectedGet(hit = true) -> 1,
-          metrics.expectedLoad(success = true) -> 1,
+          metrics.expectedLoad(CacheMetrics.LoadResult.Success) -> 1,
         )
       } yield {}
     }
@@ -892,7 +893,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         _ <- metrics.expect(
           metrics.expectedGet(hit = false) -> 1,
           metrics.expectedGet(hit = true) -> 1,
-          metrics.expectedLoad(success = true) -> 1,
+          metrics.expectedLoad(CacheMetrics.LoadResult.Success) -> 1,
         )
       } yield {}
     }
@@ -911,7 +912,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         _ <- IO { value shouldEqual none }
         _ <- metrics.expect(
           metrics.expectedGet(hit = false) -> 2,
-          metrics.expectedLoad(success = false) -> 1,
+          metrics.expectedLoad(CacheMetrics.LoadResult.Failure) -> 1,
         )
       } yield {}
     }
@@ -930,7 +931,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         _ <- IO { value shouldEqual none }
         _ <- metrics.expect(
           metrics.expectedGet(hit = false) -> 2,
-          metrics.expectedLoad(success = false) -> 1,
+          metrics.expectedLoad(CacheMetrics.LoadResult.Failure) -> 1,
         )
       } yield {}
     }
@@ -954,7 +955,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
           metrics.expectedGet(hit = false) -> 1,
           metrics.expectedLife -> 1,
           metrics.expectedClear -> 1,
-          metrics.expectedLoad(success = true) -> 1,
+          metrics.expectedLoad(CacheMetrics.LoadResult.Success) -> 1,
         )
       } yield {}
     }
@@ -981,7 +982,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
           metrics.expectedGet(hit = false) -> 1,
           metrics.expectedLife -> 1,
           metrics.expectedClear -> 1,
-          metrics.expectedLoad(success = true) -> 1,
+          metrics.expectedLoad(CacheMetrics.LoadResult.Success) -> 1,
         )
       } yield {}
     }
@@ -1011,7 +1012,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
           metrics.expectedGet(hit = false) -> 1,
           metrics.expectedLife -> 1,
           metrics.expectedClear -> 1,
-          metrics.expectedLoad(success = true) -> 1,
+          metrics.expectedLoad(CacheMetrics.LoadResult.Success) -> 1,
         )
       } yield {}
     }
@@ -1088,7 +1089,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
           metrics.expectedGet(hit = false) -> 1,
           metrics.expectedPut -> 3,
           metrics.expectedClear -> 1,
-          metrics.expectedLoad(success = true) -> 1,
+          metrics.expectedLoad(CacheMetrics.LoadResult.Success) -> 1,
           metrics.expectedValues -> 5,
           metrics.expectedLife -> 4,
         )
@@ -1108,6 +1109,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
             _ <- fiber.joinWithNever
             _ <- metrics.expect(
               metrics.expectedGet(hit = false) -> 2,
+              metrics.expectedLoad(CacheMetrics.LoadResult.Cancelled) -> 1,
             )
           } yield {}
         }
@@ -1124,8 +1126,8 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         _ <- IO { result shouldEqual 0.asRight }
         _ <- metrics.expect(
           metrics.expectedGet(hit = false) -> 2,
-          metrics.expectedLoad(success = false) -> 1,
-          metrics.expectedLoad(success = true) -> 1,
+          metrics.expectedLoad(CacheMetrics.LoadResult.Failure) -> 1,
+          metrics.expectedLoad(CacheMetrics.LoadResult.Success) -> 1,
           metrics.expectedGet(hit = true) -> 1,
         )
       } yield {}
@@ -1173,7 +1175,7 @@ class CacheSpec extends AsyncFunSuite with Matchers {
         _ <- IO { a shouldEqual 6.pure[Outcome[IO, Throwable, *]] }
         _ <- metrics.expect(
           metrics.expectedGet(hit = false) -> 3,
-          metrics.expectedLoad(success = true) -> 3,
+          metrics.expectedLoad(CacheMetrics.LoadResult.Success) -> 3,
           metrics.expectedFoldMap -> 1,
         )
       } yield {}
@@ -1535,7 +1537,7 @@ object CacheSpec {
     }
 
     def expectedGet(hit: Boolean): String = s"get(hit=$hit)"
-    def expectedLoad(success: Boolean): String = s"load(time=..., success=$success)"
+    def expectedLoad(result: CacheMetrics.LoadResult): String = s"load(time=..., result=$result)"
     val expectedLife: String = "life(time=...)"
     val expectedPut: String = "put"
     def expectedModify(entryExisted: Boolean, directive: CacheMetrics.Directive): String =
@@ -1548,7 +1550,7 @@ object CacheSpec {
     val expectedFoldMap: String = "foldMap(latency=...)"
 
     def get(hit: Boolean): IO[Unit] = inc(expectedGet(hit))
-    def load(time: FiniteDuration, success: Boolean): IO[Unit] = inc(expectedLoad(success))
+    def load(time: FiniteDuration, result: CacheMetrics.LoadResult): IO[Unit] = inc(expectedLoad(result))
     def life(time: FiniteDuration): IO[Unit] = inc(expectedLife)
     def put: IO[Unit] = inc(expectedPut)
     def modify(entryExisted: Boolean, directive: CacheMetrics.Directive): IO[Unit] =
