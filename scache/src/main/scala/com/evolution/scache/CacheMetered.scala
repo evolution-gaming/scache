@@ -32,6 +32,7 @@ object CacheMetered {
     }
 
     for {
+      _ <- Resource.onFinalize(metrics.size(0))
       _ <- Schedule(interval, interval)(measureSize)
     } yield {
       abstract class CacheMetered extends Cache.Abstract1[F, K, V]
