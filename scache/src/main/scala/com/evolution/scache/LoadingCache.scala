@@ -10,7 +10,7 @@ import com.evolution.scache.Cache.Directive
 import com.evolutiongaming.catshelper.ParallelHelper.*
 
 import java.util.concurrent.ConcurrentHashMap
-import scala.concurrent.duration.FiniteDuration
+import scala.concurrent.duration.*
 import scala.jdk.CollectionConverters.*
 
 /**
@@ -86,6 +86,12 @@ import scala.jdk.CollectionConverters.*
  */
 private[scache] object LoadingCache {
 
+  /**
+   * How long `clear`, and hence the release of the cache, waits for a load in flight when no
+   * `loadingTimeout` is given explicitly.
+   */
+  val DefaultLoadingTimeout: FiniteDuration = 1.minute
+
   def of[F[_]: Async, K, V]: Resource[F, Cache[F, K, V]] = {
     for {
       entryMap <- EntryMap.of[F, K, V].toResource
@@ -103,7 +109,7 @@ private[scache] object LoadingCache {
    */
   def of[F[_]: Async, K, V](
     entryMap: EntryMap[F, K, V],
-    loadingTimeout: Option[FiniteDuration] = None,
+    loadingTimeout: Option[FiniteDuration] = DefaultLoadingTimeout.some,
   ): Resource[F, Cache[F, K, V]] = {
     Resource.make {
       apply(entryMap, loadingTimeout).pure[F]
@@ -207,11 +213,11 @@ private[scache] object LoadingCache {
    * @param loadingTimeout
    *   how long `clear` waits for a load in flight before giving up on it and failing the load, and
    *   everyone waiting for it, with [[ExpiredError]]. `None` waits indefinitely, which makes a load
-   *   that never completes hang `clear`.
+   *   that never completes hang `clear` and cache's release.
    */
   def apply[F[_]: Async, K, V](
     entryMap: EntryMap[F, K, V],
-    loadingTimeout: Option[FiniteDuration] = None,
+    loadingTimeout: Option[FiniteDuration] = DefaultLoadingTimeout.some,
   ): Cache[F, K, V] = {
 
     val F = Async[F]
@@ -1022,10 +1028,12 @@ private[scache] object LoadingCache {
        * cache itself, with its value never released.
        *
        * Values of entries that are still loading are awaited before being released, for at most
-       * `loadingTimeout`, if there is one. A load that is still running by then is given up on: its
-       * `deferred` is completed with [[ExpiredError]], which fails the waiters and tells the
-       * loading fiber to release the value it computes itself. Without a `loadingTimeout` a load
-       * that never completes makes this, and the release of the cache resource, hang.
+       * `loadingTimeout`:
+       *   - A load that is still running by then is given up on, its `deferred` is completed with
+       *     [[ExpiredError]], which fails the waiters and tells the loading fiber to release the
+       *     value it computes itself.
+       *   - Without a `loadingTimeout` a load that never completes makes this, and the release of
+       *     the cache resource, hang.
        */
       def clear: F[F[Unit]] = {
 
