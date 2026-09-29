@@ -66,6 +66,10 @@ class SerialMapSpec extends AsyncFunSuite with Matchers {
     `not lose concurrent update when entry creator fails`[IO].run()
   }
 
+  test("not lose concurrent update when modify of existing value fails") {
+    `not lose concurrent update when modify of existing value fails`[IO].run()
+  }
+
   test("modify serially for the same key") {
     `modify serially for the same key`[IO].run()
   }
@@ -304,7 +308,7 @@ class SerialMapSpec extends AsyncFunSuite with Matchers {
       value0 <- value0.attempt.startEnsure
       _ <- acquired.get
       value1 <- serialMap.put(key, 1).startEnsure
-      // let `put` pick up the entry created by the failing `modify` and wait on its lock
+      // make `put` lock on soon to fail `modify` on `value0`
       _ <- Async[F].sleep(100.millis)
       _ <- blocked.complete(())
       value0 <- value0.join
@@ -313,6 +317,36 @@ class SerialMapSpec extends AsyncFunSuite with Matchers {
     } yield {
       value0 shouldEqual Outcome.succeeded(IO.pure(TestError.asLeft))
       value1 shouldEqual Outcome.succeeded(IO.pure(none[Int]))
+      value2 shouldEqual 1.some
+    }
+  }
+
+  private def `not lose concurrent update when modify of existing value fails`[F[_]: Async] = {
+    val key = "key"
+    for {
+      serialMap <- SerialMap.of[F, String, Int]
+      _ <- serialMap.put(key, 0)
+      blocked <- Deferred[F, Unit]
+      acquired <- Deferred[F, Unit]
+      value0 = serialMap.modify(key) { _ =>
+        for {
+          _ <- acquired.complete(())
+          _ <- blocked.get
+          a <- TestError.raiseError[F, (Option[Int], Unit)]
+        } yield a
+      }
+      value0 <- value0.attempt.startEnsure
+      _ <- acquired.get
+      value1 <- serialMap.put(key, 1).startEnsure
+      // make `put` lock on soon to fail `modify` on `value0`
+      _ <- Async[F].sleep(100.millis)
+      _ <- blocked.complete(())
+      value0 <- value0.join
+      value1 <- value1.join
+      value2 <- serialMap.get(key)
+    } yield {
+      value0 shouldEqual Outcome.succeeded(IO.pure(TestError.asLeft))
+      value1 shouldEqual Outcome.succeeded(IO.pure(0.some))
       value2 shouldEqual 1.some
     }
   }
