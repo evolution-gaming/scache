@@ -8,6 +8,7 @@ import com.evolutiongaming.catshelper.SerialRef
 import org.scalatest.funsuite.AsyncFunSuite
 import org.scalatest.matchers.should.Matchers
 
+import scala.concurrent.duration.*
 import scala.util.control.NoStackTrace
 
 class SerialMapSpec extends AsyncFunSuite with Matchers {
@@ -59,6 +60,10 @@ class SerialMapSpec extends AsyncFunSuite with Matchers {
 
   test("not leak on failures") {
     `not leak on failures`[IO].run()
+  }
+
+  test("not lose concurrent update when entry creator fails") {
+    `not lose concurrent update when entry creator fails`[IO].run()
   }
 
   test("modify serially for the same key") {
@@ -280,6 +285,35 @@ class SerialMapSpec extends AsyncFunSuite with Matchers {
         value2 shouldEqual TestError.asLeft
         value3 shouldEqual 0.some
       }
+    }
+  }
+
+  private def `not lose concurrent update when entry creator fails`[F[_]: Async] = {
+    val key = "key"
+    for {
+      serialMap <- SerialMap.of[F, String, Int]
+      blocked <- Deferred[F, Unit]
+      acquired <- Deferred[F, Unit]
+      value0 = serialMap.modify(key) { _ =>
+        for {
+          _ <- acquired.complete(())
+          _ <- blocked.get
+          a <- TestError.raiseError[F, (Option[Int], Unit)]
+        } yield a
+      }
+      value0 <- value0.attempt.startEnsure
+      _ <- acquired.get
+      value1 <- serialMap.put(key, 1).startEnsure
+      // let `put` pick up the entry created by the failing `modify` and wait on its lock
+      _ <- Async[F].sleep(100.millis)
+      _ <- blocked.complete(())
+      value0 <- value0.join
+      value1 <- value1.join
+      value2 <- serialMap.get(key)
+    } yield {
+      value0 shouldEqual Outcome.succeeded(IO.pure(TestError.asLeft))
+      value1 shouldEqual Outcome.succeeded(IO.pure(none[Int]))
+      value2 shouldEqual 1.some
     }
   }
 
