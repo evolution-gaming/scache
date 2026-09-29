@@ -136,24 +136,29 @@ object SerialMap { self =>
           def modify(state: State[V]) = {
 
             def onValue(value: Option[V]) = {
-              f(value).attempt.map {
+              f(value).attempt.flatMap[(State[V], F[A])] {
                 case Right((Some(value), a)) =>
                   val state = State.full(value)
                   val fa = a.pure[F]
-                  (state, fa)
+                  (state, fa).pure[F]
 
                 case Right((None, a)) =>
-                  val state = State.removed
+                  val state = State.removed[V]
                   val fa = remove.as(a)
-                  (state, fa)
+                  (state, fa).pure[F]
 
                 case Left(error) =>
-                  val fa = for {
-                    added <- added.get
-                    _ <- if (added) remove.void else ().pure[F]
-                    a <- error.raiseError[F, A]
-                  } yield a
-                  (state, fa)
+                  added.get.map { added =>
+                    if (added) {
+                      // let [possible] waiting next caller retry with new value
+                      val state = State.removed[V]
+                      val fa = remove *> error.raiseError[F, A]
+                      (state, fa)
+                    } else {
+                      val fa = error.raiseError[F, A]
+                      (state, fa)
+                    }
+                  }
               }
             }
 
