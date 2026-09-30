@@ -1,6 +1,8 @@
 package com.evolution.scache
 
-import cats.effect.{Async, Concurrent, Deferred, IO, Outcome}
+import cats.MonadThrow
+import cats.effect.{Async, Concurrent, Deferred, IO, Outcome, Ref}
+import cats.kernel.CommutativeMonoid
 import cats.syntax.all.*
 import com.evolution.scache.IOSuite.*
 import com.evolutiongaming.catshelper.CatsHelper.*
@@ -68,6 +70,14 @@ class SerialMapSpec extends AsyncFunSuite with Matchers {
 
   test("not lose concurrent update when modify of existing value fails") {
     `not lose concurrent update when modify of existing value fails`[IO].run()
+  }
+
+  test("not lose concurrent put completed before entry creator acquired permit") {
+    `not lose concurrent put completed before entry creator acquired permit`.run()
+  }
+
+  test("not leak entry when creator is canceled before acquiring permit") {
+    `not leak entry when creator is canceled before acquiring permit`.run()
   }
 
   test("modify serially for the same key") {
@@ -351,6 +361,54 @@ class SerialMapSpec extends AsyncFunSuite with Matchers {
     }
   }
 
+  private def `not lose concurrent put completed before entry creator acquired permit` = {
+    val key = "key"
+    Cache.loading[IO, String, SerialRef[IO, SerialMap.State[Int]]].use { cache =>
+      for {
+        published <- Deferred[IO, Unit]
+        proceed <- Deferred[IO, Unit]
+        // pause the first caller between: setting value in cache AND it acquires the permit to modify it
+        pausing <- onFirstGetOrUpdate(cache) { published.complete(()) *> proceed.get.void }
+        serialMap = SerialMap(pausing)
+        value0 <- serialMap
+          .modify(key) { _ => TestError.raiseError[IO, (Option[Int], Unit)] }
+          .attempt
+          .start
+        _ <- published.get
+        value1 <- serialMap.put(key, 1)
+        _ <- proceed.complete(())
+        value0 <- value0.joinWithNever
+        value2 <- serialMap.get(key)
+      } yield {
+        value0 shouldEqual TestError.asLeft
+        value1 shouldEqual none[Int]
+        value2 shouldEqual 1.some
+      }
+    }
+  }
+
+  private def `not leak entry when creator is canceled before acquiring permit` = {
+    val key = "key"
+    Cache.loading[IO, String, SerialRef[IO, SerialMap.State[Int]]].use { cache =>
+      for {
+        // cancel the first caller right after the entry is set in cache, before it acquires the permit to modify it
+        canceling <- onFirstGetOrUpdate(cache) { IO.canceled }
+        serialMap = SerialMap(canceling)
+        value0 <- serialMap
+          .modify(key) { _ => TestError.raiseError[IO, (Option[Int], Unit)] }
+          .start
+        value0 <- value0.join
+        keys <- serialMap.keys
+        size <- serialMap.size
+      } yield {
+        // creator is not interrupted, it proceeds to run `f` and to clean up on its failure
+        value0 shouldEqual Outcome.errored[IO, Throwable, Unit](TestError)
+        keys shouldEqual Set.empty
+        size shouldEqual 0
+      }
+    }
+  }
+
   private def `modify serially for the same key`[F[_]: Async] = {
     val key = "key"
     for {
@@ -411,4 +469,50 @@ object SerialMapSpec {
   }
 
   case object TestError extends RuntimeException with NoStackTrace
+
+  // run `hook` after the first `getOrUpdate` call returns, after the first entry has been stored in cache
+  def onFirstGetOrUpdate[K, V](cache: Cache[IO, K, V])(hook: IO[Unit]): IO[Cache[IO, K, V]] = {
+    Ref[IO].of(true).map { first =>
+      new DelegatingCache(cache) {
+        override def getOrUpdate(key: K)(value: => IO[V]) = {
+          super.getOrUpdate(key)(value).flatTap { _ =>
+            first.getAndSet(false).flatMap { first => hook.whenA(first) }
+          }
+        }
+      }
+    }
+  }
+
+  class DelegatingCache[F[_]: MonadThrow, K, V](cache: Cache[F, K, V]) extends Cache.Abstract1[F, K, V] {
+
+    def get(key: K) = cache.get(key)
+
+    def get1(key: K) = cache.get1(key)
+
+    def getOrUpdate(key: K)(value: => F[V]) = cache.getOrUpdate(key)(value)
+
+    def getOrUpdate1[A](key: K)(value: => F[(A, V, Option[Release])]) = cache.getOrUpdate1(key)(value)
+
+    def put(key: K, value: V, release: Option[Release]) = cache.put(key, value, release)
+
+    def modify[A](key: K)(f: Option[V] => (A, Directive[F, V])) = cache.modify(key)(f)
+
+    def contains(key: K) = cache.contains(key)
+
+    def size = cache.size
+
+    def keys = cache.keys
+
+    def values = cache.values
+
+    def values1 = cache.values1
+
+    def remove(key: K) = cache.remove(key)
+
+    def clear: F[Released] = cache.clear
+
+    def foldMap[A: CommutativeMonoid](f: (K, Either[F[V], V]) => F[A]) = cache.foldMap(f)
+
+    def foldMapPar[A: CommutativeMonoid](f: (K, Either[F[V], V]) => F[A]) = cache.foldMapPar(f)
+  }
 }

@@ -149,9 +149,9 @@ object SerialMap { self =>
 
                 case Left(error) =>
                   added.get.map { added =>
-                    if (added) {
+                    if (added && state == State.Empty) {
                       // let [possible] waiting next caller retry with new value
-                      val state = State.removed[V]
+                      val state = State.Removed
                       val fa = remove *> error.raiseError[F, A]
                       (state, fa)
                     } else {
@@ -183,8 +183,11 @@ object SerialMap { self =>
 
         for {
           added <- Ref[F].of(false)
-          serialRef <- cache.getOrUpdate(key) { adding(added) }
-          a <- modify(serialRef, added).uncancelable
+          // uncancelable to not leak `State.Empty` entry
+          a <- cache
+            .getOrUpdate(key) { adding(added) }
+            .flatMap { serialRef => modify(serialRef, added) }
+            .uncancelable
         } yield a
       }
 
