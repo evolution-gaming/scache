@@ -9,3 +9,5 @@ addSbtPlugin("com.evolution" % "sbt-scalac-opts-plugin" % "0.2.0")
 addSbtPlugin("com.evolution" % "sbt-artifactory-plugin" % "0.1.2")
 
 addSbtPlugin("org.scalameta" % "sbt-scalafmt" % "2.6.2")
+
+addSbtPlugin("pl.project13.scala" % "sbt-jmh" % "0.4.8")
