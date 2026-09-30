@@ -36,6 +36,14 @@ class ExpiringCacheSpec extends AsyncFunSuite with Matchers {
     `loading timeout does not expire loaded values`[IO].run()
   }
 
+  test("clear gives up on stuck loads") {
+    `clear gives up on stuck loads`[IO].run()
+  }
+
+  test("release gives up on stuck loads") {
+    `release gives up on stuck loads`[IO].run()
+  }
+
   test(s"refresh periodically") {
     refreshPeriodically[IO].run()
   }
@@ -179,6 +187,69 @@ class ExpiringCacheSpec extends AsyncFunSuite with Matchers {
         _ <- Sync[F].delay { value shouldEqual 0.some }
       } yield {}
     }
+  }
+
+  private def `clear gives up on stuck loads`[F[_]: Async] = {
+    val config = ExpiringCache.Config[F, Int, Int](
+      expireAfterRead = 1.minute,
+      loadingTimeout = 100.millis.some,
+    )
+    ExpiringCache.of[F, Int, Int](config).use { cache =>
+      for {
+        started <- Deferred[F, Unit]
+        gate <- Deferred[F, Unit]
+        released <- Deferred[F, Unit]
+        loader <- cache
+          .getOrUpdate1(0) { started.complete(()) *> gate.get.as((0, 0, released.complete(()).void.some)) }
+          .attempt
+          .start
+        _ <- started.get
+        waiter <- cache.getOrUpdate(0) { 1.pure[F] }.attempt.start
+        result <- {
+          for {
+            _ <- Temporal[F].timeout(cache.clear.flatten, 2.seconds)
+            outcome <- Temporal[F].timeout(waiter.joinWithNever, 2.seconds)
+            _ <- Sync[F].delay { outcome should matchPattern { case Left(ExpiredError) => } }
+            _ <- gate.complete(())
+            outcome <- Temporal[F].timeout(loader.joinWithNever, 2.seconds)
+            _ <- Sync[F].delay { outcome should matchPattern { case Left(ExpiredError) => } }
+            _ <- Temporal[F].timeout(released.get, 2.seconds)
+            value <- cache.get(0)
+            _ <- Sync[F].delay { value shouldEqual none }
+          } yield {}
+        }.guarantee { gate.complete(()) *> loader.join.void }
+      } yield result
+    }
+  }
+
+  private def `release gives up on stuck loads`[F[_]: Async] = {
+    val config = ExpiringCache.Config[F, Int, Int](
+      expireAfterRead = 1.minute,
+      loadingTimeout = 100.millis.some,
+    )
+    for {
+      started <- Deferred[F, Unit]
+      gate <- Deferred[F, Unit]
+      released <- Deferred[F, Unit]
+      (cache, release) <- ExpiringCache.of[F, Int, Int](config).allocated
+      loader <- cache
+        .getOrUpdate1(0) { started.complete(()) *> gate.get.as((0, 0, released.complete(()).void.some)) }
+        .attempt
+        .start
+      _ <- started.get
+      // The release is uncancelable, hence run in a fiber of its own with the timeout on the join,
+      // so that a release that hangs fails the test rather than blocking it.
+      releasing <- release.start
+      result <- {
+        for {
+          _ <- Temporal[F].timeout(releasing.joinWithNever, 2.seconds)
+          _ <- gate.complete(())
+          outcome <- Temporal[F].timeout(loader.joinWithNever, 2.seconds)
+          _ <- Sync[F].delay { outcome should matchPattern { case Left(ExpiredError) => } }
+          _ <- Temporal[F].timeout(released.get, 2.seconds)
+        } yield {}
+      }.guarantee { gate.complete(()) *> loader.join.void *> releasing.join.void }
+    } yield result
   }
 
   private def refreshPeriodically[F[_]: Async] = {

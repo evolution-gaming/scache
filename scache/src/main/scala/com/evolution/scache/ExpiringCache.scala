@@ -247,7 +247,7 @@ object ExpiringCache {
     for {
       entryMap <- LoadingCache.EntryMap.of[F, K, TimestampedValue].toResource
       loadingSince <- Ref[F].of(Map.empty[K, (LoadingDeferred, Timestamp)]).toResource
-      cache <- LoadingCache.of(entryMap)
+      cache <- LoadingCache.of(entryMap, loadingTimeoutMs.millis.some)
       _ <- schedule(expireInterval) { removeExpiredAndCheckSize(entryMap, cache, loadingSince) }
       _ <- config
         .refresh
@@ -537,9 +537,8 @@ object ExpiringCache {
    *   smaller of `expireAfterRead` and `expireAfterWrite` is used. Note, that the load is not
    *   cancelled, only detached from the cache, and that this, too, is best effort: the eviction
    *   only happens on a cleanup run, so a load may outlive the timeout by up to one run interval.
-   *   It does not protect [[Cache#clear]] or the release of the cache: both unlink the entries
-   *   before awaiting the loads, out of reach of the eviction, so a load that never completes still
-   *   hangs them.
+   *   [[Cache#clear]] and the release of the cache wait for the loads in flight for at most this
+   *   long, counted from the `clear` itself, before giving up on them the same way.
    */
   final case class Config[F[_], -K, V](
     expireAfterRead: FiniteDuration,

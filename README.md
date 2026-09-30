@@ -271,8 +271,9 @@ as well. It gets to retry, where before it would have hung.
 `Config.loadingTimeout`, failing their waiters with `ExpiredError`. The load itself is not
 cancelled, only detached from the cache. `loadingTimeout` defaults to the smaller of
 `expireAfterRead` and `expireAfterWrite`, so set it explicitly if the loads are legitimately slower
-than the expiration. It does not cover `clear` or the release of the cache: both wait for the loads
-in flight, and a load that never completes still hangs them.
+than the expiration. `clear` and the release of the cache wait for the loads in flight for at most
+`loadingTimeout` and then give up on them the same way, so a load that never completes no longer
+hangs them. A plain `Cache.loading` has no timeout and still waits.
 
 **Enumeration is weakly consistent.** `keys`, `values`, `values1`, `size`, `foldMap` and
 `foldMapPar` are served by the `ConcurrentHashMap` and no longer observe an atomic snapshot of the
