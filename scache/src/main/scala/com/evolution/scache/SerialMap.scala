@@ -1,8 +1,8 @@
 package com.evolution.scache
 
 import cats.Applicative
-import cats.effect.implicits.*
 import cats.effect.Concurrent
+import cats.effect.implicits.*
 import cats.syntax.all.*
 import com.evolutiongaming.catshelper.{Runtime, SerialRef}
 
