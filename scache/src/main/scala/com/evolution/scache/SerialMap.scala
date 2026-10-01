@@ -122,7 +122,12 @@ object SerialMap { self =>
 
       def modify[A](key: K)(f: Option[V] => F[(Option[V], A)]) = {
 
-        def remove = cache.remove(key)
+        def remove(serialRef: SerialRef[F, State[V]]) = {
+          cache.modify(key) {
+            case Some(current) if current eq serialRef => ((), Cache.Directive.Remove)
+            case _ => ((), Cache.Directive.Ignore)
+          }
+        }
 
         def adding(added: Ref[F, Boolean]) = {
           for {
@@ -144,7 +149,7 @@ object SerialMap { self =>
 
                 case Right((None, a)) =>
                   val state = State.removed[V]
-                  val fa = remove.as(a)
+                  val fa = remove(serialRef).as(a)
                   (state, fa).pure[F]
 
                 case Left(error) =>
@@ -152,7 +157,7 @@ object SerialMap { self =>
                     if (added && state == State.Empty) {
                       // let [possible] waiting next caller retry with new value
                       val state = State.Removed
-                      val fa = remove *> error.raiseError[F, A]
+                      val fa = remove(serialRef) *> error.raiseError[F, A]
                       (state, fa)
                     } else {
                       val fa = error.raiseError[F, A]
