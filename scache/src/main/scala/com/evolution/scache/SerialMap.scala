@@ -2,7 +2,7 @@ package com.evolution.scache
 
 import cats.Applicative
 import cats.effect.implicits.*
-import cats.effect.{Concurrent, Ref}
+import cats.effect.Concurrent
 import cats.syntax.all.*
 import com.evolutiongaming.catshelper.{Runtime, SerialRef}
 
@@ -129,41 +129,31 @@ object SerialMap { self =>
           }
         }
 
-        def adding(added: Ref[F, Boolean]) = {
-          for {
-            _ <- added.set(true)
-            serialRef <- SerialRef[F].of(State.empty[V])
-          } yield serialRef
-        }
-
-        def modify(serialRef: SerialRef[F, State[V]], added: Ref[F, Boolean]) = {
+        def modify(serialRef: SerialRef[F, State[V]]) = {
 
           def modify(state: State[V]) = {
 
             def onValue(value: Option[V]) = {
-              f(value).attempt.flatMap[(State[V], F[A])] {
+              f(value).attempt.map[(State[V], F[A])] {
                 case Right((Some(value), a)) =>
                   val state = State.full(value)
                   val fa = a.pure[F]
-                  (state, fa).pure[F]
+                  (state, fa)
 
                 case Right((None, a)) =>
                   val state = State.removed[V]
                   val fa = remove(serialRef).as(a)
-                  (state, fa).pure[F]
+                  (state, fa)
+
+                case Left(error) if state == State.Empty =>
+                  // let [possible] waiting next caller retry with new value
+                  val state = State.removed[V]
+                  val fa = remove(serialRef) *> error.raiseError[F, A]
+                  (state, fa)
 
                 case Left(error) =>
-                  added.get.map { added =>
-                    if (added && state == State.Empty) {
-                      // let [possible] waiting next caller retry with new value
-                      val state = State.Removed
-                      val fa = remove(serialRef) *> error.raiseError[F, A]
-                      (state, fa)
-                    } else {
-                      val fa = error.raiseError[F, A]
-                      (state, fa)
-                    }
-                  }
+                  val fa = error.raiseError[F, A]
+                  (state, fa)
               }
             }
 
@@ -186,14 +176,11 @@ object SerialMap { self =>
           } yield a
         }
 
-        for {
-          added <- Ref[F].of(false)
-          // uncancelable to not leak `State.Empty` entry
-          a <- cache
-            .getOrUpdate(key) { adding(added) }
-            .flatMap { serialRef => modify(serialRef, added) }
-            .uncancelable
-        } yield a
+        // uncancelable to not leak `State.Empty` entry
+        cache
+          .getOrUpdate(key) { SerialRef[F].of(State.empty[V]) }
+          .flatMap { serialRef => modify(serialRef) }
+          .uncancelable
       }
 
       def update[A](key: K)(f: Option[V] => F[Option[V]]) = {
