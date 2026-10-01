@@ -76,6 +76,14 @@ class SerialMapSpec extends AsyncFunSuite with Matchers {
     `not lose concurrent put completed before entry creator acquired permit`.run()
   }
 
+  test("not lose put made after clear when entry creator fails") {
+    `not lose put made after clear when entry creator fails`[IO].run()
+  }
+
+  test("not lose put made after clear when entry creator removes value") {
+    `not lose put made after clear when entry creator removes value`[IO].run()
+  }
+
   test("not leak entry when creator is canceled before acquiring permit") {
     `not leak entry when creator is canceled before acquiring permit`.run()
   }
@@ -384,6 +392,63 @@ class SerialMapSpec extends AsyncFunSuite with Matchers {
         value1 shouldEqual none[Int]
         value2 shouldEqual 1.some
       }
+    }
+  }
+
+  private def `not lose put made after clear when entry creator fails`[F[_]: Async] = {
+    val key = "key"
+    for {
+      serialMap <- SerialMap.of[F, String, Int]
+      blocked <- Deferred[F, Unit]
+      acquired <- Deferred[F, Unit]
+      value0 = serialMap.modify(key) { _ =>
+        for {
+          _ <- acquired.complete(())
+          _ <- blocked.get
+          a <- TestError.raiseError[F, (Option[Int], Unit)]
+        } yield a
+      }
+      value0 <- value0.attempt.startEnsure
+      _ <- acquired.get
+      // drop the `serialRef` of `value0` from the cache while `modify` is in not finished
+      _ <- serialMap.clear
+      // add new `serialRef` with value `Full(1)`
+      value1 <- serialMap.put(key, 1)
+      _ <- blocked.complete(())
+      value0 <- value0.join
+      value2 <- serialMap.get(key)
+    } yield {
+      value0 shouldEqual Outcome.succeeded(IO.pure(TestError.asLeft))
+      value1 shouldEqual none[Int]
+      value2 shouldEqual 1.some
+    }
+  }
+
+  private def `not lose put made after clear when entry creator removes value`[F[_]: Async] = {
+    val key = "key"
+    for {
+      serialMap <- SerialMap.of[F, String, Int]
+      blocked <- Deferred[F, Unit]
+      acquired <- Deferred[F, Unit]
+      value0 = serialMap.modify(key) { _ =>
+        for {
+          _ <- acquired.complete(())
+          _ <- blocked.get
+        } yield (none[Int], ())
+      }
+      value0 <- value0.startEnsure
+      _ <- acquired.get
+      // drop the `serialRef` of `value0` from the cache while `modify` is in not finished
+      _ <- serialMap.clear
+      // add new `serialRef` with value `Full(1)`
+      value1 <- serialMap.put(key, 1)
+      _ <- blocked.complete(())
+      value0 <- value0.join
+      value2 <- serialMap.get(key)
+    } yield {
+      value0 shouldEqual Outcome.succeeded(IO.pure(()))
+      value1 shouldEqual none[Int]
+      value2 shouldEqual 1.some
     }
   }
 
