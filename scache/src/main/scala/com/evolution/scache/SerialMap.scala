@@ -159,7 +159,8 @@ object SerialMap { self =>
 
             def onRemoving = {
               val state = State.removed[V]
-              val fa = self.modify(key)(f)
+              // remove own `serialRef` - it might have not been removed, if it was still in `Loading` state
+              val fa = remove(serialRef) *> Concurrent[F].cede *> self.modify(key)(f)
               (state, fa).pure[F]
             }
 

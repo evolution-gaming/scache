@@ -88,6 +88,10 @@ class SerialMapSpec extends AsyncFunSuite with Matchers {
     `not leak entry when creator is canceled before acquiring permit`.run()
   }
 
+  test("not get stuck on removed entry left in cache while it was loading") {
+    `not get stuck on removed entry left in cache while it was loading`.run()
+  }
+
   test("modify serially for the same key") {
     `modify serially for the same key`[IO].run()
   }
@@ -474,6 +478,27 @@ class SerialMapSpec extends AsyncFunSuite with Matchers {
     }
   }
 
+  private def `not get stuck on removed entry left in cache while it was loading` = {
+    val key = "key"
+    Cache.loading[IO, String, SerialRef[IO, SerialMap.State[Int]]].use { cache =>
+      for {
+        // `LoadingCache.modify` passes `None` to `f` for an entry still in `Loading` state,
+        // which happens when a waiter wakes up between deferred completion and entry being set to `Value`
+        loading <- onFirstModify(cache) { _ => None }
+        serialMap = SerialMap(loading)
+        // the `serialRef` becomes `Removed`, but removal from cache is ignored as entry seems to be loading
+        value0 <- serialMap.modify(key) { _ => (none[Int], ()).pure[IO] }
+        value1 <- serialMap.put(key, 1).start
+        value1 <- value1.join.timeout(1.second)
+        value2 <- serialMap.get(key)
+      } yield {
+        value0 shouldEqual (())
+        value1 shouldEqual Outcome.succeeded(IO.pure(none[Int]))
+        value2 shouldEqual 1.some
+      }
+    }
+  }
+
   private def `modify serially for the same key`[F[_]: Async] = {
     val key = "key"
     for {
@@ -542,6 +567,19 @@ object SerialMapSpec {
         override def getOrUpdate(key: K)(value: => IO[V]) = {
           super.getOrUpdate(key)(value).flatTap { _ =>
             first.getAndSet(false).flatMap { first => hook.whenA(first) }
+          }
+        }
+      }
+    }
+  }
+
+  // pass value transformed by `hook` to `f` in the first `modify` call
+  def onFirstModify[K, V](cache: Cache[IO, K, V])(hook: Option[V] => Option[V]): IO[Cache[IO, K, V]] = {
+    Ref[IO].of(true).map { first =>
+      new DelegatingCache(cache) {
+        override def modify[A](key: K)(f: Option[V] => (A, Cache.Directive[IO, V])) = {
+          first.getAndSet(false).flatMap { first =>
+            super.modify(key) { value => f(if (first) hook(value) else value) }
           }
         }
       }
