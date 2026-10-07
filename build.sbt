@@ -14,7 +14,7 @@ lazy val commonSettings = Seq(
   organizationName := "Evolution",
   organizationHomepage := Some(uri("https://evolution.com")),
   scalaVersion := crossScalaVersions.value.head,
-  crossScalaVersions := Seq("2.13.18", "3.3.8"),
+  crossScalaVersions := Seq("2.13.18", "3.9.0"),
   scalacOptsFailOnWarn := crossSettings(
     scalaVersion.value,
     if3 = Some(false),
