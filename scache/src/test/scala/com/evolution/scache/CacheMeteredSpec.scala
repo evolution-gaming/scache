@@ -11,7 +11,7 @@ class CacheMeteredSpec extends AsyncFunSuite with Matchers {
 
   private def sizeRecorder(sizes: Ref[IO, List[Int]]): CacheMetrics[IO] = new CacheMetrics[IO] {
     def get(hit: Boolean): IO[Unit] = IO.unit
-    def load(time: FiniteDuration, success: Boolean): IO[Unit] = IO.unit
+    def load(time: FiniteDuration, result: CacheMetrics.LoadResult): IO[Unit] = IO.unit
     def life(time: FiniteDuration): IO[Unit] = IO.unit
     def put: IO[Unit] = IO.unit
     def modify(entryExisted: Boolean, directive: CacheMetrics.Directive): IO[Unit] = IO.unit
