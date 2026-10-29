@@ -1,6 +1,6 @@
 package com.evolution.scache
 
-import cats.effect.{Async, Concurrent, Deferred, IO, Outcome}
+import cats.effect.{Async, Deferred, IO, Outcome}
 import cats.syntax.all.*
 import com.evolution.scache.IOSuite.*
 import com.evolutiongaming.catshelper.CatsHelper.*
@@ -228,9 +228,9 @@ class SerialMapSpec extends AsyncFunSuite with Matchers {
     }
   }
 
-  private def remove[F[_]: Concurrent] = {
+  private def remove[F[_]: Async] = {
     val key = "key"
-    val cache = LoadingCache.of(LoadingCache.EntryRefs.empty[F, String, SerialRef[F, SerialMap.State[Int]]])
+    val cache = LoadingCache.of[F, String, SerialRef[F, SerialMap.State[Int]]]
     cache.use { cache =>
       val serialMap = SerialMap(cache)
       for {
@@ -262,9 +262,9 @@ class SerialMapSpec extends AsyncFunSuite with Matchers {
     }
   }
 
-  private def `not leak on failures`[F[_]: Concurrent] = {
+  private def `not leak on failures`[F[_]: Async] = {
     val key = "key"
-    val cache = LoadingCache.of(LoadingCache.EntryRefs.empty[F, String, SerialRef[F, SerialMap.State[Int]]])
+    val cache = LoadingCache.of[F, String, SerialRef[F, SerialMap.State[Int]]]
     cache.use { cache =>
       val serialMap = SerialMap(cache)
       val modifyError = serialMap.modify(key) { _ => TestError.raiseError[F, (Option[Int], Unit)] }.attempt
