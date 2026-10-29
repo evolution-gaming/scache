@@ -456,16 +456,12 @@ class CacheSpec extends AsyncFunSuite with Matchers {
 
     check(s"getOrUpdateOpt: $name") { (cache, metrics) =>
       for {
-        deferred <- Deferred[IO, Option[Int]]
-        value0 <- cache.getOrUpdateOptEnsure(0) { deferred.get }
-        value1 <- cache.getOrUpdateOpt(0)(0.some.pure[IO]).startEnsure
-        _ <- deferred.complete(none)
-        value0 <- value0.joinWithNever
-        value1 <- value1.joinWithNever
-        _ = value0 shouldEqual none[Int].asRight
-        _ = value1 shouldEqual none[Int]
-        value <- cache.getOrUpdateOpt(0)(0.some.pure[IO])
-        _ = value shouldEqual 0.some
+        value <- cache.getOrUpdateOpt(0) { none[Int].pure[IO] }
+        _ <- IO { value shouldEqual none[Int] }
+        value <- cache.getOrUpdateOpt(0) { 0.some.pure[IO] }
+        _ <- IO { value shouldEqual 0.some }
+        value <- cache.getOrUpdateOpt(0) { 1.some.pure[IO] }
+        _ <- IO { value shouldEqual 0.some }
         _ <- metrics.expect(
           metrics.expectedGet(hit = false) -> 2,
           metrics.expectedGet(hit = true) -> 1,
