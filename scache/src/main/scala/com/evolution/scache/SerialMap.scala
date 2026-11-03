@@ -1,8 +1,8 @@
 package com.evolution.scache
 
 import cats.Applicative
+import cats.effect.Concurrent
 import cats.effect.implicits.*
-import cats.effect.{Concurrent, Ref}
 import cats.syntax.all.*
 import com.evolutiongaming.catshelper.{Runtime, SerialRef}
 
@@ -122,44 +122,45 @@ object SerialMap { self =>
 
       def modify[A](key: K)(f: Option[V] => F[(Option[V], A)]) = {
 
-        def remove = cache.remove(key)
-
-        def adding(added: Ref[F, Boolean]) = {
-          for {
-            _ <- added.set(true)
-            serialRef <- SerialRef[F].of(State.empty[V])
-          } yield serialRef
+        def remove(serialRef: SerialRef[F, State[V]]) = {
+          cache.modify(key) {
+            case Some(current) if current eq serialRef => ((), Cache.Directive.Remove)
+            case _ => ((), Cache.Directive.Ignore)
+          }
         }
 
-        def modify(serialRef: SerialRef[F, State[V]], added: Ref[F, Boolean]) = {
+        def modify(serialRef: SerialRef[F, State[V]]) = {
 
           def modify(state: State[V]) = {
 
             def onValue(value: Option[V]) = {
-              f(value).attempt.map {
+              f(value).attempt.map[(State[V], F[A])] {
                 case Right((Some(value), a)) =>
                   val state = State.full(value)
                   val fa = a.pure[F]
                   (state, fa)
 
                 case Right((None, a)) =>
-                  val state = State.removed
-                  val fa = remove.as(a)
+                  val state = State.removed[V]
+                  val fa = remove(serialRef).as(a)
+                  (state, fa)
+
+                case Left(error) if state == State.Empty =>
+                  // let [possible] waiting next caller retry with new value
+                  val state = State.removed[V]
+                  val fa = remove(serialRef) *> error.raiseError[F, A]
                   (state, fa)
 
                 case Left(error) =>
-                  val fa = for {
-                    added <- added.get
-                    _ <- if (added) remove.void else ().pure[F]
-                    a <- error.raiseError[F, A]
-                  } yield a
+                  val fa = error.raiseError[F, A]
                   (state, fa)
               }
             }
 
             def onRemoving = {
               val state = State.removed[V]
-              val fa = self.modify(key)(f)
+              // remove own `serialRef` - it might have not been removed, if it was still in `Loading` state
+              val fa = remove(serialRef) *> Concurrent[F].cede *> self.modify(key)(f)
               (state, fa).pure[F]
             }
 
@@ -176,11 +177,11 @@ object SerialMap { self =>
           } yield a
         }
 
-        for {
-          added <- Ref[F].of(false)
-          serialRef <- cache.getOrUpdate(key) { adding(added) }
-          a <- modify(serialRef, added).uncancelable
-        } yield a
+        // uncancelable to not leak `State.Empty` entry
+        cache
+          .getOrUpdate(key) { SerialRef[F].of(State.empty[V]) }
+          .flatMap { serialRef => modify(serialRef) }
+          .uncancelable
       }
 
       def update[A](key: K)(f: Option[V] => F[Option[V]]) = {
